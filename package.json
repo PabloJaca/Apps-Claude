@@ -9,7 +9,8 @@
     "dev": "node build.mjs --watch",
     "zip": "node build.mjs --zip",
     "servir": "node build.mjs --zip && node servidor.mjs",
-    "probar": "node pruebas/fusion.mjs && node pruebas/migracion.mjs"
+    "probar": "node pruebas/fusion.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs",
+    "preview": "node preview.mjs"
   },
   "dependencies": {
     "firebase": "^11.1.0",
