@@ -33,6 +33,35 @@ function escribirLocal(clave, datos) {
 }
 
 /**
+ * Decide qué hacer con lo que llega de la nube.
+ *
+ * Está fuera del hook y sin efectos secundarios a propósito: es la parte
+ * delicada de toda la sincronización y así se puede probar sin navegador.
+ *
+ * @returns {{guardar: object|null, subir: object|null, alDia: boolean}}
+ */
+export function reconciliar({ local, remoto, deCache, esquema }) {
+  if (!remoto) {
+    /* «No hay documento» solo vale si lo dice el servidor: la caché de un
+       dispositivo recién estrenado también responde que no hay nada, y sembrar
+       ahí borraría en la nube lo que haya subido el otro dispositivo. */
+    if (deCache) return { guardar: null, subir: null, alDia: false };
+    return { guardar: null, subir: local, alDia: true };
+  }
+
+  const fusionado = fusionar(local, remoto, esquema);
+  const jFusion = JSON.stringify(fusionado);
+  const cambiaAqui = jFusion !== JSON.stringify(local);
+  const faltaArriba = jFusion !== JSON.stringify(remoto);
+
+  return {
+    guardar: cambiaAqui ? fusionado : null,
+    subir: faltaArriba ? fusionado : null,
+    alDia: !faltaArriba,
+  };
+}
+
+/**
  * @param {object} opciones
  * @param {string} opciones.clave    clave de localStorage
  * @param {string} opciones.app      nombre del documento en Firestore
@@ -99,28 +128,32 @@ export function useAlmacen({ clave, app, vacio, esquema, migrar }) {
     const parar = escuchar(
       app,
       sesion.uid,
-      (remoto) => {
+      (remoto, meta) => {
         if (!vivo) return;
-        if (!remoto) {
-          // Documento nuevo: este dispositivo siembra lo que tenga.
-          subir(ref.current);
-          setEstado("al-dia");
-          return;
-        }
-        const fusionado = fusionar(ref.current, remoto, esquema);
-        const jFusion = JSON.stringify(fusionado);
 
-        if (jFusion !== JSON.stringify(ref.current)) {
-          ref.current = fusionado;
-          ponDatos(fusionado);
-          escribirLocal(clave, fusionado);
+        const plan = reconciliar({
+          local: ref.current,
+          remoto,
+          deCache: Boolean(meta && meta.deCache),
+          esquema,
+        });
+
+        if (plan.guardar) {
+          ref.current = plan.guardar;
+          ponDatos(plan.guardar);
+          escribirLocal(clave, plan.guardar);
         }
-        if (jFusion !== JSON.stringify(remoto)) {
-          // Teníamos cosas que allí no estaban: las devolvemos.
-          subir(fusionado);
-        } else {
-          publicado.current = jFusion;
+
+        if (plan.subir) {
+          /* Se limpia la marca de lo último publicado: lo que hay arriba ya no
+             es lo que creíamos, así que este envío no puede darse por repetido. */
+          publicado.current = "";
+          subir(plan.subir);
+        } else if (plan.alDia) {
+          publicado.current = JSON.stringify(ref.current);
           setEstado("al-dia");
+        } else {
+          setEstado("sincronizando");
         }
       },
       () => vivo && setEstado("error")
