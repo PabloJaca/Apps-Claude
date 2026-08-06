@@ -1,0 +1,17 @@
+{
+  "name": "Mis Gastos",
+  "short_name": "Gastos",
+  "description": "Control de gastos personal",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F1F6FA",
+  "theme_color": "#0F9E8E",
+  "lang": "es",
+  "dir": "ltr",
+  "icons": [
+    { "src": "./icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

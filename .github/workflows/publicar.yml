@@ -1,0 +1,59 @@
+# Publica la carpeta /sitio en GitHub Pages cada vez que se actualiza main.
+#
+# Antes de publicar compila desde el código fuente y pasa las pruebas, así que
+# lo que acaba online siempre corresponde a lo que hay en /src y nunca sale una
+# versión con la fusión de datos o la migración rotas.
+
+name: Publicar el sitio
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # también se puede lanzar a mano desde la pestaña Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Si se acumulan varios envíos, publica el último y descarta los intermedios.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.desplegar.outputs.page_url }}
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Pruebas de fusión y migración
+        run: npm run probar
+
+      - name: Compilar
+        run: npm run build
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empaquetar /sitio
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+
+      - name: Desplegar
+        id: desplegar
+        uses: actions/deploy-pages@v4

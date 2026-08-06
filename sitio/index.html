@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mis Apps</title>
+  <meta name="description" content="Acceso a Gastos y Salud" />
+
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#EDF3F8" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Mis Apps" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" />
+
+  <style>
+    :root {
+      --bg: #EDF3F8;
+      --card: #FFFFFF;
+      --ink: #15303D;
+      --mid: #5C7B8C;
+      --faint: #9BB2BF;
+      --line: #E3EDF3;
+      --teal: #10B3A3;
+      --tealSoft: #DCF5F1;
+      --coral: #FF7A6B;
+      --coralSoft: #FFE8E4;
+      --shadow: 0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0; min-height: 100%;
+      background: var(--bg);
+      font-family: 'Instrument Sans', system-ui, sans-serif;
+      overscroll-behavior: none;
+    }
+    main {
+      max-width: 460px; margin: 0 auto;
+      min-height: 100vh; min-height: 100dvh;
+      display: flex; flex-direction: column; justify-content: center;
+      padding: 28px 20px 48px;
+    }
+    h1 {
+      font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+      font-weight: 800; font-size: 28px; letter-spacing: -0.7px;
+      color: var(--ink); margin: 0 0 4px;
+    }
+    p.sub { color: var(--mid); font-size: 14.5px; margin: 0 0 28px; }
+    .tarjeta {
+      display: flex; align-items: center; gap: 16px;
+      background: var(--card); border-radius: 24px; box-shadow: var(--shadow);
+      padding: 20px; text-decoration: none; margin-bottom: 14px;
+      border: none; width: 100%; cursor: pointer; text-align: left;
+      -webkit-appearance: none; appearance: none;
+      animation: rise .3s cubic-bezier(.2,.8,.3,1) both;
+      transition: transform .12s;
+    }
+    .tarjeta:active { transform: scale(.98); }
+    .icono {
+      width: 52px; height: 52px; border-radius: 18px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; flex-shrink: 0;
+    }
+    .icono.gastos { background: var(--tealSoft); }
+    .icono.salud { background: var(--coralSoft); }
+    .texto h2 {
+      font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+      font-weight: 700; font-size: 18px; color: var(--ink); margin: 0 0 2px;
+    }
+    .texto p { margin: 0; font-size: 13.5px; color: var(--mid); }
+    .chevron { margin-left: auto; color: var(--mid); font-size: 20px; }
+    .pie {
+      margin: 22px 4px 0; font-size: 12.5px; color: var(--faint); line-height: 1.55;
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .punto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .punto.ok { background: var(--teal); }
+    .punto.no { background: #C9D8E2; }
+    @keyframes rise { from { transform: translateY(14px); opacity: 0 } to { transform: none; opacity: 1 } }
+    .tarjeta:nth-of-type(2) { animation-delay: .05s; }
+    @media (prefers-reduced-motion: reduce) { .tarjeta { animation: none } }
+    @media (min-width: 720px) {
+      main { max-width: 560px; }
+      h1 { font-size: 34px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Mis Apps</h1>
+    <p class="sub">Elige a cuál quieres entrar</p>
+
+    <a class="tarjeta" href="./gastos/index.html">
+      <div class="icono gastos">💶</div>
+      <div class="texto">
+        <h2>Gastos</h2>
+        <p>Control de gastos personal</p>
+      </div>
+      <div class="chevron">›</div>
+    </a>
+
+    <a class="tarjeta" href="./salud/index.html">
+      <div class="icono salud">🏃</div>
+      <div class="texto">
+        <h2>Salud</h2>
+        <p>Peso, entrenos y comidas</p>
+      </div>
+      <div class="chevron">›</div>
+    </a>
+
+    <p class="pie" id="estado"></p>
+  </main>
+
+  <script src="./config.js"></script>
+  <script>
+    (function () {
+      var c = window.MISAPPS_FIREBASE || {};
+      var listo = ["apiKey", "authDomain", "projectId", "appId"].every(function (k) {
+        return typeof c[k] === "string" && c[k] && c[k].indexOf("PON_") !== 0;
+      });
+      var pie = document.getElementById("estado");
+      pie.innerHTML =
+        '<span class="punto ' + (listo ? "ok" : "no") + '"></span><span>' +
+        (listo
+          ? "Sincronización activada: entra con tu cuenta dentro de cada app para ver los mismos datos en el móvil y en el ordenador."
+          : "Ahora mismo los datos se guardan solo en este dispositivo. Rellena config.js para sincronizarlos entre el móvil y el ordenador.") +
+        "</span>";
+
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("./sw.js").catch(function () {});
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

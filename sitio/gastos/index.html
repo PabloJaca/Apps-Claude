@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mis Gastos</title>
+  <meta name="description" content="Control de gastos personal" />
+
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#0F9E8E" />
+
+  <link rel="icon" type="image/png" sizes="192x192" href="./icono-192.png" />
+  <link rel="apple-touch-icon" href="./icono-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Mis Gastos" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+
+  <style>
+    html, body { margin:0; padding:0; height:100%; overscroll-behavior:none;
+      background:#F1F6FA; -webkit-tap-highlight-color:transparent; }
+    #raiz { height:100%; }
+    .arranque { height:100%; display:flex; align-items:center; justify-content:center;
+      font-family:system-ui, sans-serif; color:#7C93A8; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div id="raiz"><div class="arranque">Cargando…</div></div>
+
+  <!-- La configuración de Firebase va fuera del bundle para poder cambiarla sin recompilar -->
+  <script src="../config.js"></script>
+  <script src="./app.js"></script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>

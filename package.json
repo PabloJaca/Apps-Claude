@@ -1,0 +1,24 @@
+{
+  "name": "mis-apps",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Gastos y Salud: dos PWA personales con sincronizacion en Firebase y analisis local sin coste",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "zip": "node build.mjs --zip",
+    "servir": "node build.mjs --zip && node servidor.mjs",
+    "probar": "node pruebas/fusion.mjs && node pruebas/migracion.mjs"
+  },
+  "dependencies": {
+    "firebase": "^11.1.0",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}
