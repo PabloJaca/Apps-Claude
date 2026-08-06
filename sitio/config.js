@@ -17,15 +17,18 @@
      5. En «Authentication → Settings → Dominios autorizados» añade el dominio
         donde tengas subidas las apps.
 
-   Mientras esto siga con los PON_AQUI_… las dos apps funcionan igual, pero
-   guardando solo en el dispositivo, como hasta ahora.
+   Si algún día se vacían estos valores, las dos apps siguen funcionando igual,
+   pero guardando solo en el dispositivo.
+
+   Nota: el `measurementId` de Google Analytics no se incluye a propósito. Las
+   apps no cargan Analytics, así que ahí no pintaba nada.
    ───────────────────────────────────────────────────────────────────────── */
 
 window.MISAPPS_FIREBASE = {
-  apiKey: "PON_AQUI_TU_API_KEY",
-  authDomain: "PON_AQUI_TU_PROYECTO.firebaseapp.com",
-  projectId: "PON_AQUI_TU_PROYECTO",
-  storageBucket: "PON_AQUI_TU_PROYECTO.firebasestorage.app",
-  messagingSenderId: "PON_AQUI_TU_SENDER_ID",
-  appId: "PON_AQUI_TU_APP_ID",
+  apiKey: "AIzaSyB5_Ekb-y-WJu7qKxsbEaSB94UP9xlK6GM",
+  authDomain: "apps-claude-c52fa.firebaseapp.com",
+  projectId: "apps-claude-c52fa",
+  storageBucket: "apps-claude-c52fa.firebasestorage.app",
+  messagingSenderId: "670121467675",
+  appId: "1:670121467675:web:6d6fc2211c9d2e78233dbe",
 };
