@@ -3,3 +3,5 @@ node_modules/
 *.log
 .humo.mjs
 .diag*.mjs
+.preview/
+.muestra.mjs

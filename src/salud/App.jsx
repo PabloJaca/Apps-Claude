@@ -12,10 +12,11 @@ import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { calcularBalance, valorarDia } from "./estimador.js";
 import { valorarPeriodo } from "./valoracion.js";
 import {
-  ACTIVIDADES, APP, CANTIDADES, CLAVE, DIAS, DURACIONES, ESQUEMA, OBJETIVOS,
-  SEXOS, VACIO, calcularEnergia, cerrado, desdeIso, detalleTramo, enRango,
-  etiquetaFecha, etiquetaTramo, exportar, fechaCorta, hoy, importar,
-  inicioSemana, migrar, miles, num, rangoMes, rangoSemana,
+  ACTIVIDADES, APP, CLAVE, DIAS, DURACIONES, ESQUEMA, OBJETIVOS, SACIEDADES,
+  SEXOS, VACIO, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
+  enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta, hoy, importar,
+  inicioSemana, migrar, miles, num, rangoMes, rangoSemana, revisarPeso,
+  saciedadDe, volumenDe,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -185,6 +186,43 @@ const stepper = {
   color: C.teal, fontSize: 24, fontWeight: 600, cursor: "pointer", flexShrink: 0, lineHeight: 1,
 };
 
+/**
+ * Escala numérica con etiqueta debajo. Se usa para el volumen (1-5) y para la
+ * saciedad (1-4): en el móvil ocupa una línea y se marca de un toque.
+ */
+function Escala({ titulo, opciones, valor, onChange, color = C.teal, opcional }) {
+  const sel = opciones.find((o) => o.n === valor);
+  return (
+    <div>
+      <Rotulo>{titulo}</Rotulo>
+      <div className="flex gap-2" style={{ marginTop: 7 }}>
+        {opciones.map((o) => {
+          const activo = valor === o.n;
+          return (
+            <button
+              key={o.n}
+              onClick={() => onChange(activo && opcional ? null : o.n)}
+              aria-label={`${titulo}: ${o.label}`}
+              aria-pressed={activo}
+              style={{
+                flex: 1, border: "none", cursor: "pointer", borderRadius: 14, padding: "11px 0",
+                background: activo ? color : C.soft, color: activo ? "#fff" : C.mid,
+                fontFamily: mono, fontWeight: 600, fontSize: 15.5,
+                transition: "background .15s, color .15s",
+              }}
+            >
+              {o.n}
+            </button>
+          );
+        })}
+      </div>
+      <p style={{ fontFamily: body, fontSize: 12, color: sel ? C.mid : C.faint, margin: "6px 0 0" }}>
+        {sel ? `${sel.label} — ${sel.desc.toLowerCase()}` : "Sin marcar. Marcarlo afina bastante el cálculo."}
+      </p>
+    </div>
+  );
+}
+
 function BotonGuardar({ onClick, disabled, children = "Guardar" }) {
   return (
     <button onClick={onClick} disabled={disabled}
@@ -212,6 +250,7 @@ function VistaPeso({ datos, anadir, borrar }) {
   const [kg, setKg] = useState(() => (ultimo ? ultimo.kg : 70));
   const [nota, setNota] = useState("");
   const [abierto, setAbierto] = useState(false);
+  const [aviso, setAviso] = useState(null);
   const yaHoy = pesos.some((p) => p.fecha === hoy());
 
   useEffect(() => { if (ultimo) setKg(ultimo.kg); }, [ultimo && ultimo.kg]);
@@ -227,9 +266,18 @@ function VistaPeso({ datos, anadir, borrar }) {
   const imc = ultimo && altura > 0 ? ultimo.kg / Math.pow(altura / 100, 2) : null;
 
   const paso = (d) => setKg((k) => Math.round((Number(k) + d) * 10) / 10);
-  const guardarPeso = () => {
+
+  const escribir = () => {
     anadir("pesos", { fecha: hoy(), kg: Number(kg), nota: nota.trim() });
-    setNota(""); setAbierto(false);
+    setNota(""); setAbierto(false); setAviso(null);
+  };
+
+  /* Antes de guardar se comprueba contra el pesaje anterior. No bloquea nada:
+     avisa, porque a veces el salto es real y a veces es un dedo torcido. */
+  const guardarPeso = () => {
+    const revision = revisarPeso(kg, hoy(), datos.pesos);
+    if (revision.ok) escribir();
+    else setAviso(revision);
   };
 
   const Fl = delta === null || Math.abs(delta) < 0.05 ? Minus : delta > 0 ? TrendingUp : TrendingDown;
@@ -301,6 +349,24 @@ function VistaPeso({ datos, anadir, borrar }) {
         ) : (
           <button onClick={() => setAbierto(true)} style={{ ...btnMini, marginTop: 10 }}>+ Añadir nota</button>
         )}
+        {aviso && (
+          <div className="fade" style={{ marginTop: 12, background: C.coralSoft, borderRadius: 18, padding: 14 }}>
+            <p style={{ fontFamily: body, fontSize: 13.5, color: C.ink, lineHeight: 1.5, margin: 0 }}>
+              {aviso.motivo}
+            </p>
+            {aviso.referencia && (
+              <div className="flex gap-2" style={{ marginTop: 12 }}>
+                <button onClick={() => setAviso(null)} style={{ ...botonSec, flex: 1, background: "#fff" }}>
+                  Lo corrijo
+                </button>
+                <button onClick={escribir} style={{ ...botonSec, flex: 1, background: C.coral, color: "#fff" }}>
+                  Guardar igual
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ marginTop: 12 }}>
           <BotonGuardar onClick={guardarPeso} disabled={!(Number(kg) > 0)} />
         </div>
@@ -473,7 +539,8 @@ function VistaEntrenos({ datos, anadir, borrar }) {
 
 function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil }) {
   const [texto, setTexto] = useState("");
-  const [cantidad, setCantidad] = useState("normal");
+  const [volumen, setVolumen] = useState(3);
+  const [saciedad, setSaciedad] = useState(null);
   const [momento, setMomento] = useState(() => momentoPorHora());
   const [verDetalle, setVerDetalle] = useState(false);
 
@@ -497,8 +564,8 @@ function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil 
 
   const enviar = () => {
     if (texto.trim().length < 2) return;
-    anadir("comidas", { fecha: hoy(), texto: texto.trim(), cantidad, momento, ts: Date.now() });
-    setTexto(""); setCantidad("normal"); setMomento(momentoPorHora());
+    anadir("comidas", { fecha: hoy(), texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() });
+    setTexto(""); setVolumen(3); setSaciedad(null); setMomento(momentoPorHora());
   };
 
   return (
@@ -662,13 +729,14 @@ function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil 
             </button>
           ))}
         </div>
-        <div style={{ marginTop: 12 }}><Rotulo>Cantidad</Rotulo></div>
-        <div className="flex gap-2" style={{ marginTop: 7 }}>
-          {CANTIDADES.map((q) => (
-            <Chip key={q.id} activo={cantidad === q.id} onClick={() => setCantidad(q.id)} style={{ flex: 1 }}>{q.label}</Chip>
-          ))}
+        <div style={{ marginTop: 14 }}>
+          <Escala titulo="Volumen de comida" opciones={VOLUMENES} valor={volumen} onChange={setVolumen} />
         </div>
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 14 }}>
+          <Escala titulo="Cómo te dejó" opciones={SACIEDADES} valor={saciedad} onChange={setSaciedad}
+            color={C.indigo} opcional />
+        </div>
+        <div style={{ marginTop: 14 }}>
           <BotonGuardar onClick={enviar} disabled={texto.trim().length < 2}>Añadir comida</BotonGuardar>
         </div>
       </Card>
@@ -709,7 +777,8 @@ function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil 
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontFamily: body, fontSize: 13.5, color: C.ink, lineHeight: 1.35, margin: 0 }}>{c.texto}</p>
                           <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: 0 }}>
-                            {m.label}{c.cantidad ? ` · ${c.cantidad}` : ""}
+                            {m.label} · {volumenDe(c.volumen).label.toLowerCase()}
+                            {c.saciedad ? ` · ${saciedadDe(c.saciedad).label.toLowerCase()}` : ""}
                           </p>
                         </div>
                         <button onClick={() => borrar("comidas", c.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={14} color={C.faint} /></button>
@@ -744,9 +813,9 @@ function PantallaValoracion({ datos, energia, onCerrar }) {
     return () => window.removeEventListener("keydown", alPulsar);
   }, [onCerrar]);
 
-  const colorArea = { Peso: C.teal, Entrenos: C.indigo, Comidas: C.mint, Objetivo: C.amber };
-  const iconArea = { Peso: Scale, Entrenos: Dumbbell, Comidas: UtensilsCrossed, Objetivo: Flame };
-  const softArea = { Peso: C.tealSoft, Entrenos: C.indigoSoft, Comidas: C.mintSoft, Objetivo: C.amberSoft };
+  const iconArea = { Peso: Scale, Entrenos: Dumbbell, Comidas: UtensilsCrossed, Registro: Info };
+  const colorTono = { mal: C.coral, regular: C.amber, bien: C.mint };
+  const suaveTono = { mal: C.coralSoft, regular: C.amberSoft, bien: C.mintSoft };
 
   return (
     <div className="fade" style={{ position: "fixed", inset: 0, zIndex: 70, background: C.bg, overflowY: "auto" }}>
@@ -798,32 +867,62 @@ function PantallaValoracion({ datos, energia, onCerrar }) {
           <Card><Vacio texto={informe.motivo} /></Card>
         ) : (
           <div className="rejilla">
-            <Card className="pop ancho" style={{ background: `linear-gradient(150deg, ${C.tealSoft} 0%, ${C.card} 70%)`, padding: 20 }}>
-              <Sparkles size={19} color={C.teal} strokeWidth={2.4} />
-              <p style={{ fontFamily: display, fontWeight: 800, fontSize: 22, lineHeight: 1.25, color: C.ink, margin: "8px 0 0", letterSpacing: -0.4 }}>
-                {informe.titular}
+            <Card className="pop ancho"
+              style={{ background: suaveTono[informe.veredicto.tono], padding: 20, boxShadow: "none" }}>
+              <p style={{ fontFamily: mono, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: colorTono[informe.veredicto.tono], fontWeight: 600, margin: 0 }}>
+                {informe.veredicto.tono === "mal" ? "Hay que corregir" : informe.veredicto.tono === "regular" ? "A medias" : "Bien"}
               </p>
-              <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: "8px 0 0" }}>
+              <p style={{ fontFamily: display, fontWeight: 800, fontSize: 24, lineHeight: 1.2, color: C.ink, margin: "6px 0 0", letterSpacing: -0.5 }}>
+                {informe.veredicto.texto}
+              </p>
+              <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: "10px 0 0" }}>
                 {informe.diasPasados} {informe.diasPasados === 1 ? "día" : "días"} de {informe.diasTotales} · {informe.detalle}
               </p>
             </Card>
 
-            {informe.secciones.map((s, i) => {
-              const Icon = iconArea[s.area] || Sparkles;
+            {informe.avisos.map((a, i) => {
+              const Icon = iconArea[a.area] || Sparkles;
               return (
-                <Card key={s.area} className="pop" style={{ animationDelay: `${0.05 * (i + 1)}s` }}>
-                  <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
-                    <Badge Icon={Icon} color={colorArea[s.area] || C.teal} soft={softArea[s.area] || C.tealSoft} size={32} />
-                    <span style={{ fontFamily: display, fontWeight: 700, fontSize: 15.5, color: C.ink }}>{s.area}</span>
+                <Card key={`${a.area}-${i}`} className="pop" style={{ animationDelay: `${0.04 * (i + 1)}s`, padding: 16 }}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: 7 }}>
+                    <Badge Icon={Icon} color={colorTono[a.tono]} soft={suaveTono[a.tono]} size={30} />
+                    <span style={{ fontFamily: display, fontWeight: 700, fontSize: 14.5, color: C.ink, flex: 1 }}>{a.area}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: colorTono[a.tono] }} />
                   </div>
-                  <p style={{ fontFamily: body, fontSize: 14.5, color: C.ink, lineHeight: 1.55, margin: 0 }}>{s.texto}</p>
+                  <p style={{ fontFamily: body, fontSize: 14.5, color: C.ink, lineHeight: 1.5, margin: 0 }}>{a.texto}</p>
                 </Card>
               );
             })}
 
             <Card className="ancho" style={{ background: C.ink }}>
-              <p style={{ fontFamily: body, fontSize: 14.5, color: "#fff", lineHeight: 1.5, margin: 0 }}>{informe.cierre}</p>
+              <p style={{ fontFamily: mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: "rgba(255,255,255,.5)", margin: "0 0 6px" }}>
+                Qué hacer
+              </p>
+              <p style={{ fontFamily: body, fontSize: 15, color: "#fff", lineHeight: 1.5, margin: 0 }}>{informe.cierre}</p>
             </Card>
+
+            <details className="ancho" style={{ fontFamily: body }}>
+              <summary style={{ cursor: "pointer", fontSize: 12.5, color: C.mid, padding: "8px 4px" }}>
+                Ver los números en crudo
+              </summary>
+              <Card style={{ marginTop: 8, padding: 16 }}>
+                {[
+                  ["Días apuntados", `${informe.cifras.comidas.diasConRegistro} de ${informe.diasPasados}`],
+                  ["Media de calorías", informe.cifras.comidas.kcalMedia ? `${miles(informe.cifras.comidas.kcalMedia)} kcal` : "—"],
+                  ["Tu diana", informe.cifras.comidas.diana ? `${miles(informe.cifras.comidas.diana)} kcal` : "sin perfil"],
+                  ["Días entrenados", `${informe.cifras.entrenos.diasEntrenados} (objetivo ${informe.cifras.entrenos.objetivo})`],
+                  ["Minutos de entreno", `${informe.cifras.entrenos.minutos} min`],
+                  ["Pesajes válidos", `${informe.cifras.peso.fiables}${informe.cifras.peso.sospechosos ? ` (${informe.cifras.peso.sospechosos} descartados)` : ""}`],
+                  ["Cambio de peso", informe.cifras.peso.diferencia != null ? `${informe.cifras.peso.diferencia > 0 ? "+" : "−"}${num(Math.abs(informe.cifras.peso.diferencia))} kg` : "—"],
+                  ["Ritmo", informe.cifras.peso.pendiente != null ? `${informe.cifras.peso.pendiente > 0 ? "+" : "−"}${num(Math.abs(informe.cifras.peso.pendiente), 2)} kg/semana` : "sin datos suficientes"],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between" style={{ padding: "5px 0" }}>
+                    <span style={{ fontSize: 13, color: C.mid }}>{k}</span>
+                    <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 600, color: C.ink }}>{v}</span>
+                  </div>
+                ))}
+              </Card>
+            </details>
 
             <p className="ancho" style={{ fontFamily: body, fontSize: 11.5, color: C.faint, textAlign: "center", lineHeight: 1.5, margin: 0 }}>
               Todo esto se calcula en tu dispositivo con tus registros. Sin conexión, al instante y sin coste.
@@ -1013,7 +1112,7 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
 
 /* ------------------------------------------------------ hoja: otra fecha */
 
-function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
+function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
   const [sec, setSec] = useState(seccion);
   const [fecha, setFecha] = useState(hoy());
   const [kg, setKg] = useState("");
@@ -1022,14 +1121,17 @@ function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
   const [minutos, setMinutos] = useState("45");
   const [inten, setInten] = useState("media");
   const [texto, setTexto] = useState("");
-  const [cantidad, setCantidad] = useState("normal");
+  const [volumen, setVolumen] = useState(3);
+  const [saciedad, setSaciedad] = useState(null);
   const [momento, setMomento] = useState(() => momentoPorHora());
   const [anadidos, setAnadidos] = useState(0);
+  const [avisoPeso, setAvisoPeso] = useState(null);
 
   useEffect(() => {
     if (abierta) {
+      setAvisoPeso(null);
       setSec(seccion); setFecha(hoy()); setKg(""); setNota(""); setAnadidos(0); setMomento(momentoPorHora());
-      setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setCantidad("normal");
+      setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setVolumen(3); setSaciedad(null);
     }
   }, [abierta, seccion]);
 
@@ -1043,7 +1145,13 @@ function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
   const enviar = () => {
     if (!valido) return;
     if (sec === "peso") {
-      onGuardar("pesos", { fecha, kg: parseFloat(String(kg).replace(",", ".")), nota: nota.trim() });
+      const valor = parseFloat(String(kg).replace(",", "."));
+      const revision = revisarPeso(valor, fecha, pesos);
+      if (!revision.ok && !avisoPeso) {
+        setAvisoPeso(revision);
+        return;
+      }
+      onGuardar("pesos", { fecha, kg: valor, nota: nota.trim() });
       onCerrar();
       return;
     }
@@ -1052,8 +1160,8 @@ function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
       setMinutos("45"); setInten("media");
     }
     if (sec === "comidas") {
-      onGuardar("comidas", { fecha, texto: texto.trim(), cantidad, momento, ts: Date.now() });
-      setTexto(""); setCantidad("normal");
+      onGuardar("comidas", { fecha, texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() });
+      setTexto(""); setVolumen(3); setSaciedad(null);
     }
     setAnadidos((n) => n + 1);
   };
@@ -1141,11 +1249,12 @@ function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
                 </button>
               ))}
             </div>
-            <Rotulo>Cantidad</Rotulo>
-            <div className="flex gap-2" style={{ marginTop: 7, marginBottom: 14 }}>
-              {CANTIDADES.map((q) => (
-                <Chip key={q.id} activo={cantidad === q.id} onClick={() => setCantidad(q.id)} style={{ flex: 1 }}>{q.label}</Chip>
-              ))}
+            <div style={{ marginBottom: 14 }}>
+              <Escala titulo="Volumen de comida" opciones={VOLUMENES} valor={volumen} onChange={setVolumen} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <Escala titulo="Cómo te dejó" opciones={SACIEDADES} valor={saciedad} onChange={setSaciedad}
+                color={C.indigo} opcional />
             </div>
           </>
         )}
@@ -1153,6 +1262,14 @@ function HojaFecha({ abierta, seccion, onCerrar, onGuardar }) {
         <Rotulo>Fecha</Rotulo>
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
           style={{ ...inputBase, marginTop: 6, marginBottom: 16, fontFamily: mono, fontSize: 15 }} />
+
+        {avisoPeso && (
+          <div className="fade" style={{ background: C.coralSoft, borderRadius: 16, padding: 13, marginBottom: 12 }}>
+            <p style={{ fontFamily: body, fontSize: 13, color: C.ink, lineHeight: 1.5, margin: 0 }}>
+              {avisoPeso.motivo} Pulsa otra vez para guardarlo igual.
+            </p>
+          </div>
+        )}
 
         {anadidos > 0 && (
           <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, marginBottom: 10, textAlign: "center" }}>
@@ -1321,7 +1438,7 @@ export default function App() {
         })}
       </nav>
 
-      <HojaFecha abierta={hoja} seccion={tab} onCerrar={() => setHoja(false)} onGuardar={anadir} />
+      <HojaFecha abierta={hoja} seccion={tab} pesos={datos.pesos} onCerrar={() => setHoja(false)} onGuardar={anadir} />
 
       {pantalla === "valoracion" && (
         <PantallaValoracion datos={datos} energia={energia} onCerrar={() => setPantalla(null)} />

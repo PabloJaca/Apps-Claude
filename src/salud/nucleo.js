@@ -13,7 +13,7 @@ export const ESQUEMA = {
 };
 
 export const VACIO = {
-  v: 3,
+  v: 4,
   perfil: { altura: "", edad: "", sexo: "", actividad: "", objetivo: "" },
   pesos: [],
   entrenos: [],
@@ -44,16 +44,34 @@ export const SEXOS = [
   { id: "nd", label: "Prefiero no decirlo" },
 ];
 
-export const CANTIDADES = [
-  { id: "poco", label: "Poco" },
-  { id: "normal", label: "Normal" },
-  { id: "mucho", label: "Mucho" },
+/* Cuánta comida había en el plato. Sustituye al viejo poco / normal / mucho:
+   con cinco escalones el multiplicador es mucho más fino. */
+export const VOLUMENES = [
+  { n: 1, label: "Muy poco", desc: "Un picoteo", factor: 0.5 },
+  { n: 2, label: "Poco", desc: "Menos de lo normal", factor: 0.75 },
+  { n: 3, label: "Normal", desc: "Tu ración de siempre", factor: 1 },
+  { n: 4, label: "Bastante", desc: "Repetiste o ración grande", factor: 1.35 },
+  { n: 5, label: "Mucho", desc: "Hasta arriba", factor: 1.75 },
 ];
+export const volumenDe = (n) => VOLUMENES.find((v) => v.n === n) || VOLUMENES[2];
+
+/* Cómo te dejó. Es la segunda opinión: si el texto dice una cosa y el cuerpo
+   dice otra, la estimación se corrige y el rango se abre o se cierra. */
+export const SACIEDADES = [
+  { n: 1, label: "Con hambre", desc: "Te quedaste corto" },
+  { n: 2, label: "Justo", desc: "Ni hambre ni lleno" },
+  { n: 3, label: "Lleno", desc: "Saciado del todo" },
+  { n: 4, label: "Muy lleno", desc: "Te costó levantarte" },
+];
+export const saciedadDe = (n) => SACIEDADES.find((s) => s.n === n) || null;
 
 export const DURACIONES = [20, 30, 45, 60, 90];
 
 /* Un kilo de grasa son unas 7.700 kcal: sirve para traducir déficit en peso. */
 export const KCAL_POR_KILO = 7700;
+
+/* Objetivo de entrenos por semana con el que se juzga el periodo. */
+export const ENTRENOS_SEMANA = 4;
 
 /* ── fechas ──────────────────────────────────────────────────────────────── */
 
@@ -187,6 +205,82 @@ export function calcularEnergia(perfil, pesoKg) {
   };
 }
 
+/* ── báscula: saltos que no se sostienen ─────────────────────────────────── */
+
+/**
+ * Lo máximo que el peso puede moverse de verdad entre dos pesajes.
+ * De un día para otro se mueven fácil 1-2 kg de agua y comida en tránsito,
+ * pero de grasa no se pierde ni se gana casi nada. Pasar de 92 a 95 en un día
+ * es agua, la báscula mal puesta o un dedo torcido al teclear: no es peso.
+ */
+export function toleranciaPeso(kg, dias = 1) {
+  const base = Math.max(1.8, (Number(kg) || 75) * 0.022);
+  return Math.min(9, base + 0.32 * Math.max(0, dias - 1));
+}
+
+/** Revisa un pesaje contra el anterior. Avisa, nunca bloquea. */
+export function revisarPeso(kg, fecha, pesos) {
+  const valor = Number(kg);
+  if (!(valor > 0)) return { ok: false, motivo: "El peso tiene que ser un número mayor que cero." };
+  if (valor < 25 || valor > 300) {
+    return { ok: false, motivo: `${num(valor)} kg no parece un peso real. ¿Te has dejado un número?` };
+  }
+
+  const previos = (pesos || [])
+    .filter((p) => p.fecha < fecha)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const ref = previos[previos.length - 1];
+  if (!ref) return { ok: true };
+
+  const dias = Math.max(1, Math.round((desdeIso(fecha) - desdeIso(ref.fecha)) / 86400000));
+  const salto = valor - ref.kg;
+  const tope = toleranciaPeso(ref.kg, dias);
+  if (Math.abs(salto) <= tope) return { ok: true };
+
+  return {
+    ok: false,
+    salto,
+    dias,
+    referencia: ref,
+    motivo:
+      dias === 1
+        ? `De ${num(ref.kg)} a ${num(valor)} kg en un día son ${num(Math.abs(salto))} kg. Eso no es peso real: será agua o un error al teclear.`
+        : `De ${num(ref.kg)} a ${num(valor)} kg en ${dias} días son ${num(Math.abs(salto))} kg. Es mucho para ese tiempo.`,
+  };
+}
+
+/**
+ * Separa los pesajes que se sostienen de los picos sueltos.
+ * Un salto solo cuenta como error si el siguiente pesaje vuelve al nivel de
+ * antes: si el cambio se mantiene, es que el peso cambió de verdad.
+ */
+export function pesosFiables(pesos) {
+  const serie = [...(pesos || [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (serie.length < 3) return { fiables: serie, sospechosos: [] };
+
+  const fiables = [serie[0]];
+  const sospechosos = [];
+
+  for (let i = 1; i < serie.length; i++) {
+    const previo = fiables[fiables.length - 1];
+    const actual = serie[i];
+    const dias = Math.max(1, Math.round((desdeIso(actual.fecha) - desdeIso(previo.fecha)) / 86400000));
+    const tope = toleranciaPeso(previo.kg, dias);
+
+    if (Math.abs(actual.kg - previo.kg) <= tope) {
+      fiables.push(actual);
+      continue;
+    }
+
+    const siguiente = serie[i + 1];
+    const vuelve = siguiente && Math.abs(siguiente.kg - previo.kg) < Math.abs(actual.kg - previo.kg) / 2;
+    if (vuelve) sospechosos.push(actual);
+    else fiables.push(actual); // el cambio se mantiene: era real
+  }
+
+  return { fiables, sospechosos };
+}
+
 /* ── migración ───────────────────────────────────────────────────────────── */
 
 /**
@@ -195,18 +289,34 @@ export function calcularEnergia(perfil, pesoKg) {
  * porque venían de una llamada de pago; ahora se recalculan al vuelo, así que
  * se descartan sin pena.
  */
+/* poco / normal / mucho → escalón de volumen equivalente */
+const VOLUMEN_DESDE_CANTIDAD = { poco: 2, normal: 3, mucho: 4 };
+
 export function migrar(guardado) {
   const base = { ...VACIO, ...(guardado || {}) };
   const t = 0;
   const sellar = (lista) =>
     (lista || []).map((x) => ({ ...x, id: x.id || nuevoId(), mod: x.mod || t }));
 
+  /* Las comidas viejas traen `cantidad`; se traduce a volumen y se quedan sin
+     saciedad, que es un dato que entonces no se pedía. El estimador sabe
+     apañarse sin él. */
+  const comidas = sellar(base.comidas).map((c) => {
+    const volumen = c.volumen || VOLUMEN_DESDE_CANTIDAD[c.cantidad] || 3;
+    const { cantidad, ...resto } = c;
+    return {
+      ...resto,
+      volumen: Math.min(5, Math.max(1, volumen)),
+      saciedad: c.saciedad != null ? Math.min(4, Math.max(1, c.saciedad)) : null,
+    };
+  });
+
   return {
-    v: 3,
+    v: 4,
     perfil: { ...VACIO.perfil, ...(base.perfil || {}) },
     pesos: sellar(base.pesos),
     entrenos: sellar(base.entrenos),
-    comidas: sellar(base.comidas),
+    comidas,
     borrados: base.borrados || {},
     sellos: base.sellos || {},
   };

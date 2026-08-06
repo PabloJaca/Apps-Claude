@@ -1,24 +1,28 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Salud · valoración de la semana o del mes, calculada aquí.
+   Salud · valoración de la semana o del mes.
 
-   Lo que antes redactaba un modelo de pago ahora sale de los datos. Y en un
-   punto concreto es incluso mejor que antes: cruza lo que has comido con lo
-   que ha hecho la báscula. Si las calorías apuntadas dicen una cosa y el peso
-   dice otra, eso se ve y se cuenta.
+   Directa y corta a propósito: cuatro avisos como mucho, cada uno con su
+   número y su veredicto. Si has entrenado poco, lo dice. Si comes por encima
+   de tu diana un día sí y otro también, lo dice. Sin rodeos ni ánimos de coach.
+
+   Lo que no hace es soltar cifras imposibles: los saltos de báscula que no se
+   sostienen se apartan antes de calcular nada, porque de 92 a 95 kg en un día
+   no se engorda, se retiene agua.
    ───────────────────────────────────────────────────────────────────────── */
 
 import {
-  KCAL_POR_KILO, cerrado, detalleTramo, diasTranscurridos, enTramo, etiquetaTramo,
-  miles, num, rangoMes, rangoSemana,
+  ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, desdeIso, detalleTramo,
+  diasTranscurridos, enTramo, etiquetaTramo, miles, num, pesosFiables,
+  rangoMes, rangoSemana,
 } from "./nucleo.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 
-const TIPOS_ENTRENO = { fuerza: "Fuerza", cardio: "Cardio", equipo: "Equipo", otro: "Otro" };
+const TIPOS_ENTRENO = { fuerza: "fuerza", cardio: "cardio", equipo: "equipo", otro: "otro" };
 
 const listar = (arr) =>
   arr.length <= 1 ? arr.join("") : `${arr.slice(0, -1).join(", ")} y ${arr[arr.length - 1]}`;
 
-/** Pendiente por mínimos cuadrados: kilos por semana según toda la serie. */
+/** Pendiente por mínimos cuadrados: kilos por semana. */
 function tendenciaPeso(serie) {
   if (serie.length < 3) return null;
   const t0 = serie[0].t;
@@ -34,10 +38,11 @@ function tendenciaPeso(serie) {
     abajo += (xs[i] - mx) ** 2;
   }
   if (abajo === 0) return null;
-  return (arriba / abajo) * 7; // kg por semana
+  const kgSemana = (arriba / abajo) * 7;
+  // Más de 2 kg reales por semana no existe: si sale eso, es ruido de báscula.
+  return Math.abs(kgSemana) > 2 ? null : kgSemana;
 }
 
-/** Agrupa las comidas por día y las valora con el estimador local. */
 function diasValorados(comidas, energia) {
   const porDia = {};
   for (const c of comidas) (porDia[c.fecha] = porDia[c.fecha] || []).push(c);
@@ -58,37 +63,32 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   const diasPasados = diasTranscurridos(tramo);
   const diasTotales = Math.round((tramo[1] - tramo[0]) / 86400000) + 1;
 
-  const pesos = datos.pesos
+  const pesosTramo = datos.pesos
     .filter((p) => enTramo(p.fecha, tramo))
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
   const entrenos = datos.entrenos.filter((e) => enTramo(e.fecha, tramo));
   const comidas = datos.comidas.filter((c) => enTramo(c.fecha, tramo));
 
-  if (!pesos.length && !entrenos.length && !comidas.length) {
-    return { hayDatos: false, etiqueta, detalle, motivo: "Todavía no hay registros en este periodo." };
+  if (!pesosTramo.length && !entrenos.length && !comidas.length) {
+    return { hayDatos: false, etiqueta, detalle, motivo: "No hay nada apuntado en este periodo." };
   }
 
-  /* ── periodo anterior, para comparar ────────────────────────────────── */
-  const tramoPrevio = periodo === "semana" ? rangoSemana(offset + 1) : rangoMes(offset + 1);
-  const entrenosPrevios = datos.entrenos.filter((e) => enTramo(e.fecha, tramoPrevio));
-  const comidasPrevias = datos.comidas.filter((c) => enTramo(c.fecha, tramoPrevio));
-
-  /* ── peso ───────────────────────────────────────────────────────────── */
-  const serie = pesos.map((p) => ({ t: new Date(p.fecha).getTime(), kg: p.kg }));
-  const primero = pesos.length ? pesos[0].kg : null;
-  const ultimo = pesos.length ? pesos[pesos.length - 1].kg : null;
-  const diferencia = pesos.length > 1 ? Number((ultimo - primero).toFixed(2)) : null;
-  const pendiente = tendenciaPeso(serie);
+  /* ── peso, apartando los saltos que no se sostienen ─────────────────── */
+  const { fiables, sospechosos } = pesosFiables(pesosTramo);
+  const primero = fiables.length ? fiables[0].kg : null;
+  const ultimo = fiables.length ? fiables[fiables.length - 1].kg : null;
+  const diferencia = fiables.length > 1 ? Number((ultimo - primero).toFixed(2)) : null;
+  const pendiente = tendenciaPeso(fiables.map((p) => ({ t: desdeIso(p.fecha).getTime(), kg: p.kg })));
 
   /* ── entrenos ───────────────────────────────────────────────────────── */
   const minutos = entrenos.reduce((s, e) => s + (e.minutos || 0), 0);
   const diasEntrenados = new Set(entrenos.map((e) => e.fecha)).size;
+  const objetivoEntrenos = Math.max(1, Math.round((ENTRENOS_SEMANA * diasPasados) / 7));
   const porTipo = {};
   for (const e of entrenos) {
-    const l = TIPOS_ENTRENO[e.tipo] || "Otro";
+    const l = TIPOS_ENTRENO[e.tipo] || "otro";
     porTipo[l] = (porTipo[l] || 0) + 1;
   }
-  const minutosPrevios = entrenosPrevios.reduce((s, e) => s + (e.minutos || 0), 0);
 
   /* ── comidas ────────────────────────────────────────────────────────── */
   const dias = diasValorados(comidas, energia);
@@ -101,197 +101,206 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   const balance = { encima: 0, linea: 0, debajo: 0 };
   for (const d of dias) if (d.balance) balance[d.balance.estado] += 1;
 
-  const diasPreviosValorados = diasValorados(comidasPrevias, energia);
-  const kcalMediaPrevia = diasPreviosValorados.length
-    ? diasPreviosValorados.reduce((s, d) => s + (d.kcalMin + d.kcalMax) / 2, 0) / diasPreviosValorados.length
-    : null;
+  const objetivo = energia ? energia.objetivo.id : null;
+  const difDiaria = energia && kcalMedia ? kcalMedia - energia.diana : null;
 
-  const gruposTotales = {};
-  for (const d of dias) {
-    for (const [g, v] of Object.entries(d.grupos || {})) gruposTotales[g] = (gruposTotales[g] || 0) + v;
-  }
-  const diasSinVerdura = dias.filter((d) => !d.grupos?.verdura && !d.grupos?.fruta).length;
+  /* ── avisos: cortos, con número y sin anestesia ─────────────────────── */
+  const avisos = [];
 
-  /* ── el cruce interesante: calorías contra báscula ──────────────────── */
-  let contraste = null;
-  if (energia && kcalMedia && pesos.length > 1 && diasPasados >= 5) {
-    const balanceDiario = kcalMedia - energia.gasto;
-    const esperadoKg = (balanceDiario * diasPasados) / KCAL_POR_KILO;
-    const realKg = diferencia;
-    const desvio = realKg - esperadoKg;
-    contraste = {
-      balanceDiario: Math.round(balanceDiario),
-      esperadoKg: Number(esperadoKg.toFixed(2)),
-      realKg,
-      desvio: Number(desvio.toFixed(2)),
-      coherente: Math.abs(desvio) < 0.7,
-    };
-  }
-
-  /* ── secciones ──────────────────────────────────────────────────────── */
-  const secciones = [];
-
-  /* Peso */
-  {
-    const f = [];
-    if (!pesos.length) {
-      f.push("No has pesado ni un día de este periodo, así que aquí no hay nada que mirar.");
-    } else if (pesos.length === 1) {
-      f.push(`Solo un pesaje: ${num(ultimo)} kg. Con uno no se ve tendencia, hacen falta al menos tres.`);
-    } else {
-      f.push(
-        `De ${num(primero)} a ${num(ultimo)} kg en ${pesos.length} pesajes: ${
-          Math.abs(diferencia) < 0.15 ? "prácticamente igual" : `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg`
-        }.`
-      );
-      if (pendiente != null && Math.abs(pendiente) > 0.05) {
-        f.push(
-          `El ritmo de fondo es de ${pendiente > 0 ? "+" : "−"}${num(Math.abs(pendiente), 2)} kg por semana; a ese paso serían ${num(Math.abs(pendiente) * 4.3, 1)} kg al mes.`
-        );
-      }
-      if (energia) {
-        const obj = energia.objetivo.id;
-        const vaBien =
-          (obj === "bajar" && diferencia < -0.1) ||
-          (obj === "subir" && diferencia > 0.1) ||
-          (obj === "mantener" && Math.abs(diferencia) <= 0.5);
-        f.push(
-          vaBien
-            ? `Va en la dirección de tu objetivo de ${energia.objetivo.verbo} peso.`
-            : `Tu objetivo es ${energia.objetivo.verbo} peso y la báscula no acompaña en este periodo.`
-        );
-      }
-    }
-    secciones.push({ area: "Peso", texto: f.join(" ") });
+  /* 1 · el registro manda: si está a medias, lo demás no se sostiene */
+  const cobertura = dias.length / diasPasados;
+  if (!dias.length) {
+    avisos.push({
+      area: "Registro",
+      tono: "mal",
+      texto: `No has apuntado ni una comida en ${diasPasados} días. Sin eso no hay nada que valorar.`,
+    });
+  } else if (cobertura < 0.6) {
+    avisos.push({
+      area: "Registro",
+      tono: "mal",
+      texto: `Solo ${dias.length} días apuntados de ${diasPasados}. Con el registro a medias, las cifras de abajo valen poco.`,
+    });
+  } else if (cobertura < 0.9) {
+    avisos.push({
+      area: "Registro",
+      tono: "regular",
+      texto: `Te faltan ${diasPasados - dias.length} días por apuntar de ${diasPasados}.`,
+    });
   }
 
-  /* Entrenos */
-  {
-    const f = [];
-    if (!entrenos.length) {
-      f.push(`Ni una sesión apuntada en ${periodo === "semana" ? "la semana" : "el mes"}.`);
-      if (entrenosPrevios.length) f.push(`En el periodo anterior fueron ${entrenosPrevios.length}.`);
-    } else {
-      f.push(
-        `${entrenos.length} ${entrenos.length === 1 ? "sesión" : "sesiones"} repartidas en ${diasEntrenados} ${diasEntrenados === 1 ? "día" : "días distintos"}, ${minutos} minutos en total.`
-      );
-      const tipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]);
-      if (tipos.length) f.push(`Reparto: ${listar(tipos.map(([t, n]) => `${n} de ${t.toLowerCase()}`))}.`);
-      if (minutosPrevios > 0) {
-        const d = minutos - minutosPrevios;
-        f.push(
-          Math.abs(d) < 15
-            ? "Casi los mismos minutos que el periodo anterior."
-            : `${d > 0 ? `${d} minutos más` : `${-d} minutos menos`} que el periodo anterior (${minutosPrevios}).`
-        );
-      }
-      const media = minutos / Math.max(1, diasEntrenados);
-      f.push(`Sesión media de ${Math.round(media)} minutos.`);
-    }
-    secciones.push({ area: "Entrenos", texto: f.join(" ") });
-  }
-
-  /* Comidas */
-  {
-    const f = [];
-    if (!dias.length) {
-      f.push("No has apuntado comidas en este periodo, así que no puedo estimar nada de alimentación.");
-    } else {
-      f.push(
-        `${dias.length} de ${diasPasados} días con comidas apuntadas${dias.length < diasPasados ? ` (faltan ${diasPasados - dias.length})` : ""}.`
-      );
-      if (kcalMedia) f.push(`Media estimada de ${miles(kcalMedia)} kcal al día.`);
-      if (notaMedia != null) f.push(`Nota media de los días: ${num(notaMedia)}/10.`);
-      if (energia && dias.length) {
-        f.push(
-          `Respecto a tu diana de ${miles(energia.diana)} kcal: ${balance.debajo} ${balance.debajo === 1 ? "día" : "días"} por debajo, ${balance.linea} en línea y ${balance.encima} por encima.`
-        );
-      }
-      if (kcalMediaPrevia) {
-        const d = kcalMedia - kcalMediaPrevia;
-        if (Math.abs(d) > 120) {
-          f.push(`Son ${miles(Math.abs(d))} kcal ${d > 0 ? "más" : "menos"} al día que el periodo anterior.`);
-        }
-      }
-      if (diasSinVerdura > dias.length * 0.4 && dias.length >= 3) {
-        f.push(`En ${diasSinVerdura} de esos días no aparece verdura ni fruta.`);
-      }
-    }
-    secciones.push({ area: "Comidas", texto: f.join(" ") });
-  }
-
-  /* Objetivo: la sección donde se moja */
-  {
-    const f = [];
-    if (!energia) {
-      f.push("Sin perfil completo no puedo decir si esto acompaña a tu objetivo: falta altura, edad, sexo, actividad u objetivo.");
-    } else if (contraste) {
-      f.push(
-        contraste.balanceDiario < 0
-          ? `Con lo apuntado comes unas ${miles(-contraste.balanceDiario)} kcal por debajo de tu gasto cada día.`
-          : `Con lo apuntado comes unas ${miles(contraste.balanceDiario)} kcal por encima de tu gasto cada día.`
-      );
-      f.push(
-        `Eso deberían ser ${contraste.esperadoKg > 0 ? "+" : "−"}${num(Math.abs(contraste.esperadoKg), 2)} kg en estos ${diasPasados} días, y la báscula marca ${contraste.realKg > 0 ? "+" : "−"}${num(Math.abs(contraste.realKg), 2)} kg.`
-      );
-      if (contraste.coherente) {
-        f.push("Los dos números cuadran, así que la estimación de lo que comes se sostiene.");
-      } else if (contraste.desvio > 0) {
-        f.push(
-          "El peso baja menos (o sube más) de lo que dirían las calorías apuntadas. Lo más normal es que se esté quedando comida sin apuntar, o que las raciones sean mayores de lo estimado."
-        );
-      } else {
-        f.push(
-          "El peso se mueve más rápido de lo que dirían las calorías apuntadas. Puede ser agua, o que el gasto real sea mayor que el estimado."
-        );
-      }
-    } else if (energia && dias.length) {
-      const media = kcalMedia - energia.gasto;
-      f.push(
-        media < 0
-          ? `Comiendo así vas unas ${miles(-media)} kcal por debajo de tu gasto al día, que es lo que hace bajar de peso.`
-          : `Comiendo así vas unas ${miles(media)} kcal por encima de tu gasto al día.`
-      );
-      f.push("Con más pesajes en el periodo podría contrastarlo con la báscula.");
-    } else {
-      f.push("Faltan datos de comidas para cruzarlos con el peso.");
-    }
-
-    if (!estaCerrado) {
-      f.push(`Ojo: ${periodo === "semana" ? "la semana" : "el mes"} no ha terminado, van ${diasPasados} de ${diasTotales} días.`);
-    }
-    secciones.push({ area: "Objetivo", texto: f.join(" ") });
-  }
-
-  /* ── titular y cierre ───────────────────────────────────────────────── */
-  let titular;
-  if (energia && diferencia != null && Math.abs(diferencia) >= 0.15) {
-    const obj = energia.objetivo.id;
-    const bien = (obj === "bajar" && diferencia < 0) || (obj === "subir" && diferencia > 0);
-    titular = bien
-      ? `${num(Math.abs(diferencia))} kg en la dirección buena`
-      : `El peso va al revés de tu objetivo: ${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg`;
-  } else if (diferencia != null && Math.abs(diferencia) < 0.15) {
-    titular = "Peso estable en todo el periodo";
-  } else if (entrenos.length) {
-    titular = `${entrenos.length} ${entrenos.length === 1 ? "sesión" : "sesiones"} y ${minutos} minutos de entreno`;
+  /* 2 · entrenos */
+  if (!entrenos.length) {
+    avisos.push({
+      area: "Entrenos",
+      tono: "mal",
+      texto: `Cero entrenos en ${diasPasados} días. Deberían haber sido ${objetivoEntrenos}.`,
+    });
+  } else if (diasEntrenados < objetivoEntrenos) {
+    const faltan = objetivoEntrenos - diasEntrenados;
+    avisos.push({
+      area: "Entrenos",
+      tono: diasEntrenados < objetivoEntrenos / 2 ? "mal" : "regular",
+      texto: `Has entrenado ${diasEntrenados} ${diasEntrenados === 1 ? "día" : "días"} de ${diasPasados}. Te ${faltan === 1 ? "falta uno" : `faltan ${faltan}`} para llegar a ${objetivoEntrenos}.`,
+    });
   } else {
-    titular = "Pocos datos todavía en este periodo";
+    avisos.push({
+      area: "Entrenos",
+      tono: "bien",
+      texto: `${diasEntrenados} días entrenados y ${minutos} minutos. Ahí no hay nada que corregir.`,
+    });
   }
+
+  /* 3 · comidas contra la diana.
+     Con el registro a medias no se dan medias por buenas: dos días apuntados
+     de siete darían un «comes 600 kcal» que no significa nada. */
+  if (energia && dias.length && cobertura < 0.6) {
+    avisos.push({
+      area: "Comidas",
+      tono: "regular",
+      texto: `Con ${dias.length} ${dias.length === 1 ? "día apuntado" : "días apuntados"} no puedo decirte si comes de más o de menos. La media saldría falseada.`,
+    });
+  } else if (energia && dias.length) {
+    const desviacion = Math.round(difDiaria);
+    const pasarse = objetivo === "bajar" && desviacion > 120;
+    const quedarse = objetivo === "subir" && desviacion < -120;
+    const corto = objetivo === "bajar" && desviacion < -450;
+
+    if (pasarse) {
+      avisos.push({
+        area: "Comidas",
+        tono: "mal",
+        texto: `Comes ${miles(kcalMedia)} kcal de media y tu diana son ${miles(energia.diana)}. Te pasas ${miles(desviacion)} al día: así no se baja.`,
+      });
+    } else if (quedarse) {
+      avisos.push({
+        area: "Comidas",
+        tono: "mal",
+        texto: `Comes ${miles(kcalMedia)} kcal de media y tu diana son ${miles(energia.diana)}. Te faltan ${miles(-desviacion)} al día para subir.`,
+      });
+    } else if (corto) {
+      avisos.push({
+        area: "Comidas",
+        tono: "regular",
+        texto: `Comes ${miles(kcalMedia)} kcal, ${miles(-desviacion)} por debajo de tu diana. Bajar así de rápido se paga en músculo y en hambre.`,
+      });
+    } else {
+      avisos.push({
+        area: "Comidas",
+        tono: "bien",
+        texto: `${miles(kcalMedia)} kcal de media, con la diana en ${miles(energia.diana)}. Ahí vas fino.`,
+      });
+    }
+
+    if (balance.encima > balance.debajo + balance.linea && objetivo === "bajar") {
+      avisos.push({
+        area: "Comidas",
+        tono: "mal",
+        texto: `${balance.encima} días por encima de la diana y solo ${balance.debajo} por debajo. Es al revés de lo que hace falta.`,
+      });
+    }
+  } else if (!energia && dias.length) {
+    avisos.push({
+      area: "Comidas",
+      tono: "regular",
+      texto: "Sin perfil completo no puedo decirte si comes de más o de menos. Rellénalo y esto cambia.",
+    });
+  }
+
+  /* 4 · peso */
+  if (sospechosos.length) {
+    const s = sospechosos[0];
+    avisos.push({
+      area: "Peso",
+      tono: "mal",
+      texto: `${sospechosos.length === 1 ? "Hay un pesaje que no me creo" : `Hay ${sospechosos.length} pesajes que no me creo`}: ${num(s.kg)} kg suelto entre valores muy distintos. Eso es agua o un error, no peso, así que lo he apartado.`,
+    });
+  }
+
+  if (fiables.length < 2) {
+    avisos.push({
+      area: "Peso",
+      tono: fiables.length ? "regular" : "mal",
+      texto: fiables.length
+        ? "Un solo pesaje en todo el periodo. Con uno no se ve nada: pésate al menos dos o tres veces por semana."
+        : "No te has pesado ni un día. Sin báscula esto es adivinar.",
+    });
+  } else if (objetivo) {
+    const vaBien =
+      (objetivo === "bajar" && diferencia < -0.1) ||
+      (objetivo === "subir" && diferencia > 0.1) ||
+      (objetivo === "mantener" && Math.abs(diferencia) <= 0.5);
+    avisos.push({
+      area: "Peso",
+      tono: vaBien ? "bien" : "mal",
+      texto: vaBien
+        ? `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg en ${diasPasados} días. Va hacia donde quieres.`
+        : Math.abs(diferencia) < 0.15
+        ? `El peso no se mueve: ${num(primero)} a ${num(ultimo)} kg. Con tu objetivo de ${energia.objetivo.verbo}, eso es no avanzar.`
+        : `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg y tu objetivo es ${energia.objetivo.verbo}. Va al revés.`,
+    });
+  }
+
+  /* ── veredicto: lo más gordo de todo lo anterior ────────────────────── */
+  const malos = avisos.filter((a) => a.tono === "mal");
+  const buenos = avisos.filter((a) => a.tono === "bien");
+
+  let veredicto;
+  if (!dias.length && !entrenos.length) {
+    veredicto = { texto: "Sin datos suficientes para decirte nada", tono: "regular" };
+  } else if (malos.length >= 3) {
+    veredicto = { texto: `${malos.length} cosas mal esta ${periodo === "semana" ? "semana" : "vez"}`, tono: "mal" };
+  } else if (malos.length) {
+    veredicto = { texto: `Falla ${listar(malos.map((a) => a.area.toLowerCase()))}`, tono: "mal" };
+  } else if (buenos.length >= 3) {
+    veredicto = { texto: "Periodo redondo, nada que corregir", tono: "bien" };
+  } else {
+    veredicto = { texto: "Va bien, sin nada grave", tono: "bien" };
+  }
+
+  /* ── cierre: una sola cosa que hacer ────────────────────────────────── */
+  /* Por orden de lo que más manda: sin registro no hay nada; luego la comida,
+     que es lo que mueve el peso; luego los entrenos; y la báscula la última,
+     que es medir, no hacer. */
+  const PRIORIDAD = ["Registro", "Comidas", "Entrenos", "Peso"];
+  const peor = [...malos].sort((a, b) => PRIORIDAD.indexOf(a.area) - PRIORIDAD.indexOf(b.area))[0];
 
   let cierre;
   if (!dias.length && !entrenos.length) {
-    cierre = "Apunta aunque sea a medias: con el registro a cero no hay nada que analizar.";
-  } else if (dias.length < diasPasados * 0.5) {
-    cierre = `Solo has apuntado la mitad de los días. Con el registro completo las cifras de arriba serían mucho más fiables.`;
-  } else if (contraste && !contraste.coherente && contraste.desvio > 0) {
-    cierre = "Antes de tocar nada, prueba a apuntar una semana entera sin dejarte el picoteo: ahí suele estar la diferencia.";
-  } else if (energia && balance.encima > balance.debajo + balance.linea && energia.objetivo.id === "bajar") {
-    cierre = "Para bajar hay que sumar más días por debajo que por encima, y ahora mismo pasa lo contrario.";
-  } else if (!entrenos.length) {
-    cierre = "La alimentación manda en el peso, pero sin entrenos se pierde músculo por el camino.";
+    cierre = "Apunta una semana entera y vuelve. Con el registro vacío no hay nada que analizar.";
+  } else if (peor && peor.area === "Registro") {
+    cierre = "Apunta todos los días de la próxima semana, aunque sea a medias. Es lo único que hace falta ahora.";
+  } else if (peor && peor.area === "Entrenos") {
+    cierre = `Mete ${Math.max(1, objetivoEntrenos - diasEntrenados)} ${objetivoEntrenos - diasEntrenados === 1 ? "sesión más" : "sesiones más"} en el próximo periodo. No hace falta nada más.`;
+  } else if (peor && peor.area === "Comidas") {
+    /* Nunca se pide un recorte imposible: si te pasas 2.000 kcal, decirte que
+       quites 2.000 de golpe no sirve de nada. Se pide un primer paso. */
+    const exceso = Math.round(difDiaria || 200);
+    const recorte = Math.min(500, Math.max(150, exceso));
+    cierre =
+      objetivo === "bajar"
+        ? exceso > 600
+          ? `Te pasas ${miles(exceso)} kcal al día, que es mucho para arreglarlo de una. Empieza quitando ${miles(recorte)} y ya veremos la semana que viene.`
+          : `Quita unas ${miles(recorte)} kcal al día y el resto se arregla solo.`
+        : "Ajusta las raciones a tu diana y deja que pasen dos semanas.";
+  } else if (peor && peor.area === "Peso") {
+    cierre = "Pésate en ayunas, siempre a la misma hora y con la misma ropa. Si no, la báscula no sirve para nada.";
   } else {
-    cierre = "El registro es consistente: sigue así y en un mes la tendencia se leerá sola.";
+    cierre = "Sigue igual y vuelve dentro de una semana.";
+  }
+
+  /* ── datos crudos, por si la pantalla quiere enseñarlos ─────────────── */
+  let contraste = null;
+  if (energia && kcalMedia && fiables.length > 1 && diasPasados >= 5) {
+    const balanceDiario = kcalMedia - energia.gasto;
+    const esperadoKg = (balanceDiario * diasPasados) / KCAL_POR_KILO;
+    contraste = {
+      balanceDiario: Math.round(balanceDiario),
+      esperadoKg: Number(esperadoKg.toFixed(2)),
+      realKg: diferencia,
+      desvio: Number((diferencia - esperadoKg).toFixed(2)),
+      coherente: Math.abs(diferencia - esperadoKg) < 0.7,
+    };
   }
 
   return {
@@ -301,13 +310,13 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     estaCerrado,
     diasPasados,
     diasTotales,
-    titular,
-    secciones,
+    veredicto,
+    avisos,
     cierre,
     cifras: {
-      peso: { registros: pesos.length, primero, ultimo, diferencia, pendiente },
-      entrenos: { sesiones: entrenos.length, minutos, diasEntrenados, porTipo },
-      comidas: { diasConRegistro: dias.length, notaMedia, kcalMedia, balance },
+      peso: { registros: pesosTramo.length, fiables: fiables.length, sospechosos: sospechosos.length, primero, ultimo, diferencia, pendiente },
+      entrenos: { sesiones: entrenos.length, minutos, diasEntrenados, objetivo: objetivoEntrenos, porTipo },
+      comidas: { diasConRegistro: dias.length, notaMedia, kcalMedia, balance, diana: energia ? energia.diana : null },
       contraste,
     },
     dias,

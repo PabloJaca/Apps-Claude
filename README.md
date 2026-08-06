@@ -34,6 +34,8 @@ npm run build      # deja el resultado en /sitio
 npm run dev        # recompila al guardar
 npm run zip        # compila y regenera mis-apps.zip
 npm run servir     # compila y sirve en http://localhost:4173
+npm run probar     # pruebas de fusión, migración y de la app de Salud
+npm run preview    # .preview/salud.html: la app en un solo archivo, para revisar cambios
 ```
 
 ## Publicar
@@ -124,12 +126,30 @@ historial:
 
 - reconoce lo que escribes («2 huevos», «medio plátano», «arroz integral»), suma las
   raciones y da un rango de calorías con su margen;
+- cada comida se apunta con **volumen de 1 a 5** (cuánta comida había) y, opcionalmente,
+  **saciedad de 1 a 4** (cómo te dejó). Son dos señales independientes: si el plato se
+  leía ligero pero te dejó muy lleno, la estimación se corrige hacia arriba, y cuando las
+  dos coinciden el margen se cierra. Marcando la saciedad, el rango del día se estrecha
+  en torno a un 30 %;
+- los márgenes de cada comida se suman **en cuadratura**, no uno detrás de otro: los
+  errores de unas y otras se compensan, así que el rango del día sale realista;
 - puntúa el día de 1 a 10 según lo que aparece (verdura, legumbre, pescado, integral…
-  frente a fritos, bollería, ultraprocesados o alcohol), el reparto entre comidas y el
-  encaje con tu diana;
+  frente a fritos, bollería, ultraprocesados o alcohol), el reparto entre comidas y lo
+  cerca que queda de tu diana — quedarse 600 kcal corto puntúa igual de mal que pasarse;
 - en la valoración semanal o mensual cruza **las calorías apuntadas con lo que marca la
   báscula**: si el peso no se mueve como dirían esas calorías, te lo dice, que suele
   significar que falta comida por apuntar.
+
+**Salud — la valoración va al grano.** Un veredicto, hasta cuatro avisos con su cifra y
+una sola cosa que hacer. Sin ánimos de coach: si has entrenado dos días de siete, lo dice
+así. Nunca pide imposibles — si te pasas 2.000 kcal al día, propone empezar por 500, no
+por 2.000.
+
+**Salud — la báscula tiene control de cordura** (`revisarPeso`, `pesosFiables`). De 92 a
+95 kg en un día no se engorda: eso es agua, la báscula mal puesta o un dedo torcido al
+teclear. Al guardar, avisa (nunca bloquea: se puede guardar igual). Y al analizar, los
+picos sueltos se apartan de la serie — pero solo si el siguiente pesaje vuelve al nivel
+de antes; si el cambio se mantiene, era real y cuenta.
 
 Es una estimación, con su margen, y la app lo dice claramente. La anterior también
 estimaba: la diferencia es que esta es instantánea, funciona sin cobertura y no cuesta
