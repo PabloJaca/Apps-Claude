@@ -5,3 +5,8 @@ node_modules/
 .diag*.mjs
 .preview/
 .muestra.mjs
+.final.mjs
+.verifica.mjs
+.probar-preview.mjs
+.prueba-est.mjs
+.fuentes.mjs
