@@ -1,0 +1,17 @@
+{
+  "name": "Mis Apps",
+  "short_name": "Mis Apps",
+  "description": "Acceso a Gastos y Salud",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EDF3F8",
+  "theme_color": "#EDF3F8",
+  "lang": "es",
+  "dir": "ltr",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

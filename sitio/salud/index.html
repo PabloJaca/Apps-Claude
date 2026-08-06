@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Salud</title>
+  <meta name="description" content="Registro personal de peso, entrenos y comidas" />
+
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#EDF3F8" />
+  <link rel="icon" href="./favicon-32.png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Salud" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+
+  <style>
+    html, body { margin: 0; padding: 0; background: #EDF3F8; }
+    body {
+      font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior-y: none;
+    }
+    #root { min-height: 100vh; min-height: 100dvh; }
+    .arranque { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      color: #9BB2BF; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="root"><div class="arranque">Cargando…</div></div>
+
+  <!-- La configuración de Firebase va fuera del bundle para poder cambiarla sin recompilar -->
+  <script src="../config.js"></script>
+  <script src="./app.js"></script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>
