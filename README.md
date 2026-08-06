@@ -36,9 +36,21 @@ npm run zip        # compila y regenera mis-apps.zip
 npm run servir     # compila y sirve en http://localhost:4173
 ```
 
-Para desplegar basta con subir **todo el contenido de `sitio/`** al hosting (o descomprimir
-`mis-apps.zip` allí). Son archivos estáticos: sirve cualquier sitio, incluido un
-subdirectorio.
+## Publicar
+
+Hay dos formas, y no hace falta usar las dos.
+
+**Automática (GitHub Pages).** Cada vez que se actualiza `main`, el flujo de trabajo
+`.github/workflows/publicar.yml` compila, pasa las pruebas y publica `sitio/`. Para
+activarlo, una sola vez: **Settings → Pages → Source → GitHub Actions**. La dirección
+queda en `https://<usuario>.github.io/<repositorio>/`.
+
+**A mano.** Subir **todo el contenido de `sitio/`** al hosting que sea, o descomprimir
+allí `mis-apps.zip`. Son archivos estáticos: vale cualquier servidor, y funciona igual
+colgado en la raíz del dominio que en un subdirectorio.
+
+En los dos casos hay que añadir el dominio en **Firebase → Authentication →
+Configuración → Dominios autorizados**, o el inicio de sesión fallará.
 
 ---
 
