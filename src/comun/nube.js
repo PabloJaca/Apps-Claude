@@ -127,16 +127,26 @@ export async function salir() {
 
 const referencia = (db, uid, app) => doc(db, "usuarios", uid, "apps", app);
 
-/** Escucha los cambios que llegan de otros dispositivos. */
+/**
+ * Escucha los cambios que llegan de otros dispositivos.
+ *
+ * Se avisa de si la respuesta viene de la caché local o del servidor, porque
+ * no es lo mismo: en un dispositivo recién estrenado, Firestore contesta
+ * primero desde su caché vacía, y ahí «no hay documento» no significa que no
+ * exista, solo que todavía no ha llegado la respuesta de verdad.
+ */
 export function escuchar(app, uid, alRecibir, alFallar) {
   const s = servicios();
   if (!s || !uid) return () => {};
   return onSnapshot(
     referencia(s.db, uid, app),
-    { includeMetadataChanges: false },
+    { includeMetadataChanges: true },
     (snap) => {
       const d = snap.data();
-      alRecibir(d && d.datos ? d.datos : null, { local: snap.metadata.hasPendingWrites });
+      alRecibir(d && d.datos ? d.datos : null, {
+        local: snap.metadata.hasPendingWrites,
+        deCache: snap.metadata.fromCache,
+      });
     },
     (e) => {
       console.warn("Firestore:", e);

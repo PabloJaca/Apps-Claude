@@ -83,7 +83,11 @@ export function fusionar(local, remoto, esquema) {
   for (const campo of esquema.sellos) {
     const tl = sellosL[campo] || 0;
     const tr = sellosR[campo] || 0;
-    sellos[campo] = Math.max(tl, tr);
+    const marca = Math.max(tl, tr);
+    /* Un campo que nadie ha tocado se queda sin marca, en vez de aparecer con
+       un cero. Si no, fusionar lo mismo dos veces daría un resultado distinto
+       al original y cada dispositivo se creería obligado a volver a subirlo. */
+    if (marca) sellos[campo] = marca;
     salida[campo] = tr > tl ? remoto[campo] : local[campo];
   }
   salida.sellos = sellos;
