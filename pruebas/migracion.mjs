@@ -78,6 +78,7 @@ const saludV2 = {
   comidas: [
     { id: "c1", fecha: "2026-07-02", texto: "Lentejas con verduras", cantidad: "normal", momento: "comida", ts: 1 },
     { id: "c2", fecha: "2026-07-02", texto: "Yogur y nueces", cantidad: "poco", momento: "snack", ts: 2 },
+    { id: "c3", fecha: "2026-07-02", texto: "Pizza entera", cantidad: "mucho", momento: "cena", ts: 3 },
   ],
   dias: { "2026-07-02": { nota: 8, etiqueta: "Equilibrado", comentario: "…", kcalMin: 1800, kcalMax: 2100 } },
   valoraciones: { "semana|1|x": { titular: "algo" } },
@@ -87,7 +88,14 @@ const s = migrarSalud(saludV2);
 
 check("salud: no se pierde ningún peso", s.pesos.length === 3);
 check("salud: no se pierde ningún entreno", s.entrenos.length === 2);
-check("salud: no se pierde ninguna comida", s.comidas.length === 2);
+check("salud: no se pierde ninguna comida", s.comidas.length === 3);
+check(
+  "salud: poco/normal/mucho se traducen a volumen 2/3/4",
+  s.comidas.map((c) => c.volumen).join(",") === "3,2,4",
+  s.comidas.map((c) => c.volumen).join(",")
+);
+check("salud: las comidas viejas quedan sin saciedad, no inventada", s.comidas.every((c) => c.saciedad === null));
+check("salud: el campo cantidad desaparece", s.comidas.every((c) => c.cantidad === undefined));
 check("salud: el perfil se conserva entero", s.perfil.altura === "180" && s.perfil.objetivo === "bajar");
 check("salud: se tira la caché de valoraciones de pago", s.dias === undefined && s.valoraciones === undefined);
 check("salud: migrar es idempotente", JSON.stringify(migrarSalud(s)) === JSON.stringify(s));
