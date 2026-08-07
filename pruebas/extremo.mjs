@@ -277,6 +277,71 @@ const texto = (pag) => pag.innerText("body");
   await ctx.close();
 }
 
+/* ── 3bis. Repetir «lo de siempre» y la racha ────────────────────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  /* Seis días seguidos con la misma cena: eso es una costumbre, y la app
+     tiene que ofrecerla para repetirla. */
+  await pag.addInitScript(() => {
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dd = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return iso(d); };
+    const uid = "usuarios/uid_gema";
+    const docs = { "permitidos/gema@ejemplo.com": { nombre: "Gema" }, [uid]: { email: "gema@ejemplo.com" } };
+    // Una comida en cada momento del día, para que la prueba valga a cualquier hora.
+    for (let i = 0; i <= 5; i++) {
+      for (const m of ["desayuno", "comida", "snack", "cena"]) {
+        docs[`${uid}/comidas/c${i}${m}`] = { fecha: dd(i), texto: `Lo de siempre de ${m}`, momento: m, volumen: 4, saciedad: 3, ts: 1 };
+      }
+    }
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "gema@ejemplo.com": { clave: "secreta7", uid: "uid_gema" } }, docs,
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_gema", email: "gema@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1600);
+
+  check("la racha de 6 días se ve en la cabecera", /\b6\b/.test(await pag.innerText("header")), await pag.innerText("header"));
+
+  await pag.click("nav >> text=Comidas");
+  await pag.waitForTimeout(700);
+
+  const chips = await pag.$$eval("button", (bs) =>
+    bs.map((b) => b.textContent.trim()).filter((t) => /×\d+$/.test(t)));
+  check("se ofrece repetir lo que sueles comer a esta hora", chips.length > 0, JSON.stringify(chips));
+  check("y dice cuántas veces lo has comido", /×6$/.test(chips[0] || ""), chips[0]);
+
+  /* Lo que importa: repetir + guardar son dos toques, no seis. */
+  const antes = await pag.evaluate(() =>
+    Object.keys(window.__espia.verServidor().docs).filter((r) => /\/comidas\//.test(r)).length);
+  await pag.click('button:has-text("×6")');
+  await pag.waitForTimeout(300);
+  await pag.click("text=Añadir comida");
+  await pag.waitForTimeout(900);
+  const despues = await pag.evaluate(() =>
+    Object.keys(window.__espia.verServidor().docs).filter((r) => /\/comidas\//.test(r)).length);
+  check("repetir y guardar apunta la comida en dos toques", despues === antes + 1, `${antes} → ${despues}`);
+
+  check(
+    "la comida repetida conserva volumen y saciedad",
+    await pag.evaluate(() => Object.values(window.__espia.verServidor().docs)
+      .some((d) => d && d.volumen === 4 && d.saciedad === 3))
+  );
+
+  check("nada se sale de la pantalla a lo ancho",
+    await pag.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1),
+    String(await pag.evaluate(() => document.body.scrollWidth)));
+
+  check("repetir comida: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 /* ── 4. La lista de invitados ────────────────────────────────────────────── */
 
 {

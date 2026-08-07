@@ -182,5 +182,79 @@ check("avisa del pesaje que no se cree", informeRoto.avisos.some((a) => a.area =
 check("el pico no entra en el cambio de peso", Math.abs(informeRoto.cifras.peso.diferencia) < 1, String(informeRoto.cifras.peso.diferencia));
 check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendiente === null || Math.abs(informeRoto.cifras.peso.pendiente) <= 2, String(informeRoto.cifras.peso.pendiente));
 
+
+/* ── racha de días apuntados ─────────────────────────────────────────────── */
+
+{
+  const { racha, plural, comidasFrecuentes, iso } = await import("../src/salud/nucleo.js");
+
+  const dia = (n) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - n);
+    return iso(d);
+  };
+  const soloComidas = (fechas) => ({ pesos: [], entrenos: [], comidas: fechas.map((f) => ({ fecha: f, texto: "x" })) });
+
+  check("racha: sin nada apuntado es cero", racha({ pesos: [], entrenos: [], comidas: [] }).dias === 0);
+  check("racha: hoy y ayer son dos días", racha(soloComidas([dia(0), dia(1)])).dias === 2);
+  check("racha: se corta en el hueco", racha(soloComidas([dia(0), dia(1), dia(3)])).dias === 2);
+  check(
+    "racha: si hoy aún no has apuntado, no se rompe todavía",
+    racha(soloComidas([dia(1), dia(2), dia(3)])).dias === 3
+  );
+  check(
+    "racha: pero perder un día entero sí la rompe",
+    racha(soloComidas([dia(2), dia(3)])).dias === 0
+  );
+  check(
+    "racha: cuenta cualquier registro, no solo comidas",
+    racha({ pesos: [{ fecha: dia(0) }], entrenos: [{ fecha: dia(1) }], comidas: [] }).dias === 2
+  );
+  check(
+    "racha: dos registros el mismo día cuentan una vez",
+    racha({ pesos: [{ fecha: dia(0) }], entrenos: [{ fecha: dia(0) }], comidas: [] }).dias === 1
+  );
+  check("racha: dice si hoy ya está apuntado", racha(soloComidas([dia(0)])).hoy === true);
+
+  /* ── plurales ──────────────────────────────────────────────────────────── */
+
+  check("plural: uno va en singular", plural(1, "día") === "1 día");
+  check("plural: varios llevan ese", plural(5, "día") === "5 días");
+  check("plural: cero va en plural", plural(0, "día") === "0 días");
+  check("plural: se puede dar el plural a mano", plural(2, "día apuntado", "días apuntados") === "2 días apuntados");
+
+  /* ── comidas de siempre ────────────────────────────────────────────────── */
+
+  const historial = [
+    { fecha: dia(1), texto: "Café con leche y tostadas", momento: "desayuno", volumen: 3, saciedad: 2 },
+    { fecha: dia(2), texto: "café con leche y TOSTADAS", momento: "desayuno", volumen: 3, saciedad: 2 },
+    { fecha: dia(3), texto: "Café con leche y tostadas.", momento: "desayuno", volumen: 3, saciedad: 2 },
+    { fecha: dia(4), texto: "Zumo y galletas", momento: "desayuno", volumen: 2, saciedad: 1 },
+    { fecha: dia(5), texto: "Zumo y galletas", momento: "desayuno", volumen: 2, saciedad: 1 },
+    { fecha: dia(2), texto: "Lentejas", momento: "comida", volumen: 3, saciedad: 3 },
+    { fecha: dia(3), texto: "Lentejas", momento: "comida", volumen: 3, saciedad: 3 },
+    { fecha: dia(6), texto: "Algo que probé una vez", momento: "desayuno", volumen: 3 },
+    { fecha: dia(200), texto: "Lo de hace medio año", momento: "desayuno", volumen: 3 },
+    { fecha: dia(201), texto: "Lo de hace medio año", momento: "desayuno", volumen: 3 },
+  ];
+
+  const desayunos = comidasFrecuentes(historial, "desayuno");
+  check("frecuentes: agrupa mayúsculas, tildes y puntos como la misma comida", desayunos.length === 2, JSON.stringify(desayunos.map((d) => d.texto)));
+  check("frecuentes: manda lo más repetido y reciente", desayunos[0].texto === "Café con leche y tostadas", desayunos[0] && desayunos[0].texto);
+  check("frecuentes: lo probado una sola vez no sale", !desayunos.some((d) => /una vez/.test(d.texto)));
+  check("frecuentes: lo de hace medio año se olvida", !desayunos.some((d) => /medio año/.test(d.texto)));
+  check("frecuentes: solo del momento que se pide", comidasFrecuentes(historial, "comida").every((c) => c.momento === "comida"));
+  check("frecuentes: conserva volumen y saciedad", desayunos[0].volumen === 3 && desayunos[0].saciedad === 2);
+  check(
+    "frecuentes: no arrastra el id ni la fecha de la comida vieja",
+    desayunos.every((d) => d.id === undefined && d.fecha === undefined && d.ts === undefined),
+    JSON.stringify(desayunos[0])
+  );
+  check("frecuentes: dice cuántas veces la has comido", desayunos[0].veces === 3, String(desayunos[0].veces));
+  check("frecuentes: respeta el límite", comidasFrecuentes(historial, "desayuno", 1).length === 1);
+  check("frecuentes: sin historial no revienta", comidasFrecuentes([], "desayuno").length === 0);
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

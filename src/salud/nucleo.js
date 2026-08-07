@@ -164,6 +164,15 @@ export const detalleTramo = (periodo, offset) => {
 
 /* ── formato ─────────────────────────────────────────────────────────────── */
 
+/**
+ * «1 días apuntados» delata que detrás hay una plantilla y no alguien
+ * escribiendo. Se pasa siempre por aquí:  plural(1, "día") → "1 día".
+ * El plural por defecto es añadir una ese, y se puede dar a mano cuando no.
+ */
+export function plural(n, singular, muchos) {
+  return `${n} ${n === 1 ? singular : muchos || `${singular}s`}`;
+}
+
 export const num = (n, dec = 1) =>
   n === null || n === undefined || Number.isNaN(n) ? "—" : Number(n).toFixed(dec).replace(".", ",");
 export const miles = (n) => (n === null || n === undefined ? "—" : Math.round(n).toLocaleString("es-ES"));
@@ -193,6 +202,86 @@ export function calcularEnergia(perfil, pesoKg) {
     objetivo: obj,
     ajustado: gasto + obj.ajuste < suelo,
   };
+}
+
+/* ── racha ───────────────────────────────────────────────────────────────── */
+
+/**
+ * Días seguidos apuntando algo, sea lo que sea.
+ *
+ * Se premia el hábito, no el resultado: lo que hace que las cifras valgan es
+ * que estén todas, así que cuenta cualquier registro del día.
+ *
+ * Si hoy todavía no has apuntado nada la racha no se rompe —el día no ha
+ * terminado—, sigue contando desde ayer. Se rompe al perder un día entero.
+ */
+export function racha(datos, hoyIso = hoy()) {
+  const dias = new Set();
+  for (const lista of [datos.pesos, datos.entrenos, datos.comidas]) {
+    for (const r of lista || []) if (r && r.fecha) dias.add(r.fecha);
+  }
+  if (!dias.size) return { dias: 0, hoy: false };
+
+  const hayHoy = dias.has(hoyIso);
+  const cursor = desdeIso(hoyIso);
+  if (!hayHoy) cursor.setDate(cursor.getDate() - 1);
+
+  let cuenta = 0;
+  while (dias.has(iso(cursor))) {
+    cuenta++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return { dias: cuenta, hoy: hayHoy };
+}
+
+/* ── comidas de siempre ──────────────────────────────────────────────────── */
+
+/** Dos textos son la misma comida si se escriben igual salvo tildes y comas. */
+const huella = (texto) =>
+  String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")   // las tildes que suelta el normalize
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Lo que sueles comer a esta hora, para poder repetirlo de un toque.
+ *
+ * Manda la costumbre reciente: cada repetición cuenta, pero las de hace dos
+ * meses pesan la mitad que las de esta semana, de modo que la lista se mueve
+ * contigo en vez de quedarse anclada a lo que comías en enero.
+ */
+export function comidasFrecuentes(comidas, momento, limite = 3, hoyIso = hoy()) {
+  const grupos = new Map();
+  const hoyD = desdeIso(hoyIso);
+
+  for (const c of comidas || []) {
+    if (!c || !c.texto || (momento && c.momento !== momento)) continue;
+    const clave = huella(c.texto);
+    if (!clave) continue;
+
+    const dias = Math.max(0, Math.round((hoyD - desdeIso(c.fecha)) / 86400000));
+    if (dias > 90) continue;
+    const peso = dias <= 7 ? 1 : dias <= 30 ? 0.7 : 0.5;
+
+    const previo = grupos.get(clave);
+    if (previo) {
+      previo.puntos += peso;
+      previo.veces++;
+      // Se enseña la versión más reciente, que es como lo escribes ahora.
+      if (c.fecha > previo.fecha) Object.assign(previo, { ...c, puntos: previo.puntos, veces: previo.veces });
+    } else {
+      grupos.set(clave, { ...c, puntos: peso, veces: 1 });
+    }
+  }
+
+  return [...grupos.values()]
+    .filter((g) => g.veces >= 2)     // una sola vez no es una costumbre
+    .sort((a, b) => b.puntos - a.puntos || b.fecha.localeCompare(a.fecha))
+    .slice(0, limite)
+    .map(({ puntos, veces, id, fecha, ts, ...comida }) => ({ ...comida, veces }));
 }
 
 /* ── báscula: saltos que no se sostienen ─────────────────────────────────── */

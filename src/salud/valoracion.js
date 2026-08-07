@@ -13,7 +13,7 @@
 import {
   ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, desdeIso, detalleTramo,
   diasTranscurridos, enTramo, etiquetaTramo, miles, num, pesosFiables,
-  rangoMes, rangoSemana,
+  plural, rangoMes, rangoSemana,
 } from "./nucleo.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 
@@ -113,19 +113,19 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     avisos.push({
       area: "Registro",
       tono: "mal",
-      texto: `No has apuntado ni una comida en ${diasPasados} días. Sin eso no hay nada que valorar.`,
+      texto: `No has apuntado ni una comida en ${plural(diasPasados, "día")}. Sin eso no hay nada que valorar.`,
     });
   } else if (cobertura < 0.6) {
     avisos.push({
       area: "Registro",
       tono: "mal",
-      texto: `Solo ${dias.length} días apuntados de ${diasPasados}. Con el registro a medias, las cifras de abajo valen poco.`,
+      texto: `Solo ${plural(dias.length, "día apuntado", "días apuntados")} de ${diasPasados}. Con el registro a medias, las cifras de abajo valen poco.`,
     });
   } else if (cobertura < 0.9) {
     avisos.push({
       area: "Registro",
       tono: "regular",
-      texto: `Te faltan ${diasPasados - dias.length} días por apuntar de ${diasPasados}.`,
+      texto: `Te ${diasPasados - dias.length === 1 ? "falta" : "faltan"} ${plural(diasPasados - dias.length, "día")} por apuntar de ${diasPasados}.`,
     });
   }
 
@@ -134,7 +134,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     avisos.push({
       area: "Entrenos",
       tono: "mal",
-      texto: `Cero entrenos en ${diasPasados} días. Deberían haber sido ${objetivoEntrenos}.`,
+      texto: `Cero entrenos en ${plural(diasPasados, "día")}. Deberían haber sido ${objetivoEntrenos}.`,
     });
   } else if (diasEntrenados < objetivoEntrenos) {
     const faltan = objetivoEntrenos - diasEntrenados;
@@ -147,7 +147,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     avisos.push({
       area: "Entrenos",
       tono: "bien",
-      texto: `${diasEntrenados} días entrenados y ${minutos} minutos. Ahí no hay nada que corregir.`,
+      texto: `${plural(diasEntrenados, "día entrenado", "días entrenados")} y ${plural(minutos, "minuto")}. Ahí no hay nada que corregir.`,
     });
   }
 
@@ -196,7 +196,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       avisos.push({
         area: "Comidas",
         tono: "mal",
-        texto: `${balance.encima} días por encima de la diana y solo ${balance.debajo} por debajo. Es al revés de lo que hace falta.`,
+        texto: `${plural(balance.encima, "día")} por encima de la diana y solo ${balance.debajo} por debajo. Es al revés de lo que hace falta.`,
       });
     }
   } else if (!energia && dias.length) {
@@ -234,7 +234,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       area: "Peso",
       tono: vaBien ? "bien" : "mal",
       texto: vaBien
-        ? `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg en ${diasPasados} días. Va hacia donde quieres.`
+        ? `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg en ${plural(diasPasados, "día")}. Va hacia donde quieres.`
         : Math.abs(diferencia) < 0.15
         ? `El peso no se mueve: ${num(primero)} a ${num(ultimo)} kg. Con tu objetivo de ${energia.objetivo.verbo}, eso es no avanzar.`
         : `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg y tu objetivo es ${energia.objetivo.verbo}. Va al revés.`,

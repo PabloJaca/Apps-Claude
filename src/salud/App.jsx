@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar } from "recharts";
 import {
   Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Pencil, CalendarDays,
-  Sparkles, Users, Activity, Bike, TrendingUp, TrendingDown, Minus, User,
-  Check, ChevronRight, Flame, Coffee, Moon, Apple, Download, Upload, Info,
+  RotateCcw, Sparkles, Users, Activity, Bike, TrendingUp, TrendingDown, Minus,
+  User, Check, ChevronRight, Flame, Coffee, Moon, Apple, Download, Upload, Info,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
@@ -15,9 +15,9 @@ import {
   ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, MESES_LARGOS, OBJETIVOS,
   PERFIL_VACIO, SACIEDADES,
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
-  enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta, hoy, importar,
-  inicioSemana, leerLegado, miles, num, olvidarLegado, rangoMes, rangoSemana,
-  revisarPeso, saciedadDe, volumenDe,
+  comidasFrecuentes, enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta,
+  hoy, importar, inicioSemana, leerLegado, miles, num, olvidarLegado, plural,
+  racha, rangoMes, rangoSemana, revisarPeso, saciedadDe, volumenDe,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -610,7 +610,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
         </p>
 
         {deHoy.length > 0 && (
-          <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 6, marginBottom: 14 }}>
             {deHoy.map((e) => {
               const t = tipoDe(e.tipo);
               return (
@@ -720,8 +720,96 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
     setTexto(""); setVolumen(3); setSaciedad(null); setMomento(momentoPorHora());
   };
 
+  /* Lo que sueles comer a esta hora. Repetirlo deja el formulario listo para
+     guardar: dos toques en vez de seis, que es lo que se hace cinco veces al
+     día. No lo guarda solo, por si hoy quieres cambiarle algo. */
+  const deSiempre = useMemo(
+    () => comidasFrecuentes(datos.comidas, momento),
+    [datos.comidas, momento]
+  );
+
+  const repetir = (c) => {
+    setTexto(c.texto);
+    setVolumen(c.volumen || 3);
+    setSaciedad(c.saciedad ?? null);
+  };
+
   return (
     <div className="rejilla">
+      {/* El formulario va primero a propósito: es lo que se usa cinco veces
+          al día. El resumen y la diana quedan justo debajo, que se leen una. */}
+      <Card>
+        <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: C.ink, margin: "0 0 10px" }}>
+          {comidasHoy.length ? `Añadir otra comida (${comidasHoy.length} hoy)` : "¿Qué has comido?"}
+        </p>
+
+        {comidasHoy.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 6, marginBottom: 12 }}>
+            {comidasHoy.map((c) => {
+              const m = momentoDe(c.momento);
+              return (
+                <div key={c.id} className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "8px 10px" }}>
+                  <m.Icon size={14} color={m.color} strokeWidth={2.4} />
+                  <span style={{ fontFamily: body, fontSize: 13, color: C.ink, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {c.texto}
+                  </span>
+                  <span style={{ fontFamily: body, fontSize: 11.5, color: C.faint }}>{m.label}</span>
+                  <Acciones size={13} que="la comida" onEditar={() => editar("comidas", c)} onBorrar={() => borrar("comidas", c.id)} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {deSiempre.length > 0 && !texto && (
+          <div style={{ marginBottom: 12 }}>
+            <Rotulo>Lo de siempre</Rotulo>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 6, marginTop: 7 }}>
+              {deSiempre.map((c) => (
+                <button key={c.texto} onClick={() => repetir(c)} className="flex items-center gap-2"
+                  style={{
+                    border: "none", cursor: "pointer", borderRadius: 14, padding: "10px 12px",
+                    background: C.tealSoft, textAlign: "left", width: "100%",
+                  }}>
+                  <RotateCcw size={14} color={C.teal} strokeWidth={2.6} style={{ flexShrink: 0 }} />
+                  <span style={{ fontFamily: body, fontSize: 13.5, fontWeight: 600, color: C.ink, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {c.texto}
+                  </span>
+                  <span style={{ fontFamily: mono, fontSize: 11, color: C.teal, flexShrink: 0 }}>×{c.veces}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2}
+          placeholder="Ensalada de lentejas y un yogur"
+          style={{ ...inputBase, resize: "none", lineHeight: 1.45 }} />
+        <div style={{ marginTop: 12 }}><Rotulo>Momento</Rotulo></div>
+        <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
+          {MOMENTOS.map((m) => (
+            <button key={m.id} onClick={() => setMomento(m.id)} className="flex items-center gap-1.5"
+              style={{
+                border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 13px",
+                fontFamily: body, fontWeight: 600, fontSize: 13,
+                background: momento === m.id ? m.color : m.soft, color: momento === m.id ? "#fff" : m.color,
+              }}>
+              <m.Icon size={14} strokeWidth={2.4} />{m.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <Escala titulo="Volumen de comida" opciones={VOLUMENES} valor={volumen} onChange={setVolumen} />
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <Escala titulo="Cómo te dejó" opciones={SACIEDADES} valor={saciedad} onChange={setSaciedad}
+            color={C.indigo} opcional />
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <BotonGuardar onClick={enviar} disabled={texto.trim().length < 2}>Añadir comida</BotonGuardar>
+        </div>
+      </Card>
+
       <Card className="ancho" style={{ background: `linear-gradient(155deg, ${C.mintSoft} 0%, ${C.card} 60%)`, padding: 20 }}>
         <Rotulo>Hoy</Rotulo>
         {!ev && <Vacio texto="Anota lo que comas y valoro el día entero al vuelo." />}
@@ -842,57 +930,6 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
         </Card>
       )}
 
-      <Card>
-        <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: C.ink, margin: "0 0 10px" }}>
-          {comidasHoy.length ? `Añadir otra comida (${comidasHoy.length} hoy)` : "¿Qué has comido?"}
-        </p>
-
-        {comidasHoy.length > 0 && (
-          <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
-            {comidasHoy.map((c) => {
-              const m = momentoDe(c.momento);
-              return (
-                <div key={c.id} className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "8px 10px" }}>
-                  <m.Icon size={14} color={m.color} strokeWidth={2.4} />
-                  <span style={{ fontFamily: body, fontSize: 13, color: C.ink, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {c.texto}
-                  </span>
-                  <span style={{ fontFamily: body, fontSize: 11.5, color: C.faint }}>{m.label}</span>
-                  <Acciones size={13} que="la comida" onEditar={() => editar("comidas", c)} onBorrar={() => borrar("comidas", c.id)} />
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2}
-          placeholder="Ensalada de lentejas y un yogur"
-          style={{ ...inputBase, resize: "none", lineHeight: 1.45 }} />
-        <div style={{ marginTop: 12 }}><Rotulo>Momento</Rotulo></div>
-        <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
-          {MOMENTOS.map((m) => (
-            <button key={m.id} onClick={() => setMomento(m.id)} className="flex items-center gap-1.5"
-              style={{
-                border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 13px",
-                fontFamily: body, fontWeight: 600, fontSize: 13,
-                background: momento === m.id ? m.color : m.soft, color: momento === m.id ? "#fff" : m.color,
-              }}>
-              <m.Icon size={14} strokeWidth={2.4} />{m.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <Escala titulo="Volumen de comida" opciones={VOLUMENES} valor={volumen} onChange={setVolumen} />
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <Escala titulo="Cómo te dejó" opciones={SACIEDADES} valor={saciedad} onChange={setSaciedad}
-            color={C.indigo} opcional />
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <BotonGuardar onClick={enviar} disabled={texto.trim().length < 2}>Añadir comida</BotonGuardar>
-        </div>
-      </Card>
-
       <Historial
         titulo="Días"
         rejilla
@@ -921,7 +958,7 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
                 )}
               </div>
               {e && <p style={{ fontFamily: body, fontSize: 13, color: C.mid, margin: "0 0 9px" }}>{e.etiqueta}</p>}
-              <div style={{ display: "grid", gap: 7 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7 }}>
                 {d.lista.map((c) => {
                   const m = momentoDe(c.momento);
                   return (
@@ -1559,6 +1596,8 @@ function Aplicacion({ sesion }) {
     [importarDatos]
   );
 
+  const laRacha = useMemo(() => racha(datos), [datos]);
+
   const TABS = [
     { id: "peso", label: "Peso", Icon: Scale },
     { id: "entrenos", label: "Entrenos", Icon: Dumbbell },
@@ -1573,8 +1612,24 @@ function Aplicacion({ sesion }) {
 
       <header className="contenedor" style={{ padding: "20px 16px 6px" }}>
         <div className="flex items-center justify-between">
-          <div>
-            <Rotulo>{etiquetaFecha(hoy())}</Rotulo>
+          <div style={{ minWidth: 0 }}>
+            <div className="flex items-center gap-2">
+              <Rotulo>{etiquetaFecha(hoy())}</Rotulo>
+              {laRacha.dias >= 2 && (
+                <span
+                  title={laRacha.hoy ? "Días seguidos apuntando" : "Apunta hoy para no perderla"}
+                  className="flex items-center gap-1"
+                  style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 600, letterSpacing: 0,
+                    color: laRacha.hoy ? C.amber : C.faint,
+                    background: laRacha.hoy ? C.amberSoft : C.soft,
+                    borderRadius: 999, padding: "2px 8px", flexShrink: 0,
+                  }}
+                >
+                  <Flame size={11} strokeWidth={2.6} /> {laRacha.dias}
+                </span>
+              )}
+            </div>
             <h1 style={{ fontFamily: display, fontWeight: 800, fontSize: 29, color: C.ink, lineHeight: 1.1, letterSpacing: -0.7, margin: 0 }}>
               {TABS.find((t) => t.id === tab).label}
             </h1>
