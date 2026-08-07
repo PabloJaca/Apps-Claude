@@ -102,6 +102,20 @@ await check("comida: acepta que falte la saciedad", assertSucceeds(guarda("comid
 
 await check("entreno: rechaza 40 horas de gimnasio", assertFails(guarda("entrenos", { fecha: "2026-08-07", tipo: "fuerza", minutos: 2400 })));
 await check("entreno: acepta uno normal", assertSucceeds(guarda("entrenos", { fecha: "2026-08-07", tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1 })));
+await check("entreno: acepta uno sin minutos, si trae ejercicios", assertSucceeds(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "fuerza", ts: 1,
+  ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 80, rir: 2 }, { reps: 6, kg: 82.5 }] },
+               { nombre: "Dominadas", series: [{ reps: 10, kg: null }] }],
+})));
+await check("entreno: acepta cardio con distancia", assertSucceeds(guarda("entrenos", { fecha: "2026-08-07", tipo: "cardio", minutos: 45, km: 8.2, ts: 1 })));
+await check("entreno: rechaza una distancia absurda", assertFails(guarda("entrenos", { fecha: "2026-08-07", tipo: "cardio", minutos: 45, km: 99999 })));
+await check("entreno: rechaza treinta y pico ejercicios", assertFails(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "fuerza", ts: 1,
+  ejercicios: Array.from({ length: 40 }, (_, i) => ({ nombre: `E${i}`, series: [{ reps: 8, kg: 20 }] })),
+})));
+await check("entreno: rechaza ejercicios que no son una lista", assertFails(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "fuerza", ts: 1, ejercicios: "press banca",
+})));
 
 await check("gasto: rechaza un importe desorbitado", assertFails(guarda("gastos", { fecha: "2026-08-07", importe: 99999999, categoria: "comida" })));
 await check("gasto: acepta uno normal", assertSucceeds(guarda("gastos", { fecha: "2026-08-07", importe: 23.5, categoria: "comida", nota: "cena" })));

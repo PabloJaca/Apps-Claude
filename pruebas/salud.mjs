@@ -344,5 +344,81 @@ check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendien
   check("media móvil: sin pesajes devuelve lista vacía", mediaMovil([]).length === 0);
 }
 
+
+/* ── entrenos de fuerza: ejercicios, series y progresión ─────────────────── */
+
+{
+  const n = await import("../src/salud/nucleo.js");
+
+  check("1RM: Epley sobre 80x8 da unos 101 kg", n.unaRepeticion(80, 8) === 101.3, String(n.unaRepeticion(80, 8)));
+  check("1RM: una sola repetición es el propio peso", n.unaRepeticion(100, 1) === 103.3, String(n.unaRepeticion(100, 1)));
+  check("1RM: sin peso no hay estimación", n.unaRepeticion(null, 10) === null);
+  check("1RM: peso corporal no se estima", n.unaRepeticion(0, 12) === null);
+
+  const series = [{ reps: 8, kg: 80 }, { reps: 5, kg: 90 }, { reps: 12, kg: 60 }];
+  check("mejor serie: gana la de más 1RM estimado, no la de más kilos",
+    n.mejorSerie(series).reps === 5 && n.mejorSerie(series).kg === 90, JSON.stringify(n.mejorSerie(series)));
+  check("mejor serie: sin series no revienta", n.mejorSerie([]) === null);
+  check("mejor serie: solo peso corporal no da mejor serie", n.mejorSerie([{ reps: 10, kg: null }]) === null);
+
+  const entreno = { fecha: "2026-08-05", tipo: "fuerza", ejercicios: [
+    { nombre: "Press banca", series: [{ reps: 8, kg: 80 }, { reps: 8, kg: 80 }] },
+    { nombre: "Dominadas", series: [{ reps: 10, kg: null }] },
+  ] };
+  const r = n.resumenFuerza(entreno);
+  check("resumen: cuenta ejercicios, series y repeticiones", r.ejercicios === 2 && r.series === 3 && r.reps === 26, JSON.stringify(r));
+  check("resumen: el volumen son kilos por repetición", r.volumen === 1280, String(r.volumen));
+  check("resumen: el peso corporal no suma kilos pero sí series", r.volumen === 80 * 8 * 2);
+  check("resumen: un entreno sin ejercicios da ceros", n.resumenFuerza({ fecha: "x" }).series === 0);
+
+  /* Tres sesiones subiendo el press banca. */
+  const historial = [
+    { fecha: "2026-07-01", tipo: "fuerza", ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 70 }] }] },
+    { fecha: "2026-07-15", tipo: "fuerza", ejercicios: [{ nombre: "press de banca", series: [{ reps: 8, kg: 75 }] }] },
+    { fecha: "2026-08-01", tipo: "fuerza", ejercicios: [
+      { nombre: "Press banca", series: [{ reps: 8, kg: 80 }, { reps: 6, kg: 82.5 }] },
+      { nombre: "Sentadilla", series: [{ reps: 5, kg: 100 }] },
+    ] },
+    { fecha: "2026-08-02", tipo: "cardio", minutos: 40, km: 8 },
+  ];
+
+  check("mismo ejercicio: «Press banca» y «press de banca» son el mismo", n.mismoEjercicio("Press banca", "press de banca"));
+  check("mismo ejercicio: press banca y sentadilla no", !n.mismoEjercicio("Press banca", "Sentadilla"));
+
+  const usados = n.ejerciciosUsados(historial);
+  check("usados: agrupa las variantes de escritura", usados.length === 2, JSON.stringify(usados.map((u) => u.nombre)));
+  check("usados: el más repetido va primero", usados[0].veces === 3, JSON.stringify(usados[0]));
+  check("usados: guarda el nombre tal como lo escribiste la última vez", usados[0].nombre === "Press banca");
+
+  const ultima = n.ultimaVezEjercicio(historial, "PRESS BANCA");
+  check("última vez: coge la sesión más reciente", ultima.fecha === "2026-08-01", JSON.stringify(ultima));
+  check("última vez: trae las series para poder precargarlas", ultima.series.length === 2);
+  check("última vez: un ejercicio que nunca has hecho da null", n.ultimaVezEjercicio(historial, "Peso muerto") === null);
+
+  const prog = n.progresionEjercicio(historial, "Press banca");
+  check("progresión: una entrada por sesión", prog.length === 3, String(prog.length));
+  check("progresión: va en orden de fecha", prog[0].fecha === "2026-07-01" && prog[2].fecha === "2026-08-01");
+  check("progresión: el 1RM estimado sube", prog[0].mejor.estimado < prog[2].mejor.estimado);
+  check("progresión: suma el volumen de la sesión", prog[2].volumen === 80 * 8 + 82.5 * 6, String(prog[2].volumen));
+
+  const rec = n.recordEjercicio(historial, "Press banca");
+  /* 80x8 vale más que 82,5x6 (101,3 frente a 99,0 de 1RM estimado). Levantar
+     más kilos no es siempre la mejor serie, y para eso está la fórmula. */
+  check("récord: gana la mejor serie, no la de más kilos",
+    rec.serie.kg === 80 && rec.serie.reps === 8 && rec.serie.estimado === 101.3, JSON.stringify(rec));
+  check("récord: sabe que lo acabas de batir", rec.esElUltimo === true);
+  check("récord: cuenta las sesiones", rec.sesiones === 3);
+  check("récord: sin historial no revienta", n.recordEjercicio([], "Press banca") === null);
+
+  const ult = n.ultimoEntrenoConEjercicios(historial);
+  check("repetir: coge el último entreno con ejercicios", ult.fecha === "2026-08-01", JSON.stringify(ult && ult.fecha));
+  check("repetir: se salta el cardio, que no tiene ejercicios", ult.tipo === "fuerza");
+  check("repetir: se puede excluir el día de hoy", n.ultimoEntrenoConEjercicios(historial, "2026-08-01").fecha === "2026-07-15");
+  check("repetir: sin entrenos de fuerza devuelve null", n.ultimoEntrenoConEjercicios([{ fecha: "x", tipo: "cardio" }]) === null);
+
+  check("sugerencias: hay una lista para empezar", n.EJERCICIOS_SUGERIDOS.length > 30);
+  check("sugerencias: sin repetidos", new Set(n.EJERCICIOS_SUGERIDOS).size === n.EJERCICIOS_SUGERIDOS.length);
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

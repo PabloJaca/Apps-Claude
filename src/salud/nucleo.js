@@ -204,6 +204,153 @@ export function calcularEnergia(perfil, pesoKg) {
   };
 }
 
+/* ── entrenos de fuerza: ejercicios y series ─────────────────────────────── */
+
+/* Sugerencias para no tener que escribir a pelo la primera vez. Viven en el
+   código, no en la base de datos: son una ayuda al escribir, no datos tuyos.
+   Lo que se guarda es el nombre que acabes poniendo. */
+export const EJERCICIOS_SUGERIDOS = [
+  // empuje
+  "Press banca", "Press inclinado", "Press militar", "Press mancuernas",
+  "Fondos", "Flexiones", "Aperturas", "Extensión de tríceps", "Press francés",
+  // tirón
+  "Dominadas", "Jalón al pecho", "Remo con barra", "Remo con mancuerna",
+  "Remo en polea", "Face pull", "Curl con barra", "Curl con mancuernas",
+  "Curl martillo", "Encogimientos",
+  // pierna
+  "Sentadilla", "Sentadilla frontal", "Prensa", "Peso muerto",
+  "Peso muerto rumano", "Zancadas", "Búlgaras", "Extensión de cuádriceps",
+  "Curl femoral", "Hip thrust", "Gemelos", "Abductores",
+  // core y otros
+  "Plancha", "Elevación de piernas", "Rueda abdominal", "Crunch",
+  "Remo al mentón", "Elevaciones laterales", "Pájaros", "Pull over",
+];
+
+/* Las palabras de relleno se caen al comparar: «Press banca» y «press de
+   banca» son el mismo ejercicio y no pueden partir la progresión en dos. Lo
+   que distingue de verdad —barra, mancuernas, polea, inclinado— se queda. */
+const RELLENO = new Set(["de", "del", "la", "el", "los", "las", "con", "en", "a", "al", "y"]);
+
+const huellaEjercicio = (nombre) =>
+  huella(nombre).split(" ").filter((p) => p && !RELLENO.has(p)).join(" ");
+
+/** Si dos nombres se refieren al mismo ejercicio. */
+export const mismoEjercicio = (a, b) => huellaEjercicio(a) === huellaEjercicio(b);
+
+/** Estimación de tu máximo a una repetición (Epley). Sirve para comparar
+    series desiguales: 80×8 y 90×5 no se pueden mirar a ojo. */
+export function unaRepeticion(kg, reps) {
+  if (!(kg > 0) || !(reps > 0)) return null;
+  return Number((kg * (1 + reps / 30)).toFixed(1));
+}
+
+/** La serie que más vale de un ejercicio, medida por 1RM estimado. */
+export function mejorSerie(series) {
+  let mejor = null;
+  for (const s of series || []) {
+    const e = unaRepeticion(s.kg, s.reps);
+    if (e !== null && (!mejor || e > mejor.estimado)) mejor = { ...s, estimado: e };
+  }
+  return mejor;
+}
+
+/** Series, repeticiones y kilos movidos de un entreno. Se calcula, no se guarda. */
+export function resumenFuerza(entreno) {
+  let series = 0;
+  let reps = 0;
+  let volumen = 0;
+  for (const ej of (entreno && entreno.ejercicios) || []) {
+    for (const s of ej.series || []) {
+      series++;
+      reps += Number(s.reps) || 0;
+      // El peso corporal no suma kilos, pero la serie y las reps sí cuentan.
+      if (s.kg > 0) volumen += s.kg * (Number(s.reps) || 0);
+    }
+  }
+  return { ejercicios: ((entreno && entreno.ejercicios) || []).length, series, reps, volumen: Math.round(volumen) };
+}
+
+/** Los ejercicios que ya has hecho, para el autocompletado y para repetirlos. */
+export function ejerciciosUsados(entrenos) {
+  const mapa = new Map();
+  for (const e of entrenos || []) {
+    for (const ej of e.ejercicios || []) {
+      const clave = huellaEjercicio(ej.nombre);
+      if (!clave) continue;
+      const previo = mapa.get(clave);
+      if (!previo) {
+        mapa.set(clave, { nombre: ej.nombre, veces: 1, fecha: e.fecha, series: ej.series || [] });
+      } else {
+        previo.veces++;
+        if (e.fecha > previo.fecha) {
+          previo.fecha = e.fecha;
+          previo.nombre = ej.nombre;      // como lo escribes últimamente
+          previo.series = ej.series || [];
+        }
+      }
+    }
+  }
+  return [...mapa.values()].sort((a, b) => b.veces - a.veces || b.fecha.localeCompare(a.fecha));
+}
+
+/** Cómo hiciste este ejercicio la última vez: sirve para precargar los pesos. */
+export function ultimaVezEjercicio(entrenos, nombre) {
+  const clave = huellaEjercicio(nombre);
+  let mejor = null;
+  for (const e of entrenos || []) {
+    for (const ej of e.ejercicios || []) {
+      if (huellaEjercicio(ej.nombre) !== clave) continue;
+      if (!mejor || e.fecha > mejor.fecha) mejor = { fecha: e.fecha, series: ej.series || [] };
+    }
+  }
+  return mejor;
+}
+
+/** El último entreno de fuerza con ejercicios, para poder repetirlo entero. */
+export function ultimoEntrenoConEjercicios(entrenos, excluirFecha) {
+  return [...(entrenos || [])]
+    .filter((e) => (e.ejercicios || []).length && e.fecha !== excluirFecha)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || (b.ts || 0) - (a.ts || 0))[0] || null;
+}
+
+/**
+ * Cómo ha ido un ejercicio en el tiempo: una entrada por día, con la mejor
+ * serie y los kilos movidos. Es lo que responde «¿estoy progresando?».
+ */
+export function progresionEjercicio(entrenos, nombre) {
+  const clave = huellaEjercicio(nombre);
+  const porFecha = new Map();
+  for (const e of entrenos || []) {
+    for (const ej of e.ejercicios || []) {
+      if (huellaEjercicio(ej.nombre) !== clave) continue;
+      const mejor = mejorSerie(ej.series);
+      let volumen = 0;
+      for (const s of ej.series || []) if (s.kg > 0) volumen += s.kg * (Number(s.reps) || 0);
+      const previo = porFecha.get(e.fecha);
+      if (!previo || (mejor && (!previo.mejor || mejor.estimado > previo.mejor.estimado))) {
+        porFecha.set(e.fecha, { fecha: e.fecha, mejor, volumen: Math.round(volumen + (previo ? previo.volumen : 0)) });
+      } else {
+        previo.volumen = Math.round(previo.volumen + volumen);
+      }
+    }
+  }
+  return [...porFecha.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+/** Tu mejor marca en un ejercicio, y si la acabas de batir. */
+export function recordEjercicio(entrenos, nombre) {
+  const historia = progresionEjercicio(entrenos, nombre).filter((p) => p.mejor);
+  if (!historia.length) return null;
+  let record = historia[0];
+  for (const p of historia) if (p.mejor.estimado > record.mejor.estimado) record = p;
+  return {
+    fecha: record.fecha,
+    serie: record.mejor,
+    esElUltimo: record.fecha === historia[historia.length - 1].fecha,
+    sesiones: historia.length,
+  };
+}
+
 /* ── tendencia del peso ──────────────────────────────────────────────────── */
 
 /**

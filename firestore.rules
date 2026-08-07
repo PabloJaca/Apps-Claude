@@ -80,10 +80,17 @@ service cloud.firestore {
              && opcional('nota', 140);
     }
 
+    /* Ojo: las reglas no saben mirar dentro de una lista, así que de
+       `ejercicios` solo se puede comprobar que es una lista y que no trae
+       treinta y pico cosas. Lo de dentro lo valida la aplicación. El tope de
+       campos y el de elementos acotan el tamaño, que es lo que aquí importa. */
     function entrenoOk() {
-      return fechaOk() && campos(8)
-             && entre(d().minutos, 1, 1440)
+      return fechaOk() && campos(10)
              && cadena(d().tipo, 20)
+             && (!('minutos' in d()) || entre(d().minutos, 1, 1440))
+             && (!('km' in d()) || d().km == null || entre(d().km, 0, 1000))
+             && (!('ejercicios' in d())
+                 || (d().ejercicios is list && d().ejercicios.size() <= 30))
              && opcional('intensidad', 20);
     }
 
