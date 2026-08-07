@@ -1,8 +1,12 @@
 # Publica la carpeta /sitio en GitHub Pages cada vez que se actualiza main.
 #
 # Antes de publicar compila desde el código fuente y pasa las pruebas, así que
-# lo que acaba online siempre corresponde a lo que hay en /src y nunca sale una
-# versión con la fusión de datos o la migración rotas.
+# lo que acaba online siempre corresponde a lo que hay en /src.
+#
+# Entre las pruebas va una que abre las dos aplicaciones en un navegador de
+# verdad, entra con dos cuentas distintas y comprueba que ninguna ve los datos
+# de la otra. Tarda algo más, pero es exactamente el fallo que hubo una vez y
+# no puede volver a colarse.
 
 name: Publicar el sitio
 
@@ -40,8 +44,14 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Pruebas de fusión y migración
+      - name: Pruebas de aislamiento, migración y valoración
         run: npm run probar
+
+      - name: Instalar el navegador de pruebas
+        run: npx playwright install --with-deps chromium
+
+      - name: Prueba de punta a punta con dos cuentas
+        run: npm run probar-navegador
 
       - name: Compilar
         run: npm run build

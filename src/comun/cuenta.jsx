@@ -1,37 +1,35 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Pantalla de cuenta, compartida por las dos apps.
-
-   Va con estilos en línea y recibe la paleta de cada app, así encaja tanto
-   en Gastos (verde azulado) como en Salud sin duplicar componentes.
+   Pantalla de cuenta: quién eres, cerrar sesión, copia de seguridad, y el
+   rescate de los datos que quedaran guardados por la versión anterior.
    ───────────────────────────────────────────────────────────────────────── */
 
 import React, { useEffect, useState } from "react";
-import { Cloud, CloudOff, RefreshCw, Check, X, LogOut, Smartphone } from "lucide-react";
-import { entrar, hayNube, recuperar, registrar, salir, nombreDispositivo } from "./nube.js";
+import {
+  Check, Cloud, CloudOff, Download, LogOut, RefreshCw, Smartphone, Trash2, Upload, X,
+} from "lucide-react";
+import { nombreDispositivo, salir } from "./nube.js";
 
 export const TEXTO_ESTADO = {
-  "sin-nube": "Solo en este dispositivo",
-  local: "Sin sincronizar",
+  "sin-sesion": "Sin sesión",
   conectando: "Conectando…",
   sincronizando: "Sincronizando…",
-  "al-dia": "Sincronizado",
-  error: "Sin conexión",
+  guardando: "Guardando…",
+  "al-dia": "Guardado en tu cuenta",
+  error: "Error de conexión",
 };
 
-/* En la cabecera no cabe la frase entera, así que ahí va la versión corta.
-   La larga se queda en el title y en la pantalla de cuenta. */
 const ETIQUETA_CORTA = {
-  "sin-nube": "Local",
-  local: "Sin cuenta",
+  "sin-sesion": "—",
   conectando: "…",
   sincronizando: "…",
-  "al-dia": "Al día",
-  error: "Sin red",
+  guardando: "…",
+  "al-dia": "Guardado",
+  error: "Error",
 };
 
 export function PastillaSync({ estado, onAbrir, paleta }) {
   const p = paleta;
-  const girando = estado === "sincronizando" || estado === "conectando";
+  const girando = estado === "sincronizando" || estado === "conectando" || estado === "guardando";
   const bien = estado === "al-dia";
   const Icono = bien ? Cloud : girando ? RefreshCw : CloudOff;
   const color = bien ? p.acento : estado === "error" ? p.coral : p.faint;
@@ -40,7 +38,7 @@ export function PastillaSync({ estado, onAbrir, paleta }) {
     <button
       onClick={onAbrir}
       title={TEXTO_ESTADO[estado]}
-      aria-label={`Cuenta y copia de seguridad. Estado: ${TEXTO_ESTADO[estado]}`}
+      aria-label={`Cuenta. Estado: ${TEXTO_ESTADO[estado]}`}
       style={{
         display: "inline-flex", alignItems: "center", gap: 6, border: "none",
         cursor: "pointer", background: p.card, boxShadow: p.sombra,
@@ -54,14 +52,16 @@ export function PastillaSync({ estado, onAbrir, paleta }) {
   );
 }
 
-export function PantallaCuenta({ paleta, sesion, estado, onCerrar, extra }) {
+export function PantallaCuenta({
+  paleta, sesion, estado, error, legado,
+  onImportar, onDescartarLegado, onExportar, onRestaurar, onVaciar, onCerrar,
+}) {
   const p = paleta;
-  const [modo, setModo] = useState("entrar");
-  const [email, setEmail] = useState("");
-  const [clave, setClave] = useState("");
-  const [error, setError] = useState(null);
+  const [pendiente, setPendiente] = useState(null);
   const [aviso, setAviso] = useState(null);
+  const [confirmando, setConfirmando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
+  const refArchivo = React.useRef(null);
 
   useEffect(() => {
     const alPulsar = (e) => e.key === "Escape" && onCerrar();
@@ -69,174 +69,188 @@ export function PantallaCuenta({ paleta, sesion, estado, onCerrar, extra }) {
     return () => window.removeEventListener("keydown", alPulsar);
   }, [onCerrar]);
 
-  const campo = {
-    width: "100%", border: `1.5px solid ${p.line}`, background: p.suave,
-    borderRadius: 14, padding: "13px 14px", fontSize: 16, color: p.ink,
-    fontFamily: p.body, outline: "none",
-  };
-  const boton = {
-    width: "100%", border: "none", borderRadius: 16, padding: "14px 0",
-    background: p.acento, color: "#fff", fontFamily: p.display, fontWeight: 700,
-    fontSize: 15.5, cursor: "pointer", marginTop: 12,
-  };
-  const enlace = {
-    background: "none", border: "none", color: p.acento, fontFamily: p.body,
-    fontWeight: 600, fontSize: 13.5, cursor: "pointer", padding: "10px 0",
-  };
-  const tarjeta = {
-    background: p.card, borderRadius: 24, boxShadow: p.sombra, padding: 20,
-    marginBottom: 14,
-  };
-  const parrafo = { fontFamily: p.body, fontSize: 13.5, color: p.mid, lineHeight: 1.55, margin: 0 };
-  const titulo = { fontFamily: p.display, fontWeight: 700, fontSize: 17, color: p.ink, margin: "0 0 6px" };
+  useEffect(() => {
+    if (legado) setPendiente(legado());
+  }, [legado]);
 
-  const enviar = async () => {
-    setError(null);
-    setAviso(null);
-    if (!email.trim() || clave.length < 6) {
-      setError("Necesito un correo y una contraseña de 6 caracteres o más.");
-      return;
-    }
+  const tarjeta = { background: p.card, borderRadius: 24, boxShadow: p.sombra, padding: 20, marginBottom: 14 };
+  const parrafo = { fontFamily: p.body, fontSize: 13.5, color: p.mid, lineHeight: 1.55, margin: 0 };
+  const titulo = { fontFamily: p.display, fontWeight: 700, fontSize: 17, color: p.ink, margin: "0 0 8px" };
+  const boton = {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+    border: "none", borderRadius: 16, padding: "13px 12px", cursor: "pointer",
+    background: p.suave, color: p.mid, fontFamily: p.body, fontWeight: 600, fontSize: 13.5,
+    width: "100%", boxSizing: "border-box",
+  };
+
+  const importar = async () => {
     setOcupado(true);
     try {
-      if (modo === "entrar") await entrar(email, clave);
-      else await registrar(email, clave);
-      setClave("");
+      await onImportar(pendiente);
+      setAviso({ ok: true, texto: "Datos añadidos a tu cuenta." });
+      setPendiente(null);
     } catch (e) {
-      setError(e.message);
+      setAviso({ ok: false, texto: "No se han podido importar. Inténtalo otra vez." });
     } finally {
       setOcupado(false);
     }
   };
 
-  const olvidada = async () => {
-    setError(null);
-    setAviso(null);
-    if (!email.trim()) {
-      setError("Escribe tu correo y vuelvo a mandarte el enlace.");
-      return;
-    }
+  const alElegirArchivo = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setOcupado(true);
     try {
-      await recuperar(email);
-      setAviso("Te he mandado un correo para cambiar la contraseña.");
+      await onRestaurar(f);
+      setAviso({ ok: true, texto: "Copia restaurada en tu cuenta." });
+    } catch (err) {
+      setAviso({ ok: false, texto: "Ese archivo no parece una copia válida." });
+    } finally {
+      setOcupado(false);
+      e.target.value = "";
+    }
+  };
+
+  const vaciar = async () => {
+    setOcupado(true);
+    try {
+      await onVaciar();
+      setAviso({ ok: true, texto: "Cuenta vaciada." });
+      setConfirmando(false);
     } catch (e) {
-      setError(e.message);
+      setAviso({ ok: false, texto: "No se ha podido borrar. Inténtalo otra vez." });
+    } finally {
+      setOcupado(false);
     }
   };
 
   return (
     <div
       className="fade"
-      style={{
-        position: "fixed", inset: 0, zIndex: 90, background: p.bg,
-        overflowY: "auto", fontFamily: p.body,
-      }}
+      style={{ position: "fixed", inset: 0, zIndex: 90, background: p.bg, overflowY: "auto", fontFamily: p.body }}
     >
       <div style={{ maxWidth: 520, margin: "0 auto", padding: "22px 16px 48px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
           <div>
             <p style={{ fontFamily: p.mono, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: p.faint, fontWeight: 500, margin: 0 }}>
-              Tus datos
+              Tu cuenta
             </p>
             <h2 style={{ fontFamily: p.display, fontWeight: 800, fontSize: 27, color: p.ink, letterSpacing: -0.6, margin: 0 }}>
-              Cuenta y copia
+              Datos y sesión
             </h2>
           </div>
-          <button
-            onClick={onCerrar}
-            aria-label="Cerrar"
-            style={{ border: "none", background: p.card, padding: 10, borderRadius: 14, boxShadow: p.sombra, cursor: "pointer" }}
-          >
+          <button onClick={onCerrar} aria-label="Cerrar"
+            style={{ border: "none", background: p.card, padding: 10, borderRadius: 14, boxShadow: p.sombra, cursor: "pointer" }}>
             <X size={19} color={p.mid} />
           </button>
         </div>
 
-        {!hayNube() && (
-          <div style={tarjeta}>
-            <h3 style={titulo}>Sincronización sin configurar</h3>
-            <p style={parrafo}>
-              Ahora mismo los datos viven solo en este dispositivo. Para verlos también en el
-              ordenador hay que rellenar <code style={{ fontFamily: p.mono, fontSize: 12.5 }}>config.js</code> con
-              los datos de un proyecto de Firebase. Está explicado paso a paso en el
-              archivo <code style={{ fontFamily: p.mono, fontSize: 12.5 }}>README.md</code> del proyecto: son cinco minutos y
-              el plan gratuito sobra de largo.
-            </p>
+        {/* quién eres */}
+        <div style={tarjeta}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 14, background: p.acentoSuave, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {estado === "al-dia"
+                ? <Check size={20} color={p.acento} strokeWidth={2.8} />
+                : <RefreshCw size={19} color={p.acento} className={estado === "error" ? undefined : "spin"} />}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: p.body, fontWeight: 600, fontSize: 14.5, color: p.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {sesion.email}
+              </p>
+              <p style={{ ...parrafo, fontSize: 12.5 }}>{TEXTO_ESTADO[estado]}</p>
+            </div>
           </div>
-        )}
 
-        {hayNube() && !sesion && (
-          <div style={tarjeta}>
-            <h3 style={titulo}>{modo === "entrar" ? "Entra en tu cuenta" : "Crea tu cuenta"}</h3>
-            <p style={{ ...parrafo, marginBottom: 16 }}>
-              Con la misma cuenta en el móvil y en el ordenador verás los mismos datos en los dos
-              sitios. Lo que ya tienes apuntado aquí no se pierde: se junta con lo que haya en la nube.
+          {error && (
+            <p style={{ ...parrafo, color: p.coral, background: p.coralSuave, borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
+              {error}
             </p>
+          )}
 
-            <input
-              type="email" inputMode="email" autoComplete="email" placeholder="tu@correo.com"
-              value={email} onChange={(e) => setEmail(e.target.value)}
-              style={{ ...campo, marginBottom: 10 }}
-            />
-            <input
-              type="password" autoComplete={modo === "entrar" ? "current-password" : "new-password"}
-              placeholder="Contraseña" value={clave} onChange={(e) => setClave(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && enviar()}
-              style={campo}
-            />
+          <p style={parrafo}>
+            Todo lo que apuntas se guarda al momento en tu cuenta, no en este dispositivo. Entra con
+            este mismo correo donde quieras y lo tendrás todo.
+          </p>
+          <p style={{ ...parrafo, display: "flex", alignItems: "center", gap: 7, marginTop: 10, fontSize: 12.5, color: p.faint }}>
+            <Smartphone size={13} /> Estás en: {nombreDispositivo()}
+          </p>
+        </div>
 
-            {error && <p style={{ ...parrafo, color: p.coral, marginTop: 10 }}>{error}</p>}
-            {aviso && <p style={{ ...parrafo, color: p.acento, marginTop: 10 }}>{aviso}</p>}
-
-            <button onClick={enviar} disabled={ocupado} style={{ ...boton, opacity: ocupado ? 0.6 : 1 }}>
-              {ocupado ? "Un momento…" : modo === "entrar" ? "Entrar" : "Crear cuenta"}
+        {/* datos de la versión anterior que quedaron en este dispositivo */}
+        {pendiente && (
+          <div style={{ ...tarjeta, background: p.avisoSuave || p.acentoSuave }}>
+            <h3 style={titulo}>Hay datos antiguos en este dispositivo</h3>
+            <p style={{ ...parrafo, marginBottom: 14 }}>
+              La versión anterior guardaba en el propio dispositivo. Aquí quedan{" "}
+              <strong style={{ color: p.ink }}>{pendiente.resumen}</strong>. Puedes añadirlos a esta
+              cuenta, pero asegúrate de que son tuyos y no de otra persona que haya usado este mismo
+              aparato.
+            </p>
+            <button onClick={importar} disabled={ocupado}
+              style={{ ...boton, background: p.acento, color: "#fff", opacity: ocupado ? 0.6 : 1 }}>
+              <Upload size={16} /> Añadirlos a {sesion.email}
             </button>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-              <button style={enlace} onClick={() => { setModo(modo === "entrar" ? "registrar" : "entrar"); setError(null); }}>
-                {modo === "entrar" ? "No tengo cuenta" : "Ya tengo cuenta"}
-              </button>
-              {modo === "entrar" && <button style={{ ...enlace, color: p.faint }} onClick={olvidada}>Olvidé la contraseña</button>}
-            </div>
-          </div>
-        )}
-
-        {hayNube() && sesion && (
-          <div style={tarjeta}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 14, background: p.acentoSuave, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {estado === "al-dia" ? <Check size={19} color={p.acento} strokeWidth={2.8} /> : <RefreshCw size={18} color={p.acento} className={estado === "sincronizando" ? "spin" : undefined} />}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontFamily: p.body, fontWeight: 600, fontSize: 14.5, color: p.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {sesion.email}
-                </p>
-                <p style={{ ...parrafo, fontSize: 12.5 }}>{TEXTO_ESTADO[estado]}</p>
-              </div>
-            </div>
-            <p style={parrafo}>
-              Todo lo que apuntes se guarda aquí y en la nube. Si abres la app sin internet sigue
-              funcionando y se sube sola en cuanto haya cobertura.
-            </p>
-            <p style={{ ...parrafo, display: "flex", alignItems: "center", gap: 7, marginTop: 10, fontSize: 12.5, color: p.faint }}>
-              <Smartphone size={13} /> Estás en: {nombreDispositivo()}
-            </p>
             <button
-              onClick={() => salir()}
-              style={{
-                width: "100%", marginTop: 16, border: `1.5px solid ${p.line}`, background: "transparent",
-                borderRadius: 14, padding: "12px 0", color: p.mid, fontFamily: p.body, fontWeight: 600,
-                fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}
+              onClick={() => { setPendiente(null); if (onDescartarLegado) onDescartarLegado(); }}
+              style={{ ...boton, marginTop: 8, background: "transparent" }}
             >
-              <LogOut size={15} /> Cerrar sesión en este dispositivo
+              No son míos, olvídalos
             </button>
-            <p style={{ ...parrafo, fontSize: 12, color: p.faint, marginTop: 8 }}>
-              Al cerrar sesión los datos siguen guardados en este dispositivo y en la nube.
-            </p>
           </div>
         )}
 
-        {extra}
+        {/* copia de seguridad */}
+        <div style={tarjeta}>
+          <h3 style={titulo}>Copia de seguridad</h3>
+          <p style={{ ...parrafo, marginBottom: 14 }}>
+            Un archivo con todo tu historial, por si quieres guardarlo aparte o llevártelo a otro sitio.
+          </p>
+          <div style={{ display: "flex", gap: 9 }}>
+            <button onClick={onExportar} style={{ ...boton, flex: 1 }}>
+              <Download size={15} /> Guardar copia
+            </button>
+            <button onClick={() => refArchivo.current && refArchivo.current.click()} disabled={ocupado} style={{ ...boton, flex: 1 }}>
+              <Upload size={15} /> Restaurar
+            </button>
+          </div>
+          <input ref={refArchivo} type="file" accept="application/json,.json" onChange={alElegirArchivo} style={{ display: "none" }} />
+          {aviso && (
+            <p style={{ ...parrafo, color: aviso.ok ? p.acento : p.coral, marginTop: 12 }}>{aviso.texto}</p>
+          )}
+        </div>
+
+        {/* salir y borrar */}
+        <div style={tarjeta}>
+          <button onClick={() => salir()} style={{ ...boton, border: `1.5px solid ${p.line}`, background: "transparent" }}>
+            <LogOut size={15} /> Cerrar sesión
+          </button>
+          <p style={{ ...parrafo, fontSize: 12, color: p.faint, marginTop: 10 }}>
+            Al cerrar sesión se borra de este dispositivo todo lo de tu cuenta. Tus datos siguen a
+            salvo y vuelven en cuanto entres otra vez, aquí o donde sea.
+          </p>
+
+          {!confirmando ? (
+            <button onClick={() => setConfirmando(true)}
+              style={{ ...boton, marginTop: 14, background: "transparent", color: p.coral, border: `1.5px solid ${p.coralSuave}` }}>
+              <Trash2 size={15} /> Borrar todos mis datos
+            </button>
+          ) : (
+            <div style={{ marginTop: 14, background: p.coralSuave, borderRadius: 16, padding: 14 }}>
+              <p style={{ ...parrafo, color: p.ink, marginBottom: 12 }}>
+                Esto borra de tu cuenta todo lo que has apuntado, en todos tus dispositivos y para
+                siempre. No hay vuelta atrás.
+              </p>
+              <div style={{ display: "flex", gap: 9 }}>
+                <button onClick={() => setConfirmando(false)} style={{ ...boton, flex: 1, background: "#fff" }}>
+                  Cancelar
+                </button>
+                <button onClick={vaciar} disabled={ocupado} style={{ ...boton, flex: 1, background: p.coral, color: "#fff" }}>
+                  Sí, borrar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

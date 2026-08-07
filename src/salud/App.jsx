@@ -6,17 +6,17 @@ import {
   Coffee, Moon, Apple, Download, Upload, Info,
 } from "lucide-react";
 
-import { useAlmacen } from "../comun/almacen.js";
-import { ponerEnColeccion, quitarDeColeccion, tocarCampo } from "../comun/fusion.js";
+import { useDatos } from "../comun/datos.js";
+import { Puerta } from "../comun/sesion.jsx";
 import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { calcularBalance, valorarDia } from "./estimador.js";
 import { valorarPeriodo } from "./valoracion.js";
 import {
-  ACTIVIDADES, APP, CLAVE, DIAS, DURACIONES, ESQUEMA, OBJETIVOS, SACIEDADES,
-  SEXOS, VACIO, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
+  ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, OBJETIVOS, PERFIL_VACIO, SACIEDADES,
+  SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
   enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta, hoy, importar,
-  inicioSemana, migrar, miles, num, rangoMes, rangoSemana, revisarPeso,
-  saciedadDe, volumenDe,
+  inicioSemana, leerLegado, miles, num, olvidarLegado, rangoMes, rangoSemana,
+  revisarPeso, saciedadDe, volumenDe,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -1051,9 +1051,8 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
-      const d = await importar(f);
-      onRestaurar(d);
-      setAviso({ ok: true, texto: "Copia restaurada" });
+      await onRestaurar(f);
+      setAviso({ ok: true, texto: "Copia restaurada en tu cuenta" });
     } catch (err) {
       setAviso({ ok: false, texto: "El archivo no parece una copia válida" });
     }
@@ -1068,12 +1067,11 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
           Sincronización
         </p>
         <p style={{ fontFamily: body, fontSize: 13, color: C.mid, lineHeight: 1.5, margin: "0 0 12px" }}>
-          {sesion
-            ? `Conectado como ${sesion.email}. Lo que apuntes en el móvil aparece en el ordenador y al revés.`
-            : "Entra con una cuenta para tener los mismos registros en el móvil y en el ordenador."}
+          Conectado como {sesion.email}. Todo se guarda en tu cuenta al momento: lo que apuntes en el
+          móvil aparece en el ordenador y al revés.
         </p>
         <button onClick={onCuenta} style={{ ...botonSec, width: "100%", background: C.tealSoft, color: C.teal }}>
-          {sesion ? "Ver cuenta" : "Configurar sincronización"}
+          Ver mi cuenta
         </button>
       </div>
 
@@ -1295,9 +1293,34 @@ function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
 /* ------------------------------------------------------------------- app */
 
 export default function App() {
-  const { datos, actualizar, listo, sesion, estado, falloGuardado } = useAlmacen({
-    clave: CLAVE, app: APP, vacio: VACIO, esquema: ESQUEMA, migrar,
-  });
+  return (
+    <Puerta
+      paleta={PALETA_CUENTA}
+      titulo="Salud"
+      descripcion="Peso, entrenos y comidas. Entra con tu correo y lo tendrás en todos tus dispositivos."
+    >
+      {(sesion) => <Aplicacion sesion={sesion} />}
+    </Puerta>
+  );
+}
+
+function Aplicacion({ sesion }) {
+  const {
+    registros, usuario, listo, error, estado,
+    guardar, borrar, guardarUsuario, importar: importarDatos, vaciar,
+  } = useDatos({ uid: sesion.uid, colecciones: COLECCIONES });
+
+  /* La pantalla sigue viendo un único objeto `datos`, pero ya no es un estado
+     propio: es lo que hay ahora mismo en Firestore. No se escribe nunca aquí. */
+  const datos = useMemo(
+    () => ({
+      perfil: { ...PERFIL_VACIO, ...(usuario.perfil || {}) },
+      pesos: registros.pesos,
+      entrenos: registros.entrenos,
+      comidas: registros.comidas,
+    }),
+    [usuario.perfil, registros.pesos, registros.entrenos, registros.comidas]
+  );
 
   const [tab, setTab] = useState("peso");
   const [hoja, setHoja] = useState(false);
@@ -1322,13 +1345,14 @@ export default function App() {
     return salida;
   }, [datos.comidas, energia]);
 
-  const anadir = useCallback((coleccion, item) => {
-    actualizar((d) => ponerEnColeccion(d, coleccion, item));
-  }, [actualizar]);
+  /* Apuntar algo es escribirlo en Firestore. La lista de la pantalla no se
+     toca a mano: se repinta sola cuando Firestore devuelve el cambio. */
+  const anadir = useCallback((coleccion, item) => { guardar(coleccion, item); }, [guardar]);
 
-  const borrar = useCallback((coleccion, id) => {
-    actualizar((d) => quitarDeColeccion(d, coleccion, id));
-  }, [actualizar]);
+  const restaurar = useCallback(
+    (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
+    [importarDatos]
+  );
 
   const TABS = [
     { id: "peso", label: "Peso", Icon: Scale },
@@ -1361,13 +1385,11 @@ export default function App() {
       </header>
 
       <main className="contenedor" style={{ padding: "10px 16px 128px" }}>
-        {!listo && <Vacio texto="Cargando…" />}
+        {!listo && !error && <Vacio texto="Cargando tus datos…" />}
 
-        {falloGuardado && (
+        {error && (
           <Card style={{ marginBottom: 14, background: C.coralSoft, boxShadow: "none" }}>
-            <p style={{ fontFamily: body, fontSize: 13, color: C.ink, margin: 0 }}>
-              No se han podido guardar los últimos cambios en este dispositivo. Guarda una copia desde Perfil.
-            </p>
+            <p style={{ fontFamily: body, fontSize: 13, color: C.ink, margin: 0 }}>{error}</p>
           </Card>
         )}
 
@@ -1446,15 +1468,27 @@ export default function App() {
       {pantalla === "perfil" && (
         <PantallaPerfil
           perfil={datos.perfil} pesoActual={ultimoPeso} datos={datos}
-          onGuardar={(p) => actualizar((d) => tocarCampo(d, "perfil", p))}
-          onRestaurar={(d) => actualizar(d)}
+          onGuardar={(p) => guardarUsuario({ perfil: p })}
+          onRestaurar={restaurar}
           onCerrar={() => setPantalla(null)}
           onCuenta={() => setPantalla("cuenta")}
           sesion={sesion} estado={estado}
         />
       )}
       {pantalla === "cuenta" && (
-        <PantallaCuenta paleta={PALETA_CUENTA} sesion={sesion} estado={estado} onCerrar={() => setPantalla(null)} />
+        <PantallaCuenta
+          paleta={PALETA_CUENTA}
+          sesion={sesion}
+          estado={estado}
+          error={error}
+          legado={leerLegado}
+          onImportar={(l) => importarDatos(l.porColeccion, l.campos).then(() => olvidarLegado())}
+          onDescartarLegado={olvidarLegado}
+          onExportar={() => exportar(datos)}
+          onRestaurar={restaurar}
+          onVaciar={vaciar}
+          onCerrar={() => setPantalla(null)}
+        />
       )}
     </div>
   );

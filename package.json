@@ -9,8 +9,8 @@
     "dev": "node build.mjs --watch",
     "zip": "node build.mjs --zip",
     "servir": "node build.mjs --zip && node servidor.mjs",
-    "probar": "node pruebas/fusion.mjs && node pruebas/sincronizacion.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs",
-    "preview": "node preview.mjs"
+    "probar": "node pruebas/aislamiento.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs",
+    "probar-navegador": "node pruebas/extremo.mjs"
   },
   "dependencies": {
     "firebase": "^11.1.0",
@@ -20,6 +20,7 @@
     "recharts": "^2.15.0"
   },
   "devDependencies": {
-    "esbuild": "^0.24.2"
+    "esbuild": "^0.24.2",
+    "playwright": "^1.62.1"
   }
 }

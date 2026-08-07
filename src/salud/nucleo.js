@@ -2,25 +2,15 @@
    Salud · núcleo: modelo, fechas, perfil energético y migración.
    ───────────────────────────────────────────────────────────────────────── */
 
-import { ahora, nuevoId } from "../comun/fusion.js";
+import { nuevoId } from "../comun/id.js";
 
-export const CLAVE = "salud-app-v2"; // la de siempre: los datos guardados siguen valiendo
-export const APP = "salud";
+/** Colecciones de Firestore que usa esta app: usuarios/{uid}/<nombre>/{id}. */
+export const COLECCIONES = ["pesos", "entrenos", "comidas"];
 
-export const ESQUEMA = {
-  colecciones: ["pesos", "entrenos", "comidas"],
-  sellos: ["perfil"],
-};
+export const PERFIL_VACIO = { altura: "", edad: "", sexo: "", actividad: "", objetivo: "" };
 
-export const VACIO = {
-  v: 4,
-  perfil: { altura: "", edad: "", sexo: "", actividad: "", objetivo: "" },
-  pesos: [],
-  entrenos: [],
-  comidas: [],
-  borrados: {},
-  sellos: {},
-};
+/** Lo que la app espera tener en pantalla mientras Firestore aún no ha hablado. */
+export const VACIO = { perfil: PERFIL_VACIO, pesos: [], entrenos: [], comidas: [] };
 
 /* ── catálogos ───────────────────────────────────────────────────────────── */
 
@@ -281,51 +271,111 @@ export function pesosFiables(pesos) {
   return { fiables, sospechosos };
 }
 
-/* ── migración ───────────────────────────────────────────────────────────── */
+/* ── normalizar lo que venga de fuera ────────────────────────────────────── */
 
-/**
- * Acepta lo guardado por cualquier versión anterior. La v2 guardaba las
- * valoraciones del día (`dias`) y una caché de análisis (`valoraciones`)
- * porque venían de una llamada de pago; ahora se recalculan al vuelo, así que
- * se descartan sin pena.
- */
 /* poco / normal / mucho → escalón de volumen equivalente */
 const VOLUMEN_DESDE_CANTIDAD = { poco: 2, normal: 3, mucho: 4 };
 
-export function migrar(guardado) {
-  const base = { ...VACIO, ...(guardado || {}) };
-  const t = 0;
-  const sellar = (lista) =>
-    (lista || []).map((x) => ({ ...x, id: x.id || nuevoId(), mod: x.mod || t }));
+const entre = (n, min, max) => Math.min(max, Math.max(min, n));
 
-  /* Las comidas viejas traen `cantidad`; se traduce a volumen y se quedan sin
-     saciedad, que es un dato que entonces no se pedía. El estimador sabe
-     apañarse sin él. */
-  const comidas = sellar(base.comidas).map((c) => {
-    const volumen = c.volumen || VOLUMEN_DESDE_CANTIDAD[c.cantidad] || 3;
-    const { cantidad, ...resto } = c;
-    return {
-      ...resto,
-      volumen: Math.min(5, Math.max(1, volumen)),
-      saciedad: c.saciedad != null ? Math.min(4, Math.max(1, c.saciedad)) : null,
-    };
-  });
+/**
+ * Convierte una lista guardada por cualquier versión anterior en registros
+ * válidos para Firestore: con `id` propio y sin los campos del viejo motor de
+ * fusión (`mod`), que ya no existe porque cada registro es su propio documento.
+ */
+function normalizar(lista, arreglar) {
+  return (lista || [])
+    .filter((x) => x && typeof x === "object")
+    .map((x) => {
+      const { mod, ...resto } = x;
+      const limpio = { ...resto, id: x.id || nuevoId() };
+      return arreglar ? arreglar(limpio) : limpio;
+    });
+}
 
+/* Las comidas viejas traen `cantidad`; se traduce a volumen y se quedan sin
+   saciedad, que es un dato que entonces no se pedía. El estimador sabe
+   apañarse sin él. */
+const arreglarComida = (c) => {
+  const { cantidad, ...resto } = c;
   return {
-    v: 4,
-    perfil: { ...VACIO.perfil, ...(base.perfil || {}) },
-    pesos: sellar(base.pesos),
-    entrenos: sellar(base.entrenos),
-    comidas,
-    borrados: base.borrados || {},
-    sellos: base.sellos || {},
+    ...resto,
+    volumen: entre(c.volumen || VOLUMEN_DESDE_CANTIDAD[cantidad] || 3, 1, 5),
+    saciedad: c.saciedad != null ? entre(c.saciedad, 1, 4) : null,
   };
+};
+
+/** Reparte un objeto tipo `{perfil, pesos, entrenos, comidas}` en colecciones. */
+export function repartir(d) {
+  return {
+    porColeccion: {
+      pesos: normalizar(d.pesos),
+      entrenos: normalizar(d.entrenos),
+      comidas: normalizar(d.comidas, arreglarComida),
+    },
+    campos: { perfil: { ...PERFIL_VACIO, ...(d.perfil || {}) } },
+  };
+}
+
+/* ── datos que dejó la versión anterior en este dispositivo ──────────────── */
+
+/* La versión anterior guardaba en el propio navegador, sin saber de quién era.
+   Eso es justo lo que se ha quitado: ahora todo cuelga del usuario. Lo que
+   quedara guardado no se toca ni se sube solo; se ofrece en la pantalla de
+   cuenta para que su dueño decida, y solo entonces se importa. */
+
+export const CLAVE_LEGADO = "salud-app-v2";
+const CLAVE_LEGADO_VISTO = "salud-legado-descartado";
+
+const cuantos = (n, uno, muchos) => (n === 1 ? `1 ${uno}` : `${n} ${muchos}`);
+
+export function leerLegado(almacen) {
+  const ls = almacen || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!ls) return null;
+
+  let crudo;
+  try {
+    if (ls.getItem(CLAVE_LEGADO_VISTO)) return null;
+    crudo = ls.getItem(CLAVE_LEGADO);
+  } catch (e) {
+    return null;
+  }
+  if (!crudo) return null;
+
+  let d;
+  try {
+    d = JSON.parse(crudo);
+  } catch (e) {
+    return null;
+  }
+  if (!d || typeof d !== "object") return null;
+
+  const { porColeccion, campos } = repartir(d);
+  const partes = [];
+  if (porColeccion.pesos.length) partes.push(cuantos(porColeccion.pesos.length, "pesaje", "pesajes"));
+  if (porColeccion.entrenos.length) partes.push(cuantos(porColeccion.entrenos.length, "entreno", "entrenos"));
+  if (porColeccion.comidas.length) partes.push(cuantos(porColeccion.comidas.length, "comida", "comidas"));
+  if (!partes.length) return null;
+
+  return { porColeccion, campos, resumen: partes.join(", ") };
+}
+
+/** Se llama cuando ya se han importado (o el usuario ha dicho que no son suyos). */
+export function olvidarLegado(almacen) {
+  const ls = almacen || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!ls) return;
+  try {
+    ls.setItem(CLAVE_LEGADO_VISTO, String(Date.now()));
+    ls.removeItem(CLAVE_LEGADO);
+  } catch (e) {
+    /* si el navegador no deja escribir, tampoco pasa nada grave */
+  }
 }
 
 /* ── copia de seguridad ──────────────────────────────────────────────────── */
 
 export function exportar(datos) {
-  const blob = new Blob([JSON.stringify({ app: "salud", version: 3, fecha: new Date().toISOString(), datos }, null, 2)], {
+  const blob = new Blob([JSON.stringify({ app: "salud", version: 4, fecha: new Date().toISOString(), datos }, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
@@ -338,6 +388,7 @@ export function exportar(datos) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/** Lee un archivo de copia y lo deja listo para escribirlo en la cuenta. */
 export function importar(archivo) {
   return new Promise((res, rej) => {
     const lector = new FileReader();
@@ -346,15 +397,7 @@ export function importar(archivo) {
         const j = JSON.parse(lector.result);
         const d = j && j.datos ? j.datos : j && j.data ? j.data : j;
         if (!d || !Array.isArray(d.pesos)) throw new Error("formato");
-        const t = ahora();
-        const sellar = (l) => (l || []).map((x) => ({ ...x, id: x.id || nuevoId(), mod: t }));
-        res({
-          ...migrar(d),
-          pesos: sellar(d.pesos),
-          entrenos: sellar(d.entrenos),
-          comidas: sellar(d.comidas),
-          sellos: { perfil: t },
-        });
+        res(repartir(d));
       } catch (e) {
         rej(e);
       }

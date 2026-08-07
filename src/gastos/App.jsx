@@ -12,16 +12,16 @@ import {
   Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp,
 } from "lucide-react";
 
-import { useAlmacen } from "../comun/almacen.js";
-import { ponerEnColeccion, quitarDeColeccion, tocarCampo } from "../comun/fusion.js";
+import { useDatos } from "../comun/datos.js";
+import { Puerta } from "../comun/sesion.jsx";
 import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { analizarMes } from "./analisis.js";
 import { CSS } from "./estilos.js";
 import {
-  APP, CATEGORIAS_INICIALES, CLAVE, ESQUEMA, MESES, PALETA, VACIO,
-  adivinarIcono, claveMes, desdeClaveMes, diaDeISO, diasDelMes, eur, exportar,
-  hoyISO, importar, mesActualClave, migrar, movimientosDeMes, nombreMesClave,
-  restarMeses, suma, uid,
+  AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
+  adivinarIcono, categoriasIniciales, claveMes, diaDeISO, diasDelMes,
+  eur, exportar, hoyISO, importar, leerLegado, mesActualClave, movimientosDeMes,
+  nombreMesClave, olvidarLegado, porOrden, restarMeses, suma, uid,
 } from "./nucleo.js";
 
 /* ─────────────────────────────  ICONOS  ───────────────────────────── */
@@ -61,9 +61,44 @@ const PALETA_CUENTA = {
 /* ─────────────────────────────  APP  ───────────────────────────── */
 
 export default function AppGastos() {
-  const { datos, actualizar, listo, sesion, estado, falloGuardado } = useAlmacen({
-    clave: CLAVE, app: APP, vacio: VACIO, esquema: ESQUEMA, migrar,
-  });
+  return (
+    <Puerta
+      paleta={PALETA_CUENTA}
+      titulo="Gastos"
+      descripcion="Lleva la cuenta del mes. Entra con tu correo y lo tendrás en todos tus dispositivos."
+    >
+      {(sesion) => <Aplicacion sesion={sesion} />}
+    </Puerta>
+  );
+}
+
+function Aplicacion({ sesion }) {
+  const {
+    registros, usuario, listo, error, estado,
+    guardar, borrar, guardarUsuario, importar: importarDatos, vaciar,
+  } = useDatos({ uid: sesion.uid, colecciones: COLECCIONES });
+
+  /* La pantalla ve un único objeto `datos`, pero no es estado propio: es lo que
+     hay ahora mismo en Firestore. Aquí no se escribe nunca. */
+  const datos = useMemo(
+    () => ({
+      gastos: registros.gastos,
+      // Firestore devuelve los documentos por identificador, así que el orden
+      // que ve la persona se decide aquí, no en la base de datos.
+      fijos: [...registros.fijos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es")),
+      categorias: [...registros.categorias].sort(porOrden),
+      ajustes: { ...AJUSTES_VACIO, ...(usuario.ajustes || {}) },
+    }),
+    [registros.gastos, registros.fijos, registros.categorias, usuario.ajustes]
+  );
+
+  /* Cuenta recién creada: se siembran las categorías de partida una sola vez.
+     Los IDs son fijos, así que aunque dos dispositivos entren a la vez escriben
+     lo mismo y no se duplica nada. */
+  useEffect(() => {
+    if (!listo || usuario.sembrado || registros.categorias.length) return;
+    importarDatos({ categorias: categoriasIniciales() }, { sembrado: true });
+  }, [listo, usuario.sembrado, registros.categorias.length, importarDatos]);
 
   const [vista, setVista] = useState("resumen");
   const ahora = new Date();
@@ -172,10 +207,17 @@ export default function AppGastos() {
 
   /* ── acciones ────────────────────────────────────────────────────────── */
 
-  const guardarGasto = (g) => { actualizar((d) => ponerEnColeccion(d, "gastos", g)); setHoja(null); };
-  const borrarGasto = (id) => { actualizar((d) => quitarDeColeccion(d, "gastos", id)); setHoja(null); };
-  const guardarFijo = (f) => { actualizar((d) => ponerEnColeccion(d, "fijos", f)); setHojaFijo(null); };
-  const eliminarFijo = (id) => { actualizar((d) => quitarDeColeccion(d, "fijos", id)); setHojaFijo(null); };
+  /* Cada acción escribe en Firestore al momento. La lista no se toca a mano:
+     se repinta sola cuando Firestore devuelve el cambio. */
+  const guardarGasto = (g) => { guardar("gastos", g); setHoja(null); };
+  const borrarGasto = (id) => { borrar("gastos", id); setHoja(null); };
+  const guardarFijo = (f) => { guardar("fijos", f); setHojaFijo(null); };
+  const eliminarFijo = (id) => { borrar("fijos", id); setHojaFijo(null); };
+
+  const restaurar = useCallback(
+    (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
+    [importarDatos]
+  );
 
   const abrirMovimiento = (g) => {
     if (g.esFijo) {
@@ -209,7 +251,7 @@ export default function AppGastos() {
     return () => window.removeEventListener("keydown", alPulsar);
   }, [moverMes, esMesEnCurso, hoja, hojaFijo, pantalla]);
 
-  if (!listo) {
+  if (!listo && !error) {
     return (
       <div className="gx">
         <style>{CSS}</style>
@@ -238,9 +280,7 @@ export default function AppGastos() {
         </div>
       </header>
 
-      {falloGuardado && (
-        <div className="aviso">No se han podido guardar los últimos cambios en este dispositivo. Haz una copia desde Ajustes.</div>
-      )}
+      {error && <div className="aviso">{error}</div>}
 
       <main className="lienzo">
         {vista === "resumen" && (
@@ -267,7 +307,9 @@ export default function AppGastos() {
 
         {vista === "ajustes" && (
           <Ajustes
-            datos={datos} actualizar={actualizar} catPorId={catPorId} mesKey={mesKey}
+            datos={datos} catPorId={catPorId} mesKey={mesKey}
+            guardar={guardar} borrar={borrar} guardarUsuario={guardarUsuario}
+            onRestaurar={restaurar} onVaciar={vaciar}
             onEditarFijo={(f) => setHojaFijo({ modo: "editar", fijo: f, mesVisto: mesKey })}
             onNuevoFijo={() => setHojaFijo({ modo: "nuevo", mesVisto: mesKey })}
             onCuenta={() => setPantalla("cuenta")}
@@ -316,7 +358,16 @@ export default function AppGastos() {
 
       {pantalla === "cuenta" && (
         <PantallaCuenta
-          paleta={PALETA_CUENTA} sesion={sesion} estado={estado}
+          paleta={PALETA_CUENTA}
+          sesion={sesion}
+          estado={estado}
+          error={error}
+          legado={leerLegado}
+          onImportar={(l) => importarDatos(l.porColeccion, l.campos).then(() => olvidarLegado())}
+          onDescartarLegado={olvidarLegado}
+          onExportar={() => exportar(datos)}
+          onRestaurar={restaurar}
+          onVaciar={vaciar}
           onCerrar={() => setPantalla(null)}
         />
       )}
@@ -783,7 +834,10 @@ function Revision({ datos, catPorId, mesKey, onMover, esMesEnCurso, onCerrar }) 
 
 /* ─────────────────────────────  AJUSTES  ───────────────────────────── */
 
-function Ajustes({ datos, actualizar, catPorId, mesKey, onEditarFijo, onNuevoFijo, onCuenta, sesion }) {
+function Ajustes({
+  datos, catPorId, mesKey, guardar, borrar, guardarUsuario, onRestaurar, onVaciar,
+  onEditarFijo, onNuevoFijo, onCuenta, sesion,
+}) {
   const [nuevaCat, setNuevaCat] = useState("");
   const [colorCat, setColorCat] = useState(PALETA[0]);
   const [iconoCat, setIconoCat] = useState("package");
@@ -802,37 +856,38 @@ function Ajustes({ datos, actualizar, catPorId, mesKey, onEditarFijo, onNuevoFij
   const anadirCategoria = () => {
     const nombre = nuevaCat.trim();
     if (!nombre) return;
-    actualizar((d) => ponerEnColeccion(d, "categorias", { id: uid(), nombre, color: colorCat, icono: iconoCat, presupuesto: null }));
+    // Al final de la lista, como hacía la versión anterior al añadirla al array.
+    const orden = Math.max(-1, ...datos.categorias.map((c) => c.orden ?? -1)) + 1;
+    guardar("categorias", { id: uid(), nombre, color: colorCat, icono: iconoCat, presupuesto: null, orden });
     setNuevaCat("");
     setIconoCat("package");
     setColorCat(PALETA[(PALETA.indexOf(colorCat) + 1) % PALETA.length]);
   };
 
   const borrarCategoria = (id) => {
-    const usados = datos.gastos.filter((g) => g.categoria === id).length + fijos.filter((f) => f.categoria === id).length;
+    const gastosAfectados = datos.gastos.filter((g) => g.categoria === id);
+    const fijosAfectados = fijos.filter((f) => f.categoria === id);
+    const usados = gastosAfectados.length + fijosAfectados.length;
     if (usados > 0 && !window.confirm(`${usados} apunte(s) usan esta categoría. Se moverán a otra. ¿Sigo?`)) return;
-    actualizar((d) => {
-      const destino = d.categorias.find((c) => c.id === "otros")?.id || d.categorias.find((c) => c.id !== id)?.id;
-      if (!destino) return d;
-      let salida = quitarDeColeccion(d, "categorias", id);
-      for (const g of d.gastos.filter((x) => x.categoria === id)) {
-        salida = ponerEnColeccion(salida, "gastos", { ...g, categoria: destino });
-      }
-      for (const f of (d.fijos || []).filter((x) => x.categoria === id)) {
-        salida = ponerEnColeccion(salida, "fijos", { ...f, categoria: destino });
-      }
-      return salida;
-    });
+
+    const destino =
+      datos.categorias.find((c) => c.id === "otros")?.id || datos.categorias.find((c) => c.id !== id)?.id;
+    if (!destino) return;
+
+    // Primero se mudan los apuntes, y solo entonces desaparece la categoría:
+    // así no queda ni un instante con gastos apuntando a algo que ya no existe.
+    for (const g of gastosAfectados) guardar("gastos", { ...g, categoria: destino });
+    for (const f of fijosAfectados) guardar("fijos", { ...f, categoria: destino });
+    borrar("categorias", id);
   };
 
-  const cambiarCat = (id, campos) =>
-    actualizar((d) => {
-      const c = (d.categorias || []).find((x) => x.id === id);
-      return c ? ponerEnColeccion(d, "categorias", { ...c, ...campos }) : d;
-    });
+  const cambiarCat = (id, campos) => {
+    const c = (datos.categorias || []).find((x) => x.id === id);
+    if (c) guardar("categorias", { ...c, ...campos });
+  };
 
   const ponPresupuesto = (valor) =>
-    actualizar((d) => tocarCampo(d, "ajustes", { ...(d.ajustes || {}), presupuestoGlobal: valor }));
+    guardarUsuario({ ajustes: { ...datos.ajustes, presupuestoGlobal: valor } });
 
   const copiarPortapapeles = async () => {
     try {
@@ -846,9 +901,8 @@ function Ajustes({ datos, actualizar, catPorId, mesKey, onEditarFijo, onNuevoFij
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
-      const d = await importar(f);
-      actualizar(d);
-      setAvisoCopia({ ok: true, texto: "Copia restaurada" });
+      await onRestaurar(f);
+      setAvisoCopia({ ok: true, texto: "Copia restaurada en tu cuenta" });
     } catch (err) {
       setAvisoCopia({ ok: false, texto: "Ese archivo no parece una copia válida" });
     }
@@ -1027,13 +1081,10 @@ function Ajustes({ datos, actualizar, catPorId, mesKey, onEditarFijo, onNuevoFij
           <h2><Sparkles size={15} className="hIcono" /> Sincronización</h2>
         </div>
         <p className="pie sup">
-          {sesion
-            ? `Conectado como ${sesion.email}. Lo que apuntes aquí aparece también en tus otros dispositivos.`
-            : "Entra con una cuenta para tener los mismos gastos en el móvil y en el ordenador."}
+          Conectado como {sesion.email}. Todo se guarda en tu cuenta al momento, así que lo que
+          apuntes aquí aparece también en tus otros dispositivos.
         </p>
-        <button className="botonSecundario" onClick={onCuenta}>
-          {sesion ? "Ver cuenta" : "Configurar sincronización"}
-        </button>
+        <button className="botonSecundario" onClick={onCuenta}>Ver mi cuenta</button>
       </section>
 
       <section className="tarjeta">
@@ -1061,20 +1112,13 @@ function Ajustes({ datos, actualizar, catPorId, mesKey, onEditarFijo, onNuevoFij
           <button className="botonPeligro" onClick={() => setConfirmarReset(true)}><Trash2 size={16} /> Borrar todo</button>
         ) : (
           <div className="confirmar">
-            <p>Esto borra tus {datos.gastos.length} gastos y {fijos.length} fijos, y vuelve a las categorías iniciales{sesion ? ", también en tus otros dispositivos" : ""}.</p>
+            <p>
+              Esto borra de tu cuenta tus {datos.gastos.length} gastos y {fijos.length} fijos, en
+              todos tus dispositivos y para siempre. Las categorías vuelven a las de partida.
+            </p>
             <div className="confirmarBotones">
               <button className="botonSecundario" onClick={() => setConfirmarReset(false)}>Cancelar</button>
-              <button className="botonPeligro" onClick={() => {
-                actualizar((d) => {
-                  let salida = d;
-                  for (const g of d.gastos) salida = quitarDeColeccion(salida, "gastos", g.id);
-                  for (const f of d.fijos || []) salida = quitarDeColeccion(salida, "fijos", f.id);
-                  for (const c of d.categorias || []) salida = quitarDeColeccion(salida, "categorias", c.id);
-                  for (const c of CATEGORIAS_INICIALES) salida = ponerEnColeccion(salida, "categorias", { ...c, presupuesto: null });
-                  return tocarCampo(salida, "ajustes", { presupuestoGlobal: null });
-                });
-                setConfirmarReset(false);
-              }}>
+              <button className="botonPeligro" onClick={() => { onVaciar(); setConfirmarReset(false); }}>
                 Sí, borrar todo
               </button>
             </div>

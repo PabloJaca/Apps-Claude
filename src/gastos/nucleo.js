@@ -3,15 +3,10 @@
    Todo lo que no es pantalla vive aquí, para poder razonarlo (y probarlo) suelto.
    ───────────────────────────────────────────────────────────────────────── */
 
-import { ahora, nuevoId } from "../comun/fusion.js";
+import { nuevoId } from "../comun/id.js";
 
-export const CLAVE = "gastos-v1"; // se mantiene la de siempre: no se pierde nada
-export const APP = "gastos";
-
-export const ESQUEMA = {
-  colecciones: ["gastos", "fijos", "categorias"],
-  sellos: ["ajustes"],
-};
+/** Colecciones de Firestore que usa esta app: usuarios/{uid}/<nombre>/{id}. */
+export const COLECCIONES = ["gastos", "fijos", "categorias"];
 
 export const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -38,15 +33,10 @@ export const CATEGORIAS_INICIALES = [
   { id: "otros", nombre: "Otros", color: "#7C93A8", icono: "package" },
 ];
 
-export const VACIO = {
-  v: 2,
-  gastos: [],
-  fijos: [],
-  categorias: [],
-  ajustes: { presupuestoGlobal: null },
-  borrados: {},
-  sellos: {},
-};
+export const AJUSTES_VACIO = { presupuestoGlobal: null };
+
+/** Lo que la app espera tener en pantalla mientras Firestore aún no ha hablado. */
+export const VACIO = { gastos: [], fijos: [], categorias: [], ajustes: AJUSTES_VACIO };
 
 /* ── formato ─────────────────────────────────────────────────────────────── */
 
@@ -147,26 +137,44 @@ const ICONO_POR_ID = {
   deporte: "dumbbell",
 };
 
-/**
- * Normaliza cualquier cosa que hubiera guardada: el formato viejo (v1, con
- * `presupuestosCat` aparte y sin marcas de tiempo) y el nuevo. Se llama en cada
- * arranque, así que tiene que ser idempotente y no perder ni un registro.
- */
-export function migrar(guardado) {
-  const base = { ...VACIO, ...(guardado || {}) };
-  const t = 0; // los datos que ya existían llevan marca 0: cualquier edición gana
+/* Firestore devuelve los documentos ordenados por su identificador, no por el
+   orden en que se crearon. Las categorías tienen un orden pensado (las que más
+   se usan primero, "Otros" al final), así que se guarda a mano y se ordena por
+   él en todas partes. */
+export const porOrden = (a, b) => (a.orden ?? 999) - (b.orden ?? 999) || a.nombre.localeCompare(b.nombre, "es");
 
-  let categorias = (base.categorias && base.categorias.length ? base.categorias : CATEGORIAS_INICIALES).map((c) => ({
-    id: c.id,
-    mod: c.mod || t,
+/** Las categorías con las que arranca una cuenta nueva. IDs fijos a propósito. */
+export function categoriasIniciales() {
+  return CATEGORIAS_INICIALES.map((c, i) => ({ ...c, presupuesto: null, orden: i }));
+}
+
+/**
+ * Normaliza cualquier cosa que venga de fuera —una copia de seguridad o lo que
+ * dejó la versión anterior en este navegador— y lo reparte en las colecciones
+ * de Firestore. Quita `mod`, que era del viejo motor de fusión: ahora cada
+ * registro es su propio documento y no hace falta.
+ */
+export function repartir(guardado) {
+  const d = guardado || {};
+
+  const limpiar = (c) => {
+    const { mod, ...resto } = c;
+    return resto;
+  };
+
+  let categorias = (d.categorias && d.categorias.length ? d.categorias : CATEGORIAS_INICIALES).map((c, i) => ({
+    ...limpiar(c),
+    id: c.id || nuevoId(),
     nombre: c.nombre,
     color: REMAPEO_COLOR[c.color] || c.color,
     icono: c.icono || ICONO_POR_ID[c.id] || adivinarIcono(c.nombre),
     presupuesto: c.presupuesto != null ? c.presupuesto : null,
+    // La lista venía ordenada; ese orden se conserva de forma explícita.
+    orden: c.orden != null ? c.orden : i,
   }));
 
   // v1 guardaba los topes por categoría en un mapa suelto.
-  const viejos = guardado && guardado.presupuestosCat;
+  const viejos = d.presupuestosCat;
   if (viejos && typeof viejos === "object") {
     categorias = categorias.map((c) =>
       c.presupuesto == null && viejos[c.id] > 0 ? { ...c, presupuesto: viejos[c.id] } : c
@@ -175,23 +183,25 @@ export function migrar(guardado) {
 
   if (!categorias.some((c) => /deport|gimnas|gym|fitness/i.test(c.nombre))) {
     const iOtros = categorias.findIndex((c) => c.id === "otros");
-    const nueva = { id: "deporte", mod: t, nombre: "Deporte", color: "#1FB47A", icono: "dumbbell", presupuesto: null };
+    const nueva = { id: "deporte", nombre: "Deporte", color: "#1FB47A", icono: "dumbbell", presupuesto: null };
     if (iOtros >= 0) categorias = [...categorias.slice(0, iOtros), nueva, ...categorias.slice(iOtros)];
     else categorias.push(nueva);
+    // Se renumera para que "Otros" siga cayendo el último.
+    categorias = categorias.map((c, i) => ({ ...c, orden: i }));
   }
 
-  const gastos = (base.gastos || []).map((g) => ({
+  const gastos = (d.gastos || []).map((g) => ({
+    ...limpiar(g),
     id: g.id || nuevoId(),
-    mod: g.mod || t,
     importe: Number(g.importe) || 0,
     categoria: g.categoria,
     fecha: g.fecha,
     nota: g.nota || "",
   }));
 
-  const fijos = (base.fijos || []).map((f) => ({
+  const fijos = (d.fijos || []).map((f) => ({
+    ...limpiar(f),
     id: f.id || nuevoId(),
-    mod: f.mod || t,
     nombre: f.nombre,
     importe: Number(f.importe) || 0,
     categoria: f.categoria,
@@ -200,27 +210,71 @@ export function migrar(guardado) {
     hasta: f.hasta ?? null,
   }));
 
-  // Ojo con el orden: `base` ya viene mezclado con VACIO, así que hay que mirar
-  // lo que había guardado de verdad. Si no, el tope de v1 se perdería sin avisar.
-  const ajustesGuardados = guardado && guardado.ajustes;
-  const ajustes = {
-    presupuestoGlobal:
-      ajustesGuardados && ajustesGuardados.presupuestoGlobal !== undefined
-        ? ajustesGuardados.presupuestoGlobal
-        : guardado && guardado.presupuestoGlobal != null
-        ? guardado.presupuestoGlobal
-        : null,
-  };
+  // v1 guardaba el tope global suelto, fuera de `ajustes`.
+  const presupuestoGlobal =
+    d.ajustes && d.ajustes.presupuestoGlobal !== undefined
+      ? d.ajustes.presupuestoGlobal
+      : d.presupuestoGlobal != null
+      ? d.presupuestoGlobal
+      : null;
 
   return {
-    v: 2,
-    gastos,
-    fijos,
-    categorias,
-    ajustes,
-    borrados: base.borrados || {},
-    sellos: base.sellos || {},
+    porColeccion: { gastos, fijos, categorias },
+    campos: { ajustes: { presupuestoGlobal } },
   };
+}
+
+/* ── datos que dejó la versión anterior en este dispositivo ──────────────── */
+
+/* Antes todo esto vivía en el navegador, sin dueño. Ahora cuelga del usuario,
+   así que lo que quedara guardado no se sube solo: se ofrece en la pantalla de
+   cuenta y solo se importa si su dueño lo pide. */
+
+export const CLAVE_LEGADO = "gastos-v1";
+const CLAVE_LEGADO_VISTO = "gastos-legado-descartado";
+
+const cuantos = (n, uno, muchos) => (n === 1 ? `1 ${uno}` : `${n} ${muchos}`);
+
+export function leerLegado(almacen) {
+  const ls = almacen || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!ls) return null;
+
+  let crudo;
+  try {
+    if (ls.getItem(CLAVE_LEGADO_VISTO)) return null;
+    crudo = ls.getItem(CLAVE_LEGADO);
+  } catch (e) {
+    return null;
+  }
+  if (!crudo) return null;
+
+  let d;
+  try {
+    d = JSON.parse(crudo);
+  } catch (e) {
+    return null;
+  }
+  if (!d || typeof d !== "object") return null;
+
+  const { porColeccion, campos } = repartir(d);
+  const partes = [];
+  if (porColeccion.gastos.length) partes.push(cuantos(porColeccion.gastos.length, "gasto", "gastos"));
+  if (porColeccion.fijos.length) partes.push(cuantos(porColeccion.fijos.length, "gasto fijo", "gastos fijos"));
+  if (!partes.length) return null;
+
+  return { porColeccion, campos, resumen: partes.join(", ") };
+}
+
+/** Se llama cuando ya se han importado (o el usuario ha dicho que no son suyos). */
+export function olvidarLegado(almacen) {
+  const ls = almacen || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!ls) return;
+  try {
+    ls.setItem(CLAVE_LEGADO_VISTO, String(Date.now()));
+    ls.removeItem(CLAVE_LEGADO);
+  } catch (e) {
+    /* si el navegador no deja escribir, tampoco pasa nada grave */
+  }
 }
 
 /* ── cálculo de movimientos ──────────────────────────────────────────────── */
@@ -274,7 +328,7 @@ export function mesesConDatos(datos) {
 /* ── copia de seguridad ──────────────────────────────────────────────────── */
 
 export function exportar(datos) {
-  const blob = new Blob([JSON.stringify({ app: "gastos", version: 2, fecha: new Date().toISOString(), datos }, null, 2)], {
+  const blob = new Blob([JSON.stringify({ app: "gastos", version: 3, fecha: new Date().toISOString(), datos }, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
@@ -287,6 +341,7 @@ export function exportar(datos) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/** Lee un archivo de copia y lo deja listo para escribirlo en la cuenta. */
 export function importar(archivo) {
   return new Promise((res, rej) => {
     const lector = new FileReader();
@@ -295,10 +350,7 @@ export function importar(archivo) {
         const j = JSON.parse(lector.result);
         const d = j && j.datos ? j.datos : j;
         if (!d || !Array.isArray(d.gastos)) throw new Error("formato");
-        // Se marca todo como recién tocado para que gane al fusionar.
-        const t = ahora();
-        const sellar = (l) => (l || []).map((x) => ({ ...x, mod: t }));
-        res(migrar({ ...d, gastos: sellar(d.gastos), fijos: sellar(d.fijos), categorias: sellar(d.categorias) }));
+        res(repartir(d));
       } catch (e) {
         rej(e);
       }

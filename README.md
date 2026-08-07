@@ -6,8 +6,9 @@ ordenador, con los mismos datos en los dos sitios.
 - **Gastos** — gastos del día a día, gastos fijos, presupuestos y una revisión mensual.
 - **Salud** — peso, entrenos y comidas, con estimación de calorías y valoración semanal o mensual.
 
-Las dos funcionan **sin conexión** y **sin ninguna clave de API**: todos los análisis se
-calculan en el propio dispositivo.
+Las dos funcionan **sin ninguna clave de API**: todos los análisis se calculan en el
+propio dispositivo. Los datos, en cambio, no viven en el dispositivo: viven en tu cuenta,
+así que están igual en el móvil, en el ordenador y en el móvil nuevo del año que viene.
 
 ---
 
@@ -15,10 +16,11 @@ calculan en el propio dispositivo.
 
 ```
 src/            código fuente
-  comun/        sincronización con Firebase, fusión de datos, pantalla de cuenta
+  comun/        acceso (sesion.jsx), datos (datos.js), Firebase (nube.js), pantalla de cuenta
   gastos/       app de gastos + motor de análisis mensual
   salud/        app de salud + tabla de alimentos, estimador y valoración
   plantillas/   plantilla del service worker
+pruebas/        pruebas; falso/ es un Firebase de mentira para probar en un navegador
 sitio/          EL SITIO YA COMPILADO — esto es lo que se sube al hosting
 build.mjs       compilación (esbuild)
 servidor.mjs    servidor local para probar
@@ -30,12 +32,12 @@ mis-apps.zip    el contenido de /sitio comprimido, por comodidad
 
 ```bash
 npm install
-npm run build      # deja el resultado en /sitio
-npm run dev        # recompila al guardar
-npm run zip        # compila y regenera mis-apps.zip
-npm run servir     # compila y sirve en http://localhost:4173
-npm run probar     # pruebas de fusión, migración y de la app de Salud
-npm run preview    # .preview/salud.html: la app en un solo archivo, para revisar cambios
+npm run build             # deja el resultado en /sitio
+npm run dev               # recompila al guardar
+npm run zip               # compila y regenera mis-apps.zip
+npm run servir            # compila y sirve en http://localhost:4173
+npm run probar            # aislamiento entre cuentas, migración y valoración
+npm run probar-navegador  # abre las dos apps con dos cuentas y comprueba que no se mezclan
 ```
 
 ## Publicar
@@ -56,13 +58,47 @@ Configuración → Dominios autorizados**, o el inicio de sesión fallará.
 
 ---
 
-## Sincronizar entre el móvil y el ordenador
+## Dónde viven los datos
 
-La sincronización usa **Firebase** (cuenta con correo y contraseña + Firestore). El plan
-gratuito sobra de largo para un uso personal.
+En **tu cuenta**, y en ningún otro sitio. Las dos apps usan **Firebase**: acceso con
+correo y contraseña, y **Cloud Firestore** como única fuente de verdad. El plan gratuito
+sobra de largo para un uso personal.
 
-Sin configurar nada, las apps funcionan igual que siempre: guardan en el dispositivo.
-Al configurarlo, los datos que ya tengas **no se pierden**: se fusionan con los de la nube.
+**No se entra, no se ve nada.** Sin sesión iniciada no se dibuja ni una pantalla: ni
+pestañas, ni listas, ni un resto de quien usara el aparato antes. La aplicación solo se
+monta cuando hay un usuario de verdad.
+
+Todo cuelga del identificador de la cuenta, y **un registro es un documento**:
+
+```
+usuarios/{uid}                     correo, perfil y ajustes
+usuarios/{uid}/pesos/{id}
+usuarios/{uid}/entrenos/{id}
+usuarios/{uid}/comidas/{id}
+usuarios/{uid}/gastos/{id}
+usuarios/{uid}/fijos/{id}
+usuarios/{uid}/categorias/{id}
+```
+
+Las consecuencias importan:
+
+- **Cada cosa que apuntas se escribe al momento** en tu cuenta. La pantalla no guarda
+  nada por su cuenta: escribe en Firestore, y se repinta cuando Firestore le devuelve el
+  cambio. No hay una copia paralela en memoria que pueda quedarse desfasada.
+- **Nadie pisa a nadie.** Dos móviles apuntando cosas distintas escriben en documentos
+  distintos, así que no hay nada que fusionar: los conflictos los resuelve Firestore sola.
+- **Al cerrar sesión no queda rastro.** Se cierra la conexión, se borra la caché del
+  navegador y se recarga la página. Y al entrar otra persona, la aplicación entera se
+  vuelve a construir desde cero con su identificador.
+- **Cambias de móvil, lo formateas o borras el navegador y da igual**: entras con tu
+  correo y está todo.
+- **Sin cobertura sigue funcionando**: lo que apuntes se ve al momento y sube solo al
+  recuperar la conexión. Mientras tanto el aviso de la cabecera dice «Guardando…», que es
+  la verdad — todavía no está a salvo en tu cuenta.
+
+> Si venías de una versión anterior, lo que guardó en este dispositivo **no se sube
+> solo**: la pantalla de cuenta te lo ofrece para que decidas, precisamente porque puede
+> ser de otra persona que usara el mismo aparato.
 
 ### Puesta en marcha (unos cinco minutos)
 
@@ -77,29 +113,37 @@ Al configurarlo, los datos que ya tengas **no se pierden**: se fusionan con los 
    Luego, en la pestaña **Reglas**, pega el contenido de `firestore.rules` y publica.
 6. En **Authentication → Configuración → Dominios autorizados**, añade el dominio donde
    tengas subidas las apps.
-7. Sube el sitio, abre cada app, toca la pastilla de estado de la cabecera y crea tu
-   cuenta. Repite el inicio de sesión con **la misma cuenta** en el otro dispositivo.
+7. Sube el sitio y abre cada app: lo primero que sale es la pantalla de acceso. Crea tu
+   cuenta y entra con **la misma cuenta** en el otro dispositivo.
+
+Los pasos 4 y 5 no son opcionales: sin base de datos y sin reglas publicadas, la
+aplicación no tiene dónde guardar nada.
 
 `config.js` se lee directamente desde el navegador, así que se puede cambiar y volver a
 subir **sin recompilar nada**.
 
 > Nota sobre la `apiKey` de Firebase: no es un secreto, va siempre en el cliente. Lo que
 > protege los datos son las reglas de Firestore del paso 5, que solo dejan a cada cuenta
-> leer y escribir lo suyo.
+> leer y escribir lo suyo. Por eso publicarlas es obligatorio, no un extra.
+>
+> Lo que **nunca** hay que enseñar a nadie es la clave privada de *Configuración del
+> proyecto → Cuentas de servicio*: esa sí abre la base de datos entera saltándose las
+> reglas.
 
-### Cómo se evita perder datos
+### Que una cuenta no vea la de otra
 
-No se sincroniza «el documento entero», que es la forma fácil de que un dispositivo pise
-lo que hizo el otro. En su lugar:
+Es la garantía principal, así que está comprobada por partida triple:
 
-- cada registro (gasto, peso, comida…) lleva su propia marca de tiempo;
-- los borrados dejan una **lápida** con la hora, en vez de desaparecer sin más;
-- al juntar dos versiones se compara **registro a registro** y gana el más reciente;
-- un borrado solo se aplica si es posterior a la última edición de ese registro.
-
-Resultado: un móvil que lleva tres semanas cerrado no puede resucitar lo que borraste en
-el ordenador, ni el ordenador puede tirar lo que apuntaste ayer en el móvil. Y si no hay
-internet, todo se guarda igual y se sube solo al recuperar cobertura.
+- **En el servidor.** `firestore.rules` solo deja entrar a `usuarios/{uid}` cuando el
+  `uid` es el de quien pide. Se comprueba en Firebase, no en el móvil, así que da igual
+  lo que haga una aplicación modificada.
+- **En el código.** Ninguna ruta de Firestore se construye sin identificador, y ninguna
+  función de escritura acepta que falte. `pruebas/aislamiento.mjs` lo verifica archivo a
+  archivo, junto con que las reglas y el código hablen de las mismas colecciones.
+- **En un navegador de verdad.** `pruebas/probar-navegador` abre las dos apps con un
+  Firebase de mentira, entra con una cuenta, apunta cosas, cierra sesión, entra con otra
+  y comprueba que la segunda **no ve nada** de la primera — y que al volver la primera,
+  lo suyo sigue intacto. Se ejecuta también antes de publicar.
 
 ---
 
@@ -159,12 +203,15 @@ dinero.
 
 ## Detalles
 
-- **Datos guardados.** Se siguen usando las mismas claves de siempre (`gastos-v1` y
-  `salud-app-v2`), así que al actualizar no hay que volver a meter nada: al abrir la app
-  se migra el formato viejo solo.
+- **Datos de la versión anterior.** Los que quedaran guardados en el navegador
+  (`gastos-v1`, `salud-app-v2`) se ofrecen una sola vez desde la pantalla de cuenta, con
+  el aviso de que puede que no sean tuyos. Si dices que sí, se suben a tu cuenta; si dices
+  que no, se borran del dispositivo y no se vuelve a preguntar.
 - **Copias de seguridad.** Las dos apps exportan e importan un `.json` con todo, desde
-  Ajustes (Gastos) y Perfil (Salud).
+  Ajustes (Gastos) y Perfil (Salud), o desde la pantalla de cuenta. Al restaurar, el
+  archivo se escribe en tu cuenta, no en el dispositivo.
 - **Atajos en el ordenador.** En Gastos: `←` y `→` cambian de mes, `N` abre un gasto
   nuevo, `Esc` cierra.
 - **Sin conexión.** Cada app tiene su service worker: la red primero para el HTML y la
-  configuración, lo guardado para el resto. Si no hay internet, la app abre igual.
+  configuración, lo guardado para el resto. Si no hay internet, la app abre igual (guarda
+  la aplicación, nunca tus datos: esos son de Firestore).
