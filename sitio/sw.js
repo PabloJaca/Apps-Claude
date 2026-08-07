@@ -10,7 +10,7 @@
    El alcance se saca de `self.registration.scope`, así que el sitio funciona
    igual colgado en la raíz del dominio que en un subdirectorio. */
 
-const CACHE = "hub-982c0f75";
+const CACHE = "hub-93f23e56";
 const PREFIJO = "hub-";
 const ARCHIVOS = ["./","./index.html","./manifest.json","./config.js","./icon-192.png","./icon-512.png","./apple-touch-icon.png"];
 const EXCLUIR = ["gastos/","salud/"];

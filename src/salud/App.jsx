@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar } from "recharts";
 import {
-  Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Sparkles, Users, Activity,
-  Bike, TrendingUp, TrendingDown, Minus, User, Check, ChevronRight, Flame,
-  Coffee, Moon, Apple, Download, Upload, Info,
+  Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Pencil, CalendarDays,
+  Sparkles, Users, Activity, Bike, TrendingUp, TrendingDown, Minus, User,
+  Check, ChevronRight, Flame, Coffee, Moon, Apple, Download, Upload, Info,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
@@ -12,7 +12,8 @@ import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { calcularBalance, valorarDia } from "./estimador.js";
 import { valorarPeriodo } from "./valoracion.js";
 import {
-  ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, OBJETIVOS, PERFIL_VACIO, SACIEDADES,
+  ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, MESES_LARGOS, OBJETIVOS,
+  PERFIL_VACIO, SACIEDADES,
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
   enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta, hoy, importar,
   inicioSemana, leerLegado, miles, num, olvidarLegado, rangoMes, rangoSemana,
@@ -239,10 +240,160 @@ function BotonGuardar({ onClick, disabled, children = "Guardar" }) {
 
 const colorNota = (n) => (n >= 7 ? C.mint : n >= 5 ? C.amber : C.coral);
 
+/**
+ * Los dos botones que lleva cada registro: corregirlo o quitarlo.
+ * Van en su propio grupo para que se peguen entre sí y no hereden la
+ * separación de la fila, que en el móvil obligaba al texto a partirse.
+ */
+function Acciones({ onEditar, onBorrar, size = 15, que = "el registro" }) {
+  const boton = { ...btnBorrar, padding: 5 };
+  return (
+    <span className="flex items-center" style={{ gap: 1, marginRight: -3, flexShrink: 0 }}>
+      <button onClick={onEditar} style={boton} aria-label={`Editar ${que}`} title="Editar">
+        <Pencil size={size} color={C.faint} />
+      </button>
+      <button onClick={onBorrar} style={boton} aria-label={`Borrar ${que}`} title="Borrar">
+        <Trash2 size={size} color={C.faint} />
+      </button>
+    </span>
+  );
+}
+
+/* ─────────────────────────── historial por días ───────────────────────────
+
+   Mientras la semana está en curso se ven sus días y ya está: son siete como
+   mucho, caben sin tener que bajar media pantalla. Todo lo anterior se guarda
+   detrás de «Otros días», que abre una pantalla aparte con el histórico
+   entero, separado por meses.
+
+   `elementos` son cosas con `fecha` (un pesaje, un entreno o el grupo de
+   comidas de un día). `pintar` decide cómo se dibuja cada uno, que es lo único
+   que cambia entre las tres secciones.                                      */
+
+/* Los pesajes y los entrenos son filas dentro de una tarjeta; los días de
+   comidas son tarjetas sueltas en una rejilla. Lo único que cambia es esto. */
+const Envoltorio = ({ rejilla, children }) =>
+  rejilla ? <div className="rejilla">{children}</div> : <Card style={{ padding: 8 }}>{children}</Card>;
+
+function partirPorSemana(elementos) {
+  const semana = inicioSemana();
+  const deEstaSemana = [];
+  const anteriores = [];
+  for (const el of elementos) (enRango(el.fecha, semana) ? deEstaSemana : anteriores).push(el);
+  return { deEstaSemana, anteriores };
+}
+
+function Historial({ titulo, elementos, pintar, clave, vacio, rejilla }) {
+  const [abierto, setAbierto] = useState(false);
+  const { deEstaSemana, anteriores } = useMemo(() => partirPorSemana(elementos), [elementos]);
+
+  return (
+    <div className={rejilla ? "ancho" : undefined}>
+      <div className="flex items-center justify-between" style={{ padding: "2px 4px 8px" }}>
+        <Rotulo>{titulo}</Rotulo>
+        {deEstaSemana.length > 0 && (
+          <span style={{ fontFamily: body, fontSize: 11.5, color: C.faint }}>Esta semana</span>
+        )}
+      </div>
+
+      {!elementos.length ? (
+        <Card style={{ padding: 8 }}><Vacio texto={vacio} /></Card>
+      ) : !deEstaSemana.length ? (
+        <Card style={{ padding: 8 }}>
+          <Vacio texto="Esta semana todavía no has anotado nada aquí." />
+        </Card>
+      ) : (
+        <Envoltorio rejilla={rejilla}>{deEstaSemana.map((el) => pintar(el))}</Envoltorio>
+      )}
+
+      {anteriores.length > 0 && (
+        <button onClick={() => setAbierto(true)} className="flex items-center gap-3"
+          style={{
+            width: "100%", marginTop: 10, border: "none", cursor: "pointer", textAlign: "left",
+            background: C.card, boxShadow: sh, borderRadius: 20, padding: "13px 15px",
+          }}>
+          <Badge Icon={CalendarDays} color={C.mid} soft={C.soft} size={32} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>Otros días</p>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0 }}>
+              {anteriores.length} {anteriores.length === 1 ? "anterior" : "anteriores"} a esta semana
+            </p>
+          </div>
+          <ChevronRight size={18} color={C.faint} />
+        </button>
+      )}
+
+      {abierto && (
+        <PantallaOtrosDias titulo={titulo} elementos={anteriores} pintar={pintar} clave={clave}
+          rejilla={rejilla} onCerrar={() => setAbierto(false)} />
+      )}
+    </div>
+  );
+}
+
+/** Agrupa por mes para poder recorrer el histórico sin perderse. */
+function porMeses(elementos) {
+  const grupos = [];
+  for (const el of elementos) {
+    const d = desdeIso(el.fecha);
+    const clave = `${d.getFullYear()}-${d.getMonth()}`;
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.clave === clave) ultimo.lista.push(el);
+    else {
+      const nombre = MESES_LARGOS[d.getMonth()];
+      grupos.push({
+        clave, lista: [el],
+        titulo: `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)}${
+          d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : ""
+        }`,
+      });
+    }
+  }
+  return grupos;
+}
+
+function PantallaOtrosDias({ titulo, elementos, pintar, rejilla, onCerrar }) {
+  const meses = useMemo(() => porMeses(elementos), [elementos]);
+
+  useEffect(() => {
+    const alPulsar = (e) => e.key === "Escape" && onCerrar();
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  return (
+    <div className="fade" style={{ position: "fixed", inset: 0, zIndex: 75, background: C.bg, overflowY: "auto" }}>
+      <div className="contenedor" style={{ padding: "22px 16px 48px", maxWidth: 620 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+          <div>
+            <Rotulo>{titulo}</Rotulo>
+            <h2 style={{ fontFamily: display, fontWeight: 800, fontSize: 27, color: C.ink, letterSpacing: -0.6, margin: 0 }}>
+              Otros días
+            </h2>
+          </div>
+          <button onClick={onCerrar} style={{ ...btnBorrar, background: C.card, padding: 10, borderRadius: 14, boxShadow: sh }} aria-label="Cerrar">
+            <X size={19} color={C.mid} />
+          </button>
+        </div>
+
+        {meses.map((m) => (
+          <div key={m.clave} style={{ marginBottom: 22 }}>
+            <div style={{ padding: "0 4px 8px" }}>
+              <Rotulo>{m.titulo}</Rotulo>
+            </div>
+            <Envoltorio rejilla={rejilla}>{m.lista.map((el) => pintar(el))}</Envoltorio>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------ vista peso */
 
-function VistaPeso({ datos, anadir, borrar }) {
+function VistaPeso({ datos, anadir, borrar, editar }) {
   const pesos = useMemo(() => [...datos.pesos].sort((a, b) => a.fecha.localeCompare(b.fecha)), [datos.pesos]);
+  const historial = useMemo(() => [...pesos].reverse(), [pesos]);
   const ultimo = pesos[pesos.length - 1];
   const previo = pesos[pesos.length - 2];
   const delta = ultimo && previo ? ultimo.kg - previo.kg : null;
@@ -319,7 +470,10 @@ function VistaPeso({ datos, anadir, borrar }) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={serie} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
                 <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis domain={dominio} tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={32} />
+                {/* Sin decimales: con un rango de pocos kilos salían marcas
+                    como «83,25», que no caben en el ancho del eje y se veían
+                    cortadas por delante («3,25»). */}
+                <YAxis domain={dominio} allowDecimals={false} tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={32} />
                 <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${num(v)} kg`, ""]} />
                 <Line type="monotone" dataKey="kg" stroke={C.teal} strokeWidth={3} dot={{ r: 3, fill: C.teal, strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </LineChart>
@@ -372,30 +526,29 @@ function VistaPeso({ datos, anadir, borrar }) {
         </div>
       </Card>
 
-      <div>
-        <div style={{ padding: "2px 4px 8px" }}><Rotulo>Historial</Rotulo></div>
-        <Card style={{ padding: 8 }}>
-          {!pesos.length && <Vacio texto="Aún no has anotado ningún peso." />}
-          {[...pesos].reverse().slice(0, 30).map((p) => (
-            <div key={p.id} className="flex items-center gap-3" style={{ padding: 10 }}>
-              <Badge Icon={Scale} color={C.teal} soft={C.tealSoft} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{etiquetaFecha(p.fecha)}</p>
-                {p.nota && <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nota}</p>}
-              </div>
-              <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 15, color: C.ink }}>{num(p.kg)}</span>
-              <button onClick={() => borrar("pesos", p.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={15} color={C.faint} /></button>
+      <Historial
+        titulo="Historial"
+        vacio="Aún no has anotado ningún peso."
+        elementos={historial}
+        pintar={(p) => (
+          <div key={p.id} className="flex items-center gap-3" style={{ padding: 10 }}>
+            <Badge Icon={Scale} color={C.teal} soft={C.tealSoft} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{etiquetaFecha(p.fecha)}</p>
+              {p.nota && <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nota}</p>}
             </div>
-          ))}
-        </Card>
-      </div>
+            <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 15, color: C.ink }}>{num(p.kg)}</span>
+            <Acciones que="el pesaje" onEditar={() => editar("pesos", p)} onBorrar={() => borrar("pesos", p.id)} />
+          </div>
+        )}
+      />
     </div>
   );
 }
 
 /* -------------------------------------------------------- vista entrenos */
 
-function VistaEntrenos({ datos, anadir, borrar }) {
+function VistaEntrenos({ datos, anadir, borrar, editar }) {
   const entrenos = useMemo(
     () => [...datos.entrenos].sort((a, b) => b.fecha.localeCompare(a.fecha) || (b.ts || 0) - (a.ts || 0)),
     [datos.entrenos]
@@ -465,7 +618,7 @@ function VistaEntrenos({ datos, anadir, borrar }) {
                   <t.Icon size={15} color={t.color} strokeWidth={2.4} />
                   <span style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, flex: 1 }}>{t.label}</span>
                   <span style={{ fontFamily: mono, fontSize: 12.5, color: C.mid }}>{e.minutos}′</span>
-                  <button onClick={() => borrar("entrenos", e.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={13} color={C.faint} /></button>
+                  <Acciones size={13} que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
                 </div>
               );
             })}
@@ -506,38 +659,37 @@ function VistaEntrenos({ datos, anadir, borrar }) {
         )}
       </Card>
 
-      <div>
-        <div style={{ padding: "2px 4px 8px" }}><Rotulo>Sesiones</Rotulo></div>
-        <Card style={{ padding: 8 }}>
-          {!entrenos.length && <Vacio texto="Aún no has registrado ningún entreno." />}
-          {entrenos.slice(0, 40).map((e) => {
-            const t = tipoDe(e.tipo);
-            const i = INTENS.find((x) => x.id === e.intensidad);
-            return (
-              <div key={e.id} className="flex items-center gap-3" style={{ padding: 10 }}>
-                <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
-                  <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0 }}>{etiquetaFecha(e.fecha)} · {e.minutos} min</p>
-                </div>
-                {i && (
-                  <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `${i.color}1F`, borderRadius: 999, padding: "3px 9px" }}>
-                    {i.label}
-                  </span>
-                )}
-                <button onClick={() => borrar("entrenos", e.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={15} color={C.faint} /></button>
+      <Historial
+        titulo="Sesiones"
+        vacio="Aún no has registrado ningún entreno."
+        elementos={entrenos}
+        pintar={(e) => {
+          const t = tipoDe(e.tipo);
+          const i = INTENS.find((x) => x.id === e.intensidad);
+          return (
+            <div key={e.id} className="flex items-center gap-3" style={{ padding: 10 }}>
+              <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
+                <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0 }}>{etiquetaFecha(e.fecha)} · {e.minutos} min</p>
               </div>
-            );
-          })}
-        </Card>
-      </div>
+              {i && (
+                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `${i.color}1F`, borderRadius: 999, padding: "3px 9px" }}>
+                  {i.label}
+                </span>
+              )}
+              <Acciones que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
+            </div>
+          );
+        }}
+      />
     </div>
   );
 }
 
 /* --------------------------------------------------------- vista comidas */
 
-function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil }) {
+function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, irAPerfil }) {
   const [texto, setTexto] = useState("");
   const [volumen, setVolumen] = useState(3);
   const [saciedad, setSaciedad] = useState(null);
@@ -706,7 +858,7 @@ function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil 
                     {c.texto}
                   </span>
                   <span style={{ fontFamily: body, fontSize: 11.5, color: C.faint }}>{m.label}</span>
-                  <button onClick={() => borrar("comidas", c.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={13} color={C.faint} /></button>
+                  <Acciones size={13} que="la comida" onEditar={() => editar("comidas", c)} onBorrar={() => borrar("comidas", c.id)} />
                 </div>
               );
             })}
@@ -741,56 +893,56 @@ function VistaComidas({ datos, anadir, borrar, energia, evaluaciones, irAPerfil 
         </div>
       </Card>
 
-      <div className="ancho">
-        <div style={{ padding: "2px 4px 8px" }}><Rotulo>Días</Rotulo></div>
-        <div className="rejilla">
-          {!porDia.length && <Card className="ancho"><Vacio texto="Aún no has anotado ninguna comida." /></Card>}
-          {porDia.slice(0, 20).map((d) => {
-            const e = evaluaciones[d.fecha];
-            const bal = e && calcularBalance(energia, e.kcalMin, e.kcalMax);
-            const col = !bal ? C.mid : bal.bueno ? C.mint : bal.estado === "encima" ? C.coral : C.amber;
-            return (
-              <Card key={d.fecha} style={{ padding: 15 }}>
-                <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
-                  <span style={{ fontFamily: display, fontWeight: 700, fontSize: 15, color: C.ink, flex: 1 }}>
-                    {etiquetaFecha(d.fecha)}
+      <Historial
+        titulo="Días"
+        rejilla
+        vacio="Aún no has anotado ninguna comida."
+        elementos={porDia}
+        pintar={(d) => {
+          const e = evaluaciones[d.fecha];
+          const bal = e && calcularBalance(energia, e.kcalMin, e.kcalMax);
+          const col = !bal ? C.mid : bal.bueno ? C.mint : bal.estado === "encima" ? C.coral : C.amber;
+          return (
+            <Card key={d.fecha} style={{ padding: 15 }}>
+              <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
+                <span style={{ fontFamily: display, fontWeight: 700, fontSize: 15, color: C.ink, flex: 1 }}>
+                  {etiquetaFecha(d.fecha)}
+                </span>
+                {e && (
+                  <span style={{ fontFamily: mono, fontSize: 11.5, color: col }}>
+                    {miles(e.kcalMin)}–{miles(e.kcalMax)} kcal
+                    {bal && bal.estado !== "linea" ? ` (${bal.dif > 0 ? "+" : ""}${miles(bal.dif)})` : ""}
                   </span>
-                  {e && (
-                    <span style={{ fontFamily: mono, fontSize: 11.5, color: col }}>
-                      {miles(e.kcalMin)}–{miles(e.kcalMax)} kcal
-                      {bal && bal.estado !== "linea" ? ` (${bal.dif > 0 ? "+" : ""}${miles(bal.dif)})` : ""}
-                    </span>
-                  )}
-                  {e && (
-                    <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13, color: colorNota(e.nota), background: `${colorNota(e.nota)}1F`, borderRadius: 999, padding: "3px 10px" }}>
-                      {e.nota}/10
-                    </span>
-                  )}
-                </div>
-                {e && <p style={{ fontFamily: body, fontSize: 13, color: C.mid, margin: "0 0 9px" }}>{e.etiqueta}</p>}
-                <div style={{ display: "grid", gap: 7 }}>
-                  {d.lista.map((c) => {
-                    const m = momentoDe(c.momento);
-                    return (
-                      <div key={c.id} className="flex items-center gap-2">
-                        <Badge Icon={m.Icon} color={m.color} soft={m.soft} size={30} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontFamily: body, fontSize: 13.5, color: C.ink, lineHeight: 1.35, margin: 0 }}>{c.texto}</p>
-                          <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: 0 }}>
-                            {m.label} · {volumenDe(c.volumen).label.toLowerCase()}
-                            {c.saciedad ? ` · ${saciedadDe(c.saciedad).label.toLowerCase()}` : ""}
-                          </p>
-                        </div>
-                        <button onClick={() => borrar("comidas", c.id)} style={btnBorrar} aria-label="Borrar"><Trash2 size={14} color={C.faint} /></button>
+                )}
+                {e && (
+                  <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13, color: colorNota(e.nota), background: `${colorNota(e.nota)}1F`, borderRadius: 999, padding: "3px 10px" }}>
+                    {e.nota}/10
+                  </span>
+                )}
+              </div>
+              {e && <p style={{ fontFamily: body, fontSize: 13, color: C.mid, margin: "0 0 9px" }}>{e.etiqueta}</p>}
+              <div style={{ display: "grid", gap: 7 }}>
+                {d.lista.map((c) => {
+                  const m = momentoDe(c.momento);
+                  return (
+                    <div key={c.id} className="flex items-center gap-2">
+                      <Badge Icon={m.Icon} color={m.color} soft={m.soft} size={30} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontFamily: body, fontSize: 13.5, color: C.ink, lineHeight: 1.35, margin: 0 }}>{c.texto}</p>
+                        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: 0 }}>
+                          {m.label} · {volumenDe(c.volumen).label.toLowerCase()}
+                          {c.saciedad ? ` · ${saciedadDe(c.saciedad).label.toLowerCase()}` : ""}
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
+                      <Acciones size={14} que="la comida" onEditar={() => editar("comidas", c)} onBorrar={() => borrar("comidas", c.id)} />
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          );
+        }}
+      />
     </div>
   );
 }
@@ -1110,7 +1262,14 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
 
 /* ------------------------------------------------------ hoja: otra fecha */
 
-function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
+/**
+ * La misma hoja sirve para apuntar en otra fecha y para corregir algo ya
+ * apuntado: los campos son idénticos, solo cambia si al guardar se crea un
+ * registro nuevo o se sobrescribe el que ya existe.
+ *
+ * `editando` es `{ coleccion, registro }` cuando se viene de un lápiz.
+ */
+function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
   const [sec, setSec] = useState(seccion);
   const [fecha, setFecha] = useState(hoy());
   const [kg, setKg] = useState("");
@@ -1125,13 +1284,32 @@ function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
   const [anadidos, setAnadidos] = useState(0);
   const [avisoPeso, setAvisoPeso] = useState(null);
 
+  const seccionDe = { pesos: "peso", entrenos: "entrenos", comidas: "comidas" };
+
   useEffect(() => {
-    if (abierta) {
-      setAvisoPeso(null);
-      setSec(seccion); setFecha(hoy()); setKg(""); setNota(""); setAnadidos(0); setMomento(momentoPorHora());
-      setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setVolumen(3); setSaciedad(null);
+    if (!abierta) return;
+    setAvisoPeso(null);
+    setAnadidos(0);
+
+    if (editando) {
+      const r = editando.registro;
+      setSec(seccionDe[editando.coleccion]);
+      setFecha(r.fecha);
+      setKg(r.kg != null ? String(r.kg) : "");
+      setNota(r.nota || "");
+      setTipo(r.tipo || "fuerza");
+      setMinutos(r.minutos != null ? String(r.minutos) : "45");
+      setInten(r.intensidad || "media");
+      setTexto(r.texto || "");
+      setVolumen(r.volumen || 3);
+      setSaciedad(r.saciedad ?? null);
+      setMomento(r.momento || momentoPorHora());
+      return;
     }
-  }, [abierta, seccion]);
+
+    setSec(seccion); setFecha(hoy()); setKg(""); setNota(""); setMomento(momentoPorHora());
+    setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setVolumen(3); setSaciedad(null);
+  }, [abierta, seccion, editando]);
 
   if (!abierta) return null;
 
@@ -1140,55 +1318,72 @@ function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
     (sec === "entrenos" && parseInt(minutos, 10) > 0) ||
     (sec === "comidas" && texto.trim().length > 1);
 
+  /* Al corregir se conserva el id, así que se sobrescribe el mismo documento
+     en vez de crear otro. Y el `ts`, para que no salte de sitio en la lista. */
+  const conIdentidad = (campos) =>
+    editando ? { ...campos, id: editando.registro.id, ts: editando.registro.ts ?? campos.ts } : campos;
+
   const enviar = () => {
     if (!valido) return;
     if (sec === "peso") {
       const valor = parseFloat(String(kg).replace(",", "."));
-      const revision = revisarPeso(valor, fecha, pesos);
+      // Al corregir, el propio pesaje no cuenta como referencia de sí mismo.
+      const otros = editando ? pesos.filter((p) => p.id !== editando.registro.id) : pesos;
+      const revision = revisarPeso(valor, fecha, otros);
       if (!revision.ok && !avisoPeso) {
         setAvisoPeso(revision);
         return;
       }
-      onGuardar("pesos", { fecha, kg: valor, nota: nota.trim() });
+      onGuardar("pesos", conIdentidad({ fecha, kg: valor, nota: nota.trim() }));
       onCerrar();
       return;
     }
     if (sec === "entrenos") {
-      onGuardar("entrenos", { fecha, tipo, minutos: parseInt(minutos, 10), intensidad: inten, ts: Date.now() });
+      onGuardar("entrenos", conIdentidad({ fecha, tipo, minutos: parseInt(minutos, 10), intensidad: inten, ts: Date.now() }));
+      if (editando) return onCerrar();
       setMinutos("45"); setInten("media");
     }
     if (sec === "comidas") {
-      onGuardar("comidas", { fecha, texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() });
+      onGuardar("comidas", conIdentidad({ fecha, texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() }));
+      if (editando) return onCerrar();
       setTexto(""); setVolumen(3); setSaciedad(null);
     }
     setAnadidos((n) => n + 1);
   };
+
+  const QUE = { peso: "el peso", entrenos: "el entreno", comidas: "la comida" };
 
   return (
     <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "88vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
-          <h3 style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: C.ink, margin: 0 }}>Añadir en otra fecha</h3>
+          <h3 style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: C.ink, margin: 0 }}>
+            {editando ? `Corregir ${QUE[sec]}` : "Añadir en otra fecha"}
+          </h3>
           <button onClick={onCerrar} style={{ ...btnBorrar, background: C.soft }} aria-label="Cerrar"><X size={18} color={C.mid} /></button>
         </div>
 
-        <div className="flex gap-2" style={{ marginBottom: 18 }}>
-          {[
-            { id: "peso", label: "Peso", Icon: Scale },
-            { id: "entrenos", label: "Entreno", Icon: Dumbbell },
-            { id: "comidas", label: "Comida", Icon: UtensilsCrossed },
-          ].map((s) => (
-            <button key={s.id} onClick={() => setSec(s.id)} className="flex items-center justify-center gap-1.5"
-              style={{
-                flex: 1, border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 4px",
-                background: sec === s.id ? C.teal : C.soft, color: sec === s.id ? "#fff" : C.mid,
-                fontFamily: body, fontWeight: 600, fontSize: 13,
-              }}>
-              <s.Icon size={15} />{s.label}
-            </button>
-          ))}
-        </div>
+        {/* Al corregir no se puede cambiar de sección: un peso no se convierte
+            en una comida, se borra y se apunta lo que sea. */}
+        {!editando && (
+          <div className="flex gap-2" style={{ marginBottom: 18 }}>
+            {[
+              { id: "peso", label: "Peso", Icon: Scale },
+              { id: "entrenos", label: "Entreno", Icon: Dumbbell },
+              { id: "comidas", label: "Comida", Icon: UtensilsCrossed },
+            ].map((s) => (
+              <button key={s.id} onClick={() => setSec(s.id)} className="flex items-center justify-center gap-1.5"
+                style={{
+                  flex: 1, border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 4px",
+                  background: sec === s.id ? C.teal : C.soft, color: sec === s.id ? "#fff" : C.mid,
+                  fontFamily: body, fontWeight: 600, fontSize: 13,
+                }}>
+                <s.Icon size={15} />{s.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {sec === "peso" && (
           <>
@@ -1276,7 +1471,7 @@ function HojaFecha({ abierta, seccion, pesos, onCerrar, onGuardar }) {
         )}
 
         <BotonGuardar onClick={enviar} disabled={!valido}>
-          {sec === "peso" ? "Guardar" : anadidos > 0 ? "Guardar otro" : "Guardar"}
+          {editando ? "Guardar los cambios" : sec === "peso" ? "Guardar" : anadidos > 0 ? "Guardar otro" : "Guardar"}
         </BotonGuardar>
 
         {anadidos > 0 && (
@@ -1324,6 +1519,7 @@ function Aplicacion({ sesion }) {
 
   const [tab, setTab] = useState("peso");
   const [hoja, setHoja] = useState(false);
+  const [editando, setEditando] = useState(null); // { coleccion, registro }
   const [pantalla, setPantalla] = useState(null);
 
   const ultimoPeso = useMemo(() => {
@@ -1348,6 +1544,15 @@ function Aplicacion({ sesion }) {
   /* Apuntar algo es escribirlo en Firestore. La lista de la pantalla no se
      toca a mano: se repinta sola cuando Firestore devuelve el cambio. */
   const anadir = useCallback((coleccion, item) => { guardar(coleccion, item); }, [guardar]);
+
+  /* Corregir es abrir la misma hoja con los campos ya puestos. Como el
+     registro conserva su id, se sobrescribe en vez de duplicarse. */
+  const editar = useCallback((coleccion, registro) => {
+    setEditando({ coleccion, registro });
+    setHoja(true);
+  }, []);
+
+  const cerrarHoja = useCallback(() => { setHoja(false); setEditando(null); }, []);
 
   const restaurar = useCallback(
     (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
@@ -1405,10 +1610,10 @@ function Aplicacion({ sesion }) {
           </Card>
         )}
 
-        {listo && tab === "peso" && <VistaPeso datos={datos} anadir={anadir} borrar={borrar} />}
-        {listo && tab === "entrenos" && <VistaEntrenos datos={datos} anadir={anadir} borrar={borrar} />}
+        {listo && tab === "peso" && <VistaPeso datos={datos} anadir={anadir} borrar={borrar} editar={editar} />}
+        {listo && tab === "entrenos" && <VistaEntrenos datos={datos} anadir={anadir} borrar={borrar} editar={editar} />}
         {listo && tab === "comidas" && (
-          <VistaComidas datos={datos} anadir={anadir} borrar={borrar} energia={energia}
+          <VistaComidas datos={datos} anadir={anadir} borrar={borrar} editar={editar} energia={energia}
             evaluaciones={evaluaciones} irAPerfil={() => setPantalla("perfil")} />
         )}
 
@@ -1430,7 +1635,7 @@ function Aplicacion({ sesion }) {
         )}
       </main>
 
-      <button onClick={() => setHoja(true)} aria-label="Añadir en otra fecha" className="botonFlotante"
+      <button onClick={() => { setEditando(null); setHoja(true); }} aria-label="Añadir en otra fecha" className="botonFlotante"
         style={{
           position: "fixed", right: 20, bottom: 94, zIndex: 50, width: 56, height: 56, borderRadius: 20,
           border: "none", background: C.teal, color: "#fff", cursor: "pointer",
@@ -1460,7 +1665,8 @@ function Aplicacion({ sesion }) {
         })}
       </nav>
 
-      <HojaFecha abierta={hoja} seccion={tab} pesos={datos.pesos} onCerrar={() => setHoja(false)} onGuardar={anadir} />
+      <HojaFecha abierta={hoja} seccion={tab} editando={editando} pesos={datos.pesos}
+        onCerrar={cerrarHoja} onGuardar={anadir} />
 
       {pantalla === "valoracion" && (
         <PantallaValoracion datos={datos} energia={energia} onCerrar={() => setPantalla(null)} />

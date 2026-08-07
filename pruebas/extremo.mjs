@@ -164,7 +164,108 @@ const texto = (pag) => pag.innerText("body");
   await ctx.close();
 }
 
-/* ── 3. Gastos: cuenta nueva, apunte y aislamiento ───────────────────────── */
+/* ── 3. Salud: la semana en pantalla, el resto en «Otros días» ───────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  /* Tres semanas de comidas y pesajes, sembradas directamente en el servidor
+     de mentira: solo las de la semana en curso deben verse de entrada. */
+  await pag.addInitScript(() => {
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const lunes = new Date(); lunes.setHours(0, 0, 0, 0);
+    lunes.setDate(lunes.getDate() - ((lunes.getDay() + 6) % 7));
+    const dia = (n) => { const d = new Date(lunes); d.setDate(d.getDate() + n); return iso(d); };
+
+    /* Un día por cada jornada transcurrida de esta semana (lunes → hoy) más
+       los 20 anteriores, que son los que deben quedar detrás del botón. */
+    const hoyIdx = (new Date().getDay() + 6) % 7; // 0 = lunes
+    const uid = "usuarios/uid_dani_ejemplo_com";
+    const docs = { [uid]: { email: "dani@ejemplo.com" } };
+    for (let i = -20; i <= hoyIdx; i++) {
+      docs[`${uid}/pesos/p${i + 20}`] = { fecha: dia(i), kg: 80 + i * 0.05, nota: "" };
+      docs[`${uid}/comidas/c${i + 20}`] = { fecha: dia(i), texto: "Lentejas", momento: "comida", volumen: 3, saciedad: 3, ts: 1 };
+    }
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "dani@ejemplo.com": { clave: "secreta4", uid: "uid_dani_ejemplo_com" } }, docs,
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_dani_ejemplo_com", email: "dani@ejemplo.com" }));
+    window.__cuentas = { estaSemana: hoyIdx + 1, anteriores: 20 };
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1600);
+
+  const { estaSemana, anteriores } = await pag.evaluate(() => window.__cuentas);
+
+  // Pestaña de peso: filas visibles frente a las que hay guardadas.
+  const filasPeso = await pag.$$eval('[aria-label="Borrar el pesaje"]', (e) => e.length);
+  check(
+    "salud: en Peso solo se ven los pesajes de esta semana",
+    filasPeso === estaSemana,
+    `visibles ${filasPeso}, de esta semana ${estaSemana} (y ${anteriores} anteriores)`
+  );
+  const t = await pag.innerText("body");
+  check("salud: aparece la entrada a «Otros días»", /Otros días/.test(t));
+  check(
+    "salud: dice cuántos hay detrás",
+    new RegExp(`${anteriores} anteriores a esta semana`).test(t),
+    (t.match(/\d+ anteriores? a esta semana/) || ["no encontrado"])[0]
+  );
+
+  // Y ahí dentro están todos los demás.
+  await pag.click("text=Otros días");
+  await pag.waitForTimeout(600);
+  const enOtros = await pag.$$eval('[aria-label="Borrar el pesaje"]', (e) => e.length);
+  check(
+    "salud: «Otros días» contiene el resto, ni uno menos",
+    enOtros === filasPeso + anteriores,
+    `${enOtros} botones en pantalla (los ${anteriores} del histórico + los ${filasPeso} de la página de detrás)`
+  );
+  check("salud: el histórico va separado por meses", /AGOSTO|JULIO|agosto|julio/i.test(await pag.innerText("body")));
+  await pag.click('[aria-label="Cerrar"]');
+  await pag.waitForTimeout(400);
+
+  /* ── corregir un registro: se sobrescribe, no se duplica ── */
+  const antes = await pag.evaluate(() =>
+    Object.keys(window.__espia.verServidor().docs).filter((r) => /\/pesos\//.test(r)).length);
+
+  await pag.click('[aria-label="Editar el pesaje"]');
+  await pag.waitForTimeout(600);
+  check("salud: la hoja se abre en modo corrección", /Corregir el peso/.test(await pag.innerText("body")));
+
+  const guardados = () => pag.evaluate(() =>
+    Object.entries(window.__espia.verServidor().docs)
+      .filter(([r]) => /\/pesos\//.test(r))
+      .map(([, d]) => d && d.kg));
+
+  /* Corregir de 80,2 a 77,7 es un salto imposible en un día: el control de
+     cordura tiene que seguir avisando también al corregir, no solo al apuntar.
+     Dentro de la hoja, ojo: la página de detrás también tiene un campo. */
+  await pag.fill('.rise input[type="number"]', "77.7");
+  await pag.click("text=Guardar los cambios");
+  await pag.waitForTimeout(700);
+  check("salud: al corregir, un salto imposible avisa antes de guardar", /no es peso real|Es mucho para ese tiempo/.test(await pag.innerText("body")));
+  check("salud: y no lo ha guardado todavía", !(await guardados()).includes(77.7));
+
+  // Segundo toque: se guarda igual, que para eso avisa y no bloquea.
+  await pag.click("text=Guardar los cambios");
+  await pag.waitForTimeout(900);
+
+  const despues = await pag.evaluate(() =>
+    Object.keys(window.__espia.verServidor().docs).filter((r) => /\/pesos\//.test(r)).length);
+  check("salud: corregir NO crea un registro nuevo", despues === antes, `${antes} → ${despues}`);
+  check("salud: el valor corregido se ve en la lista", /77,7/.test(await pag.innerText("body")));
+  check("salud: y queda escrito en Firestore", (await guardados()).includes(77.7), JSON.stringify(await guardados()));
+
+  check("salud: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 4. Gastos: cuenta nueva, apunte y aislamiento ───────────────────────── */
 
 {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
