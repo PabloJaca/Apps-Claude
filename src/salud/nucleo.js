@@ -204,6 +204,96 @@ export function calcularEnergia(perfil, pesoKg) {
   };
 }
 
+/* ── tendencia del peso ──────────────────────────────────────────────────── */
+
+/**
+ * Pendiente por mínimos cuadrados, en kilos por semana.
+ * Devuelve null si no hay serie suficiente o si sale una barbaridad: más de
+ * 2 kg de verdad por semana no existe, así que eso es ruido de báscula.
+ */
+export function pendienteSemanal(serie) {
+  if (!serie || serie.length < 3) return null;
+  const xs = serie.map((p) => desdeIso(p.fecha).getTime() / 86400000);
+  const ys = serie.map((p) => p.kg);
+  const n = xs.length;
+  const mx = xs.reduce((s, v) => s + v, 0) / n;
+  const my = ys.reduce((s, v) => s + v, 0) / n;
+  let arriba = 0;
+  let abajo = 0;
+  for (let i = 0; i < n; i++) {
+    arriba += (xs[i] - mx) * (ys[i] - my);
+    abajo += (xs[i] - mx) ** 2;
+  }
+  if (abajo === 0) return null;
+  const kgSemana = (arriba / abajo) * 7;
+  return Math.abs(kgSemana) > 2 ? null : kgSemana;
+}
+
+/**
+ * Media de los últimos 7 días para cada pesaje.
+ *
+ * El peso del día a día sube y baja por agua, sal y lo que cenaste: la línea
+ * cruda asusta sin motivo. La media es la que enseña de verdad hacia dónde vas.
+ * Hasta que no hay tres pesajes en la ventana no se dibuja, porque una media
+ * de dos puntos no es una media.
+ */
+export function mediaMovil(pesos, ventana = 7) {
+  const serie = [...(pesos || [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return serie.map((p) => {
+    const hasta = desdeIso(p.fecha).getTime();
+    const desde = hasta - (ventana - 1) * 86400000;
+    const dentro = serie.filter((q) => {
+      const t = desdeIso(q.fecha).getTime();
+      return t >= desde && t <= hasta;
+    });
+    return {
+      ...p,
+      media: dentro.length >= 3
+        ? Number((dentro.reduce((s, q) => s + q.kg, 0) / dentro.length).toFixed(2))
+        : null,
+    };
+  });
+}
+
+/**
+ * Hacia dónde va el peso y dónde estarías si siguiera así.
+ *
+ * Se calcula sobre los pesajes que se sostienen —los picos sueltos ya se
+ * apartan—, y solo si hay serie de la que fiarse: cuatro pesajes repartidos en
+ * diez días como mínimo. Con menos, cualquier número que se diera sería
+ * inventado, y es mejor no decir nada que decir una cifra falsa.
+ */
+export function tendenciaPeso(pesos, { dias = 28, semanas = 4 } = {}) {
+  const { fiables } = pesosFiables(pesos);
+  if (fiables.length < 4) return null;
+
+  const corte = Date.now() - dias * 86400000;
+  const recientes = fiables.filter((p) => desdeIso(p.fecha).getTime() >= corte);
+  const serie = recientes.length >= 4 ? recientes : fiables.slice(-8);
+
+  const primero = desdeIso(serie[0].fecha).getTime();
+  const ultimo = desdeIso(serie[serie.length - 1].fecha).getTime();
+  const abarca = Math.round((ultimo - primero) / 86400000);
+  if (abarca < 10) return null;
+
+  const kgSemana = pendienteSemanal(serie);
+  if (kgSemana === null) return null;
+
+  const actual = serie[serie.length - 1].kg;
+  // Menos de 100 g por semana no es una dirección, es estar plano.
+  const estable = Math.abs(kgSemana) < 0.1;
+
+  return {
+    kgSemana: Number(kgSemana.toFixed(2)),
+    direccion: estable ? "estable" : kgSemana < 0 ? "baja" : "sube",
+    diferencia: Number((serie[serie.length - 1].kg - serie[0].kg).toFixed(2)),
+    dias: abarca,
+    pesajes: serie.length,
+    semanas,
+    prevision: estable ? null : Number((actual + kgSemana * semanas).toFixed(1)),
+  };
+}
+
 /* ── racha ───────────────────────────────────────────────────────────────── */
 
 /**

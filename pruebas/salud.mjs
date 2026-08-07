@@ -256,5 +256,93 @@ check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendien
   check("frecuentes: sin historial no revienta", comidasFrecuentes([], "desayuno").length === 0);
 }
 
+
+/* ── el veredicto también celebra, no solo regaña ────────────────────────── */
+
+{
+  const { valorarPeriodo } = await import("../src/salud/valoracion.js");
+  const { rangoSemana, iso } = await import("../src/salud/nucleo.js");
+
+  const [lunes] = rangoSemana(1);                 // la semana pasada, ya cerrada
+  const d = (n) => { const x = new Date(lunes); x.setDate(x.getDate() + n); return iso(x); };
+
+  const energia = { gasto: 2700, diana: 2200, margen: 150, objetivo: { id: "bajar", label: "Bajar peso", verbo: "bajar" } };
+
+  // Semana impecable: los 7 días apuntados, 4 entrenos y el peso bajando.
+  const buena = { perfil: {}, pesos: [], entrenos: [], comidas: [] };
+  for (let i = 0; i < 7; i++) {
+    buena.pesos.push({ fecha: d(i), kg: Number((82 - i * 0.08).toFixed(2)) });
+    if (i % 2 === 0) buena.entrenos.push({ fecha: d(i), tipo: "fuerza", minutos: 55, intensidad: "media", ts: 1 });
+    for (const [texto, momento] of [["Tostadas con aceite y tomate", "desayuno"],
+                                    ["Pollo con arroz integral y ensalada", "comida"],
+                                    ["Merluza con verduras", "cena"]]) {
+      buena.comidas.push({ fecha: d(i), texto, momento, volumen: 3, saciedad: 3, ts: 1 });
+    }
+  }
+
+  const v = valorarPeriodo(buena, energia, "semana", 1);
+  check("semana buena: el tono es bueno", v.veredicto.tono === "bien", JSON.stringify(v.veredicto));
+  check("semana buena: el titular la nombra", /Semana redonda|Buena semana/.test(v.veredicto.texto), v.veredicto.texto);
+  check("semana buena: dice cifras, no vaguedades", /\d/.test(v.veredicto.texto), v.veredicto.texto);
+  check("semana buena: no queda el viejo «sin nada grave»", !/sin nada grave/.test(v.veredicto.texto), v.veredicto.texto);
+  check("semana buena: menciona los días apuntados", /d\u00eda/.test(v.veredicto.texto), v.veredicto.texto);
+
+  // Semana mala: sigue regañando igual de claro.
+  const mala = { perfil: {}, pesos: [{ fecha: d(0), kg: 82 }], entrenos: [], comidas: [
+    { fecha: d(0), texto: "Pizza entera y cerveza", momento: "cena", volumen: 5, saciedad: 4, ts: 1 },
+  ] };
+  const w = valorarPeriodo(mala, energia, "semana", 1);
+  check("semana mala: sigue siendo dura", w.veredicto.tono === "mal", JSON.stringify(w.veredicto));
+  check("semana mala: no la celebra", !/redonda|Buena/.test(w.veredicto.texto), w.veredicto.texto);
+}
+
+
+/* ── tendencia y media móvil del peso ────────────────────────────────────── */
+
+{
+  const { tendenciaPeso, mediaMovil, iso } = await import("../src/salud/nucleo.js");
+  const d = (n) => { const x = new Date(); x.setHours(0,0,0,0); x.setDate(x.getDate() - n); return iso(x); };
+
+  // Baja medio kilo por semana durante tres semanas.
+  const bajando = [];
+  for (let i = 21; i >= 0; i -= 2) bajando.push({ fecha: d(i), kg: Number((82 - (21 - i) * 0.5 / 7).toFixed(2)) });
+
+  const t = tendenciaPeso(bajando);
+  check("tendencia: detecta que el peso baja", t && t.direccion === "baja", JSON.stringify(t));
+  check("tendencia: el ritmo semanal es creíble", t && Math.abs(t.kgSemana + 0.5) < 0.12, t && String(t.kgSemana));
+  check("tendencia: la previsión va por debajo del peso actual", t && t.prevision < bajando[bajando.length - 1].kg);
+  check("tendencia: dice sobre cuántos días la ha calculado", t && t.dias >= 10, t && String(t.dias));
+
+  const plano = [];
+  for (let i = 21; i >= 0; i -= 2) plano.push({ fecha: d(i), kg: 80 + (i % 4 === 0 ? 0.1 : -0.1) });
+  const p = tendenciaPeso(plano);
+  check("tendencia: un peso plano se llama estable", p && p.direccion === "estable", JSON.stringify(p));
+  check("tendencia: y entonces no inventa previsión", p && p.prevision === null);
+
+  check("tendencia: con dos pesajes no dice nada", tendenciaPeso([{ fecha: d(1), kg: 80 }, { fecha: d(0), kg: 79 }]) === null);
+  check(
+    "tendencia: con cuatro pesajes de tres días tampoco, es muy poco tramo",
+    tendenciaPeso([{ fecha: d(3), kg: 80 }, { fecha: d(2), kg: 79.8 }, { fecha: d(1), kg: 79.6 }, { fecha: d(0), kg: 79.4 }]) === null
+  );
+  check("tendencia: sin pesajes no revienta", tendenciaPeso([]) === null);
+
+  /* Un pico absurdo no puede torcer la tendencia: pesosFiables lo aparta. */
+  const conPico = [...bajando];
+  conPico.splice(4, 0, { fecha: d(13), kg: 95 });
+  const tp = tendenciaPeso(conPico);
+  check("tendencia: un pico de báscula no la tuerce", tp && tp.direccion === "baja", JSON.stringify(tp));
+
+  const mm = mediaMovil(bajando);
+  check("media móvil: sale un punto por pesaje", mm.length === bajando.length);
+  check("media móvil: los primeros no tienen media", mm[0].media === null);
+  check("media móvil: los últimos sí", mm[mm.length - 1].media !== null, JSON.stringify(mm[mm.length - 1]));
+  check(
+    "media móvil: suaviza, no copia",
+    mm[mm.length - 1].media !== mm[mm.length - 1].kg,
+    `${mm[mm.length - 1].media} vs ${mm[mm.length - 1].kg}`
+  );
+  check("media móvil: sin pesajes devuelve lista vacía", mediaMovil([]).length === 0);
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

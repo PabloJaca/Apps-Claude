@@ -16,8 +16,9 @@ import {
   PERFIL_VACIO, SACIEDADES,
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
   comidasFrecuentes, enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta,
-  hoy, importar, inicioSemana, leerLegado, miles, num, olvidarLegado, plural,
-  racha, rangoMes, rangoSemana, revisarPeso, saciedadDe, volumenDe,
+  hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
+  plural, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe, tendenciaPeso,
+  volumenDe,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -398,35 +399,55 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
   const previo = pesos[pesos.length - 2];
   const delta = ultimo && previo ? ultimo.kg - previo.kg : null;
 
-  const [kg, setKg] = useState(() => (ultimo ? ultimo.kg : 70));
+  /* Sin pesajes previos el campo empieza vacío: poner 70 es inventarle a
+     alguien un peso que no es el suyo, y encima invita a guardarlo sin mirar. */
+  const [kg, setKg] = useState(() => (ultimo ? String(ultimo.kg) : ""));
   const [nota, setNota] = useState("");
   const [abierto, setAbierto] = useState(false);
   const [aviso, setAviso] = useState(null);
   const yaHoy = pesos.some((p) => p.fecha === hoy());
 
-  useEffect(() => { if (ultimo) setKg(ultimo.kg); }, [ultimo && ultimo.kg]);
+  useEffect(() => { if (ultimo) setKg(String(ultimo.kg)); }, [ultimo && ultimo.kg]);
 
-  const serie = pesos.slice(-30).map((p) => ({ x: fechaCorta(p.fecha), kg: p.kg }));
+  /* La línea cruda sube y baja por agua y sal; la media de 7 días es la que
+     enseña de verdad hacia dónde va la cosa. Van las dos juntas. */
+  const serie = useMemo(
+    () => mediaMovil(pesos).slice(-30).map((p) => ({ x: fechaCorta(p.fecha), kg: p.kg, media: p.media })),
+    [pesos]
+  );
+  const tendencia = useMemo(() => tendenciaPeso(datos.pesos), [datos.pesos]);
   const dominio = useMemo(() => {
     if (!serie.length) return [0, 1];
     const v = serie.map((s) => s.kg);
     return [Math.floor(Math.min(...v) - 1), Math.ceil(Math.max(...v) + 1)];
   }, [serie]);
 
+  const rumbo = tendencia && {
+    baja: { verbo: "Bajando", color: C.mint },
+    sube: { verbo: "Subiendo", color: C.amber },
+    estable: { verbo: "Estable", color: C.mid },
+  }[tendencia.direccion];
+
   const altura = parseFloat(datos.perfil.altura);
   const imc = ultimo && altura > 0 ? ultimo.kg / Math.pow(altura / 100, 2) : null;
 
-  const paso = (d) => setKg((k) => Math.round((Number(k) + d) * 10) / 10);
+  const paso = (d) =>
+    setKg((k) => {
+      const base = parseFloat(String(k).replace(",", "."));
+      return String(Math.round(((base > 0 ? base : 70) + d) * 10) / 10);
+    });
+
+  const valorKg = parseFloat(String(kg).replace(",", "."));
 
   const escribir = () => {
-    anadir("pesos", { fecha: hoy(), kg: Number(kg), nota: nota.trim() });
+    anadir("pesos", { fecha: hoy(), kg: valorKg, nota: nota.trim() });
     setNota(""); setAbierto(false); setAviso(null);
   };
 
   /* Antes de guardar se comprueba contra el pesaje anterior. No bloquea nada:
      avisa, porque a veces el salto es real y a veces es un dedo torcido. */
   const guardarPeso = () => {
-    const revision = revisarPeso(kg, hoy(), datos.pesos);
+    const revision = revisarPeso(valorKg, hoy(), datos.pesos);
     if (revision.ok) escribir();
     else setAviso(revision);
   };
@@ -469,15 +490,38 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
           <div style={{ height: 160, marginTop: 12, marginLeft: -10 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={serie} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
-                <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
                 {/* Sin decimales: con un rango de pocos kilos salían marcas
                     como «83,25», que no caben en el ancho del eje y se veían
                     cortadas por delante («3,25»). */}
                 <YAxis domain={dominio} allowDecimals={false} tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={32} />
                 <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${num(v)} kg`, ""]} />
-                <Line type="monotone" dataKey="kg" stroke={C.teal} strokeWidth={3} dot={{ r: 3, fill: C.teal, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="kg" stroke={C.teal} strokeWidth={2} strokeOpacity={0.35}
+                  dot={{ r: 2.5, fill: C.teal, fillOpacity: 0.45, strokeWidth: 0 }} activeDot={{ r: 5 }} name="pesaje" />
+                <Line type="monotone" dataKey="media" stroke={C.teal} strokeWidth={3} dot={false}
+                  connectNulls name="media de 7 días" />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+        )}
+
+        {rumbo && (
+          <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 12, paddingTop: 12 }}>
+            <div className="flex items-baseline gap-2">
+              <span style={{ fontFamily: display, fontWeight: 700, fontSize: 17, color: rumbo.color }}>
+                {rumbo.verbo}
+              </span>
+              {tendencia.direccion !== "estable" && (
+                <span style={{ fontFamily: mono, fontSize: 13, color: C.mid }}>
+                  {num(Math.abs(tendencia.kgSemana))} kg por semana
+                </span>
+              )}
+            </div>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: "3px 0 0", lineHeight: 1.45 }}>
+              {tendencia.direccion === "estable"
+                ? `El peso apenas se mueve en los últimos ${tendencia.dias} días.`
+                : `A este ritmo, en ${tendencia.semanas} semanas estarías en ${num(tendencia.prevision)} kg. Calculado con ${plural(tendencia.pesajes, "pesaje")} de los últimos ${tendencia.dias} días.`}
+            </p>
           </div>
         )}
       </Card>
@@ -493,6 +537,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
           <button onClick={() => paso(-0.1)} style={stepper} aria-label="Bajar 100 gramos">−</button>
           <input type="number" inputMode="decimal" step="0.1" value={kg}
             onChange={(e) => setKg(e.target.value)}
+            placeholder="—"
             style={{ ...inputBase, textAlign: "center", fontFamily: mono, fontSize: 26, fontWeight: 600, padding: "10px 4px" }} />
           <button onClick={() => paso(0.1)} style={stepper} aria-label="Subir 100 gramos">+</button>
         </div>
@@ -522,7 +567,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
         )}
 
         <div style={{ marginTop: 12 }}>
-          <BotonGuardar onClick={guardarPeso} disabled={!(Number(kg) > 0)} />
+          <BotonGuardar onClick={guardarPeso} disabled={!(valorKg > 0)} />
         </div>
       </Card>
 
@@ -856,7 +901,7 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
           <div style={{ height: 110, marginTop: 12, marginLeft: -14 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={notas} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-                <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
                 <YAxis domain={[0, 10]} hide />
                 <Tooltip cursor={{ fill: "rgba(21,48,61,.04)" }} contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} / 10`, ""]} />
                 <Bar dataKey="nota" fill={C.mint} radius={[8, 8, 8, 8]} maxBarSize={20} />
@@ -919,16 +964,7 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
             {energia.ajustado && " La diana se ha subido para no bajar de un mínimo razonable."} Son estimaciones, no medidas.
           </p>
         </Card>
-      ) : (
-        <Card onClick={irAPerfil} className="flex items-center gap-3" style={{ cursor: "pointer", background: C.amberSoft, boxShadow: "none" }}>
-          <Badge Icon={Flame} color={C.amber} soft="#fff" />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>Elige tu objetivo</p>
-            <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: 0 }}>Con peso, altura, edad y actividad te digo si comes para bajar, mantener o subir</p>
-          </div>
-          <ChevronRight size={18} color={C.amber} />
-        </Card>
-      )}
+      ) : null}
 
       <Historial
         titulo="Días"
@@ -1522,6 +1558,164 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
   );
 }
 
+/* ------------------------------------------------------- primera vez */
+
+/**
+ * Tres preguntas al entrar por primera vez.
+ *
+ * Antes se aterrizaba en un formulario vacío con dos avisos naranjas y sin
+ * saber por dónde empezar. El orden va de lo fácil a lo tedioso, y el tercer
+ * paso termina enseñando la diana de calorías: ese número es el momento en el
+ * que se entiende para qué sirve todo esto.
+ *
+ * Se puede saltar en cualquier momento; lo que se haya rellenado se guarda.
+ */
+function Bienvenida({ onTerminar, onSaltar }) {
+  const [paso, setPaso] = useState(0);
+  const [kg, setKg] = useState("");
+  const [p, setP] = useState(PERFIL_VACIO);
+  const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
+
+  const valorKg = parseFloat(String(kg).replace(",", "."));
+  const diana = useMemo(() => calcularEnergia(p, valorKg), [p, valorKg]);
+
+  const PASOS = [
+    { rotulo: "1 de 3", titulo: "¿Cuánto pesas ahora?", puede: valorKg > 20 && valorKg < 400 },
+    { rotulo: "2 de 3", titulo: "¿Qué quieres conseguir?", puede: !!p.objetivo },
+    { rotulo: "3 de 3", titulo: "Un par de datos más", puede: p.altura && p.edad && p.sexo && p.actividad },
+  ];
+  const actual = PASOS[paso];
+
+  const siguiente = () => {
+    if (!actual.puede) return;
+    if (paso < 2) return setPaso(paso + 1);
+    onTerminar({ perfil: p, kg: valorKg });
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: body }}>
+      <style>{CSS}</style>
+      <div className="contenedor" style={{ padding: "26px 16px 40px", maxWidth: 520 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 22 }}>
+          <Rotulo>{actual.rotulo}</Rotulo>
+          <button onClick={onSaltar}
+            style={{ background: "none", border: "none", color: C.faint, fontFamily: body, fontWeight: 600, fontSize: 13, cursor: "pointer", padding: 6 }}>
+            Ahora no
+          </button>
+        </div>
+
+        <h1 style={{ fontFamily: display, fontWeight: 800, fontSize: 28, color: C.ink, letterSpacing: -0.8, margin: "0 0 6px", lineHeight: 1.15 }}>
+          {actual.titulo}
+        </h1>
+        <p style={{ fontFamily: body, fontSize: 14, color: C.mid, lineHeight: 1.5, margin: "0 0 22px" }}>
+          {paso === 0 && "Es el punto de partida. Podrás corregirlo cuando quieras."}
+          {paso === 1 && "Con esto sé si tienes que comer por encima o por debajo de tu gasto."}
+          {paso === 2 && "Sirven para calcular cuánta energía gastas al día."}
+        </p>
+
+        <Card style={{ display: "grid", gap: 16 }}>
+          {paso === 0 && (
+            <div className="flex items-center gap-3">
+              <button onClick={() => setKg((k) => String(Math.round(((parseFloat(k) || 70) - 0.1) * 10) / 10))} style={stepper}>−</button>
+              <input type="number" inputMode="decimal" step="0.1" value={kg} autoFocus placeholder="—"
+                onChange={(e) => setKg(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && siguiente()}
+                style={{ ...inputBase, textAlign: "center", fontFamily: mono, fontSize: 30, fontWeight: 600, padding: "12px 4px" }} />
+              <button onClick={() => setKg((k) => String(Math.round(((parseFloat(k) || 70) + 0.1) * 10) / 10))} style={stepper}>+</button>
+            </div>
+          )}
+
+          {paso === 1 && (
+            <div style={{ display: "grid", gap: 8 }}>
+              {OBJETIVOS.map((o) => {
+                const act = p.objetivo === o.id;
+                return (
+                  <button key={o.id} onClick={() => set("objetivo", o.id)}
+                    style={{ textAlign: "left", border: "none", cursor: "pointer", borderRadius: 16, padding: "14px 16px", background: act ? C.tealSoft : C.soft }}>
+                    <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: act ? C.teal : C.ink }}>{o.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {paso === 2 && (
+            <>
+              <div className="flex gap-3">
+                <label style={{ flex: 1 }}>
+                  <Rotulo>Altura (cm)</Rotulo>
+                  <input type="number" inputMode="numeric" value={p.altura} autoFocus placeholder="178"
+                    onChange={(e) => set("altura", e.target.value)}
+                    style={{ ...inputBase, marginTop: 6, fontFamily: mono, fontWeight: 600 }} />
+                </label>
+                <label style={{ flex: 1 }}>
+                  <Rotulo>Edad</Rotulo>
+                  <input type="number" inputMode="numeric" value={p.edad} placeholder="34"
+                    onChange={(e) => set("edad", e.target.value)}
+                    style={{ ...inputBase, marginTop: 6, fontFamily: mono, fontWeight: 600 }} />
+                </label>
+              </div>
+              <div>
+                <Rotulo>Sexo</Rotulo>
+                <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
+                  {SEXOS.map((x) => <Chip key={x.id} activo={p.sexo === x.id} onClick={() => set("sexo", x.id)}>{x.label}</Chip>)}
+                </div>
+              </div>
+              <div>
+                <Rotulo>Actividad diaria</Rotulo>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 7 }}>
+                  {ACTIVIDADES.map((a) => {
+                    const act = p.actividad === a.id;
+                    return (
+                      <button key={a.id} onClick={() => set("actividad", a.id)}
+                        style={{ textAlign: "left", border: "none", cursor: "pointer", borderRadius: 16, padding: "11px 14px", background: act ? C.tealSoft : C.soft }}>
+                        <span style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: act ? C.teal : C.ink }}>{a.label}</span>
+                        <span style={{ fontFamily: body, fontSize: 12, color: C.faint, display: "block", marginTop: 1 }}>{a.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </Card>
+
+        {/* El premio: el número que hace que todo lo anterior tenga sentido. */}
+        {paso === 2 && diana && (
+          <Card className="fade" style={{ marginTop: 12, background: C.tealSoft, boxShadow: "none" }}>
+            <Rotulo>Tu diana</Rotulo>
+            <div className="flex items-end gap-2" style={{ marginTop: 2 }}>
+              <span style={{ fontFamily: display, fontWeight: 800, fontSize: 34, color: C.teal, lineHeight: 1, letterSpacing: -1 }}>
+                {miles(diana.diana)}
+              </span>
+              <span style={{ fontFamily: body, fontSize: 14, color: C.mid, marginBottom: 4 }}>kcal al día</span>
+            </div>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: "6px 0 0", lineHeight: 1.45 }}>
+              Gastas unas {miles(diana.gasto)} kcal al día.{" "}
+              {diana.objetivo.id === "mantener"
+                ? "Comiendo esa misma cifra te mantienes."
+                : `Quedándote en la de arriba vas ${diana.objetivo.id === "bajar" ? "perdiendo" : "ganando"} peso poco a poco.`}
+            </p>
+          </Card>
+        )}
+
+        <div style={{ marginTop: 18 }}>
+          <BotonGuardar onClick={siguiente} disabled={!actual.puede}>
+            {paso < 2 ? "Seguir" : "Empezar"}
+          </BotonGuardar>
+        </div>
+
+        {paso > 0 && (
+          <button onClick={() => setPaso(paso - 1)}
+            style={{ width: "100%", marginTop: 10, border: "none", background: "transparent", color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 13.5, padding: "10px 0", cursor: "pointer" }}>
+            Atrás
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------- app */
 
 export default function App() {
@@ -1598,6 +1792,36 @@ function Aplicacion({ sesion }) {
 
   const laRacha = useMemo(() => racha(datos), [datos]);
 
+  /* Cuenta recién estrenada: sin perfil y sin un solo registro de ningún tipo.
+     No basta con mirar los pesajes: quien solo hubiera apuntado comidas se
+     volvería a encontrar la bienvenida delante. Se pregunta una vez y queda
+     constancia, para no dar la brasa ni a quien la salta. */
+  const primeraVez =
+    listo &&
+    !usuario.bienvenida &&
+    !datos.perfil.altura &&
+    !datos.pesos.length && !datos.entrenos.length && !datos.comidas.length;
+
+  const cerrarBienvenida = useCallback(
+    (datosIniciales) => {
+      if (datosIniciales) {
+        guardarUsuario({ perfil: datosIniciales.perfil, bienvenida: Date.now() });
+        guardar("pesos", { fecha: hoy(), kg: datosIniciales.kg, nota: "" });
+      } else {
+        guardarUsuario({ bienvenida: Date.now() });
+      }
+    },
+    [guardarUsuario, guardar]
+  );
+
+  /* Valorar una semana con un día suelto no dice nada, y el botón ocupa media
+     pantalla. Aparece cuando hay tres días con algo apuntado. */
+  const hayQueValorar = useMemo(() => {
+    const dias = new Set();
+    for (const l of [datos.pesos, datos.entrenos, datos.comidas]) for (const r of l) dias.add(r.fecha);
+    return dias.size >= 3;
+  }, [datos]);
+
   const TABS = [
     { id: "peso", label: "Peso", Icon: Scale },
     { id: "entrenos", label: "Entrenos", Icon: Dumbbell },
@@ -1605,6 +1829,12 @@ function Aplicacion({ sesion }) {
   ];
 
   const sinPerfil = !datos.perfil.altura;
+
+  /* Va después de todos los hooks a propósito: se ejecutan igual, solo cambia
+     lo que se dibuja. */
+  if (primeraVez) {
+    return <Bienvenida onTerminar={cerrarBienvenida} onSaltar={() => cerrarBienvenida(null)} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: body }}>
@@ -1672,7 +1902,7 @@ function Aplicacion({ sesion }) {
             evaluaciones={evaluaciones} irAPerfil={() => setPantalla("perfil")} />
         )}
 
-        {listo && (
+        {listo && hayQueValorar && (
           <button onClick={() => setPantalla("valoracion")} className="flex items-center gap-3"
             style={{
               width: "100%", marginTop: 16, border: "none", cursor: "pointer", textAlign: "left",
@@ -1722,6 +1952,7 @@ function Aplicacion({ sesion }) {
 
       <HojaFecha abierta={hoja} seccion={tab} editando={editando} pesos={datos.pesos}
         onCerrar={cerrarHoja} onGuardar={anadir} />
+
 
       {pantalla === "valoracion" && (
         <PantallaValoracion datos={datos} energia={energia} onCerrar={() => setPantalla(null)} />

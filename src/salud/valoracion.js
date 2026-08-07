@@ -11,9 +11,9 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 import {
-  ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, desdeIso, detalleTramo,
-  diasTranscurridos, enTramo, etiquetaTramo, miles, num, pesosFiables,
-  plural, rangoMes, rangoSemana,
+  ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, detalleTramo,
+  diasTranscurridos, enTramo, etiquetaTramo, miles, num, pendienteSemanal,
+  pesosFiables, plural, rangoMes, rangoSemana,
 } from "./nucleo.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 
@@ -21,27 +21,6 @@ const TIPOS_ENTRENO = { fuerza: "fuerza", cardio: "cardio", equipo: "equipo", ot
 
 const listar = (arr) =>
   arr.length <= 1 ? arr.join("") : `${arr.slice(0, -1).join(", ")} y ${arr[arr.length - 1]}`;
-
-/** Pendiente por mínimos cuadrados: kilos por semana. */
-function tendenciaPeso(serie) {
-  if (serie.length < 3) return null;
-  const t0 = serie[0].t;
-  const xs = serie.map((p) => (p.t - t0) / 86400000);
-  const ys = serie.map((p) => p.kg);
-  const n = xs.length;
-  const mx = xs.reduce((s, v) => s + v, 0) / n;
-  const my = ys.reduce((s, v) => s + v, 0) / n;
-  let arriba = 0;
-  let abajo = 0;
-  for (let i = 0; i < n; i++) {
-    arriba += (xs[i] - mx) * (ys[i] - my);
-    abajo += (xs[i] - mx) ** 2;
-  }
-  if (abajo === 0) return null;
-  const kgSemana = (arriba / abajo) * 7;
-  // Más de 2 kg reales por semana no existe: si sale eso, es ruido de báscula.
-  return Math.abs(kgSemana) > 2 ? null : kgSemana;
-}
 
 function diasValorados(comidas, energia) {
   const porDia = {};
@@ -78,7 +57,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   const primero = fiables.length ? fiables[0].kg : null;
   const ultimo = fiables.length ? fiables[fiables.length - 1].kg : null;
   const diferencia = fiables.length > 1 ? Number((ultimo - primero).toFixed(2)) : null;
-  const pendiente = tendenciaPeso(fiables.map((p) => ({ t: desdeIso(p.fecha).getTime(), kg: p.kg })));
+  const pendiente = pendienteSemanal(fiables);
 
   /* ── entrenos ───────────────────────────────────────────────────────── */
   const minutos = entrenos.reduce((s, e) => s + (e.minutos || 0), 0);
@@ -103,6 +82,9 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
 
   const objetivo = energia ? energia.objetivo.id : null;
   const difDiaria = energia && kcalMedia ? kcalMedia - energia.diana : null;
+  /* Si la báscula acompaña al objetivo. Se decide en el aviso del peso y se
+     vuelve a usar en el veredicto, así que vive fuera de los dos. */
+  let vaBien = false;
 
   /* ── avisos: cortos, con número y sin anestesia ─────────────────────── */
   const avisos = [];
@@ -226,7 +208,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
         : "No te has pesado ni un día. Sin báscula esto es adivinar.",
     });
   } else if (objetivo) {
-    const vaBien =
+    vaBien =
       (objetivo === "bajar" && diferencia < -0.1) ||
       (objetivo === "subir" && diferencia > 0.1) ||
       (objetivo === "mantener" && Math.abs(diferencia) <= 0.5);
@@ -252,10 +234,31 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     veredicto = { texto: `${malos.length} cosas mal esta ${periodo === "semana" ? "semana" : "vez"}`, tono: "mal" };
   } else if (malos.length) {
     veredicto = { texto: `Falla ${listar(malos.map((a) => a.area.toLowerCase()))}`, tono: "mal" };
-  } else if (buenos.length >= 3) {
-    veredicto = { texto: "Periodo redondo, nada que corregir", tono: "bien" };
   } else {
-    veredicto = { texto: "Va bien, sin nada grave", tono: "bien" };
+    /* Cuando algo va mal se dice con su cifra; cuando va bien, también. «Va
+       bien, sin nada grave» no se lo cree nadie y no sabe a nada: se nombra
+       lo que de verdad has hecho, que es lo que da ganas de repetirlo. */
+    const logros = [];
+    if (cobertura >= 0.9) {
+      logros.push(
+        dias.length >= diasPasados
+          ? `${plural(dias.length, "día")} apuntados sin fallar uno`
+          : `${plural(dias.length, "día")} apuntados de ${diasPasados}`
+      );
+    }
+    if (diasEntrenados >= objetivoEntrenos) logros.push(plural(diasEntrenados, "entreno"));
+    if (diferencia !== null && vaBien) {
+      logros.push(`${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg`);
+    }
+
+    const cabecera = buenos.length >= 3 || logros.length >= 3
+      ? periodo === "semana" ? "Semana redonda" : "Mes redondo"
+      : periodo === "semana" ? "Buena semana" : "Buen mes";
+
+    veredicto = {
+      texto: logros.length ? `${cabecera}: ${listar(logros)}` : `${cabecera}, nada que corregir`,
+      tono: "bien",
+    };
   }
 
   /* ── cierre: una sola cosa que hacer ────────────────────────────────── */

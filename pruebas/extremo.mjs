@@ -90,6 +90,16 @@ const acceder = async (pag, email, clave, { registrar = false } = {}) => {
 
 const texto = (pag) => pag.innerText("body");
 
+/* Una cuenta recién creada aterriza en la bienvenida. Los guiones que van de
+   otra cosa la saltan para llegar a la aplicación. */
+const saltarBienvenida = async (pag) => {
+  const boton = pag.locator("text=Ahora no");
+  if (await boton.count()) {
+    await boton.first().click();
+    await pag.waitForTimeout(900);
+  }
+};
+
 /* ── 2. Salud: dos cuentas en el mismo navegador ─────────────────────────── */
 
 {
@@ -115,6 +125,7 @@ const texto = (pag) => pag.innerText("body");
   check("salud: sin sesión solo se ve la puerta", /Entra en tu cuenta/.test(await texto(pag)));
 
   await acceder(pag, "ana@ejemplo.com", "secreta1", { registrar: true });
+  await saltarBienvenida(pag);
   check("salud: tras registrarse se entra en la app", /Peso|Entrenos|Comidas/.test(await texto(pag)));
 
   // Ana apunta un peso.
@@ -145,6 +156,7 @@ const texto = (pag) => pag.innerText("body");
 
   // Entra otra persona en el mismo aparato.
   await acceder(pag, "bruno@ejemplo.com", "secreta2", { registrar: true });
+  await saltarBienvenida(pag);
   const conBruno = await texto(pag);
   check("salud: Bruno entra en su propia app", /Peso|Entrenos|Comidas/.test(conBruno));
   check("salud: BRUNO NO VE EL PESO DE ANA", !/72,4/.test(conBruno), conBruno.slice(0, 300));
@@ -342,6 +354,93 @@ const texto = (pag) => pag.innerText("body");
   await ctx.close();
 }
 
+/* ── 3ter. La bienvenida de la primera vez ───────────────────────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  // Cuenta recién creada: sin perfil y sin un solo registro.
+  await pag.addInitScript(() => {
+    if (!localStorage.getItem("__servidor_de_mentira__")) {
+      localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+        usuarios: { "hugo@ejemplo.com": { clave: "secreta8", uid: "uid_hugo" } },
+        docs: { "permitidos/hugo@ejemplo.com": { nombre: "Hugo" }, "usuarios/uid_hugo": { email: "hugo@ejemplo.com" } },
+      }));
+    }
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_hugo", email: "hugo@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1600);
+  check("primera vez: se pregunta el peso en vez de soltar un formulario vacío",
+    /Cuánto pesas ahora/.test(await pag.innerText("body")), (await pag.innerText("body")).slice(0, 150));
+
+  await pag.fill('input[type="number"]', "82.4");
+  await pag.click('button:has-text("Seguir")');
+  await pag.waitForTimeout(400);
+  await pag.click("text=Bajar peso");
+  await pag.click('button:has-text("Seguir")');
+  await pag.waitForTimeout(400);
+  await pag.fill('input[placeholder="178"]', "180");
+  await pag.fill('input[placeholder="34"]', "31");
+  await pag.click("text=Hombre");
+  await pag.click("text=Activa");
+  await pag.waitForTimeout(400);
+
+  const conDiana = await pag.innerText("body");
+  check("primera vez: al final enseña la diana de calorías", /tu diana/i.test(conDiana));
+  check("primera vez: y la diana queda por debajo del gasto, porque quiere bajar",
+    (() => {
+      const [, diana] = conDiana.match(/TU DIANA\s+([\d.]+)/i) || [];
+      const [, gasto] = conDiana.match(/Gastas unas ([\d.]+)/) || [];
+      return diana && gasto && Number(diana.replace(".", "")) < Number(gasto.replace(".", ""));
+    })(),
+    conDiana.replace(/\n+/g, " | ").slice(0, 240)
+  );
+
+  await pag.click("text=Empezar");
+  await pag.waitForTimeout(1300);
+  const dentro = await pag.innerText("body");
+  check("primera vez: se entra en la app", /Peso|Entrenos|Comidas/.test(dentro));
+  check("primera vez: el peso del primer paso queda guardado", /82,4/.test(dentro));
+
+  await pag.reload();
+  await pag.waitForTimeout(1600);
+  const trasRecarga = await pag.innerText("body");
+  check("primera vez: no vuelve a preguntar al recargar", !/Cuánto pesas ahora/.test(trasRecarga));
+  check("primera vez: y lo apuntado sigue ahí", /82,4/.test(trasRecarga));
+
+  check("bienvenida: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* Quien la salta tampoco vuelve a verla. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  await pag.addInitScript(() => {
+    if (!localStorage.getItem("__servidor_de_mentira__")) {
+      localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+        usuarios: { "iris@ejemplo.com": { clave: "secreta9", uid: "uid_iris" } },
+        docs: { "permitidos/iris@ejemplo.com": { nombre: "Iris" }, "usuarios/uid_iris": { email: "iris@ejemplo.com" } },
+      }));
+    }
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_iris", email: "iris@ejemplo.com" }));
+  });
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1500);
+  await pag.click("text=Ahora no");
+  await pag.waitForTimeout(1200);
+  check("saltarse la bienvenida deja entrar en la app", /Peso|Entrenos|Comidas/.test(await pag.innerText("body")));
+  await pag.reload();
+  await pag.waitForTimeout(1600);
+  check("y no vuelve a preguntar nunca más", !/Cuánto pesas ahora/.test(await pag.innerText("body")));
+  await ctx.close();
+}
+
 /* ── 4. La lista de invitados ────────────────────────────────────────────── */
 
 {
@@ -373,6 +472,7 @@ const texto = (pag) => pag.innerText("body");
   await pag.waitForTimeout(1300);
   await acceder(pag, "eva@ejemplo.com", "secreta5");
   await pag.waitForTimeout(1200);
+  await saltarBienvenida(pag);
   check("con invitación se entra con normalidad", /Peso|Entrenos|Comidas/.test(await texto(pag)), (await texto(pag)).slice(0, 200));
 
   check("lista de invitados: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
