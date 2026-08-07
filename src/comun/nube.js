@@ -42,6 +42,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   setDoc,
@@ -98,13 +99,20 @@ export function alCambiarSesion(cb) {
   return onAuthStateChanged(s.auth, (u) => cb(u ? { uid: u.uid, email: u.email } : null));
 }
 
+/* Los fallos de acceso dicen todos lo mismo a propósito. Distinguir «no hay
+   ninguna cuenta con ese correo» de «contraseña incorrecta» permite averiguar
+   quién está registrado probando correos, que es información de la gente que
+   usa la app y no tiene por qué darse. */
+const CREDENCIAL = "Correo o contraseña incorrectos.";
+
 const MENSAJES = {
   "auth/invalid-email": "Ese correo no tiene buena pinta.",
-  "auth/user-not-found": "No hay ninguna cuenta con ese correo.",
-  "auth/wrong-password": "Contraseña incorrecta.",
-  "auth/invalid-credential": "Correo o contraseña incorrectos.",
-  "auth/email-already-in-use": "Ya existe una cuenta con ese correo. Entra con ella.",
-  "auth/weak-password": "La contraseña necesita al menos 6 caracteres.",
+  "auth/user-not-found": CREDENCIAL,
+  "auth/wrong-password": CREDENCIAL,
+  "auth/invalid-credential": CREDENCIAL,
+  "auth/invalid-login-credentials": CREDENCIAL,
+  "auth/email-already-in-use": "No se ha podido crear la cuenta. Si ya la tienes, entra con ella.",
+  "auth/weak-password": "La contraseña necesita al menos 8 caracteres.",
   "auth/too-many-requests": "Demasiados intentos. Espera un minuto y vuelve a probar.",
   "auth/network-request-failed": "Sin conexión. Comprueba la red y vuelve a intentarlo.",
   "auth/operation-not-allowed": "Falta activar el acceso por correo en la consola de Firebase.",
@@ -112,39 +120,83 @@ const MENSAJES = {
 
 const traducir = (e) => MENSAJES[e && e.code] || "No se ha podido completar. Inténtalo otra vez.";
 
+/** El correo es la identidad y la clave de la lista: siempre en minúsculas. */
+const normalizar = (email) => String(email || "").trim().toLowerCase();
+
 export async function entrar(email, clave) {
   const s = servicios();
   if (!s) throw new Error("Sin configuración de Firebase.");
   try {
-    await signInWithEmailAndPassword(s.auth, email.trim(), clave);
+    await signInWithEmailAndPassword(s.auth, normalizar(email), clave);
   } catch (e) {
     throw new Error(traducir(e));
   }
 }
 
+/** Se lanza cuando la cuenta existe pero el correo no está en la lista. */
+export const ERROR_SIN_INVITACION = "sin-invitacion";
+
 export async function registrar(email, clave) {
   const s = servicios();
   if (!s) throw new Error("Sin configuración de Firebase.");
+
+  let cred;
   try {
-    const cred = await createUserWithEmailAndPassword(s.auth, email.trim(), clave);
-    // Se deja constancia del alta para poder identificar la cuenta en la consola.
+    cred = await createUserWithEmailAndPassword(s.auth, normalizar(email), clave);
+  } catch (e) {
+    throw new Error(traducir(e));
+  }
+
+  /* La cuenta ya existe en Authentication, pero sin invitación no puede
+     escribir nada: las reglas lo rechazan. Se avisa aquí para no dejar a nadie
+     mirando un error de permisos que no significa nada para quien lo lee. */
+  try {
     await setDoc(
       doc(s.db, "usuarios", cred.user.uid),
       { email: cred.user.email, creado: Date.now() },
       { merge: true }
     );
   } catch (e) {
-    throw new Error(traducir(e));
+    if (e && e.code === "permission-denied") throw new Error(ERROR_SIN_INVITACION);
+    throw new Error("La cuenta se ha creado, pero no se han podido guardar tus datos.");
   }
 }
 
+/**
+ * Enviar el enlace para cambiar la contraseña.
+ *
+ * Nunca dice si el correo existe o no: se responde igual en los dos casos.
+ * Si no existiera, aquí se sabría quién tiene cuenta con solo escribir correos.
+ */
 export async function recuperar(email) {
   const s = servicios();
   if (!s) throw new Error("Sin configuración de Firebase.");
   try {
-    await sendPasswordResetEmail(s.auth, email.trim());
+    await sendPasswordResetEmail(s.auth, normalizar(email));
   } catch (e) {
+    const inocuo = ["auth/user-not-found", "auth/invalid-credential"];
+    if (inocuo.includes(e && e.code)) return;
     throw new Error(traducir(e));
+  }
+}
+
+/**
+ * ¿Está este correo en la lista de invitados?
+ *
+ * Es solo para poder enseñar un mensaje decente: quien manda son las reglas,
+ * que comprueban lo mismo en el servidor en cada lectura y cada escritura. Por
+ * eso, si la comprobación falla (sin cobertura, por ejemplo), se deja pasar:
+ * no se gana nada cerrando aquí una puerta que ya está cerrada por dentro.
+ */
+export async function estaInvitado(email) {
+  const s = servicios();
+  if (!s) return true;
+  try {
+    const snap = await getDoc(doc(s.db, "permitidos", normalizar(email)));
+    return snap.exists();
+  } catch (e) {
+    console.warn("No se ha podido comprobar la lista de invitados:", e);
+    return true;
   }
 }
 

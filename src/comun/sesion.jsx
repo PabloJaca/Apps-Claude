@@ -11,8 +11,11 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 import React, { useEffect, useState } from "react";
-import { CloudOff, LogIn, Mail } from "lucide-react";
-import { alCambiarSesion, entrar, hayNube, recuperar, registrar } from "./nube.js";
+import { CloudOff, Lock, LogIn, Mail } from "lucide-react";
+import {
+  ERROR_SIN_INVITACION, alCambiarSesion, entrar, estaInvitado, hayNube,
+  recuperar, registrar, salir,
+} from "./nube.js";
 
 const CSS_PUERTA = `
 @keyframes puertaEntra { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
@@ -27,11 +30,24 @@ const CSS_PUERTA = `
 
 export function Puerta({ paleta, titulo, descripcion, children }) {
   const [sesion, setSesion] = useState(undefined); // undefined = comprobando
+  const [invitado, setInvitado] = useState(undefined);
 
   useEffect(() => alCambiarSesion(setSesion), []);
 
+  /* Comprobación de cortesía: quien decide de verdad son las reglas. Sirve
+     para enseñar «esto es privado» en vez de un error de permisos. */
+  useEffect(() => {
+    if (!sesion) return setInvitado(undefined);
+    let vivo = true;
+    setInvitado(undefined);
+    estaInvitado(sesion.email).then((si) => vivo && setInvitado(si));
+    return () => { vivo = false; };
+  }, [sesion && sesion.email]);
+
   if (sesion === undefined) return <Esperando paleta={paleta} />;
   if (!sesion) return <Acceso paleta={paleta} titulo={titulo} descripcion={descripcion} />;
+  if (invitado === undefined) return <Esperando paleta={paleta} texto="Comprobando tu acceso…" />;
+  if (!invitado) return <SinInvitacion paleta={paleta} email={sesion.email} />;
 
   /* La `key` es lo que garantiza que no queda ni un resto del usuario anterior:
      al cambiar el UID, React desmonta todo y lo monta limpio. */
@@ -56,7 +72,7 @@ function Marco({ paleta, children }) {
   );
 }
 
-function Esperando({ paleta }) {
+function Esperando({ paleta, texto = "Comprobando tu sesión…" }) {
   return (
     <Marco paleta={paleta}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
@@ -67,7 +83,45 @@ function Esperando({ paleta }) {
             border: `3px solid ${paleta.line}`, borderTopColor: paleta.acento,
           }}
         />
-        <p style={{ color: paleta.mid, fontSize: 14, margin: 0 }}>Comprobando tu sesión…</p>
+        <p style={{ color: paleta.mid, fontSize: 14, margin: 0 }}>{texto}</p>
+      </div>
+    </Marco>
+  );
+}
+
+/** La cuenta existe, pero el correo no está en la lista de invitados. */
+function SinInvitacion({ paleta, email }) {
+  return (
+    <Marco paleta={paleta}>
+      <div style={{ background: paleta.card, borderRadius: 24, boxShadow: paleta.sombra, padding: 22, textAlign: "center" }}>
+        <div
+          style={{
+            width: 48, height: 48, borderRadius: 16, background: paleta.coralSuave || paleta.acentoSuave,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14,
+          }}
+        >
+          <Lock size={22} color={paleta.coral} strokeWidth={2.2} />
+        </div>
+        <p style={{ fontFamily: paleta.display, fontWeight: 700, fontSize: 18, color: paleta.ink, margin: "0 0 8px" }}>
+          Esta aplicación es privada
+        </p>
+        <p style={{ color: paleta.mid, fontSize: 13.5, lineHeight: 1.55, margin: "0 0 6px" }}>
+          Tu cuenta se ha creado, pero <strong style={{ color: paleta.ink }}>{email}</strong> no está
+          en la lista de personas con acceso.
+        </p>
+        <p style={{ color: paleta.faint, fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
+          Si crees que debería estarlo, pídeselo a quien te pasó la aplicación.
+        </p>
+        <button
+          onClick={() => salir()}
+          style={{
+            width: "100%", marginTop: 18, border: `1.5px solid ${paleta.line}`, borderRadius: 16,
+            padding: "13px 0", background: "transparent", color: paleta.mid,
+            fontFamily: paleta.body, fontWeight: 600, fontSize: 13.5, cursor: "pointer",
+          }}
+        >
+          Salir
+        </button>
       </div>
     </Marco>
   );
@@ -97,7 +151,12 @@ function Acceso({ paleta, titulo, descripcion }) {
     setError(null);
     setAviso(null);
     if (!email.trim()) return setError("Escribe tu correo.");
-    if (clave.length < 6) return setError("La contraseña necesita al menos 6 caracteres.");
+    /* Al crear la cuenta se exigen 8: seis es poquísimo y es la única vez que
+       se puede pedir sin dejar fuera a quien ya tiene una más corta. */
+    if (modo === "registrar" && clave.length < 8) {
+      return setError("La contraseña necesita al menos 8 caracteres.");
+    }
+    if (!clave) return setError("Escribe tu contraseña.");
 
     setOcupado(true);
     try {
@@ -105,7 +164,8 @@ function Acceso({ paleta, titulo, descripcion }) {
       else await registrar(email, clave);
       setClave("");
     } catch (e) {
-      setError(e.message);
+      // Si no está en la lista, la pantalla de después ya lo explica entera.
+      if (e.message !== ERROR_SIN_INVITACION) setError(e.message);
     } finally {
       setOcupado(false);
     }
@@ -117,10 +177,13 @@ function Acceso({ paleta, titulo, descripcion }) {
     if (!email.trim()) return setError("Escribe tu correo y te mando el enlace.");
     try {
       await recuperar(email);
-      setAviso("Te he mandado un correo para cambiar la contraseña.");
     } catch (e) {
-      setError(e.message);
+      return setError(e.message);
     }
+    /* Se responde lo mismo exista o no la cuenta: si aquí se dijera «ese correo
+       no está registrado», bastaría con probar correos para saber quién usa
+       la aplicación. */
+    setAviso("Si hay una cuenta con ese correo, te llegará un enlace para cambiar la contraseña.");
   };
 
   return (

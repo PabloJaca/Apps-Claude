@@ -10,7 +10,8 @@
     "zip": "node build.mjs --zip",
     "servir": "node build.mjs --zip && node servidor.mjs",
     "probar": "node pruebas/aislamiento.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs",
-    "probar-navegador": "node pruebas/extremo.mjs"
+    "probar-navegador": "node pruebas/extremo.mjs",
+    "probar-reglas": "firebase emulators:exec --only firestore --project reglas-de-prueba \"node pruebas/reglas.mjs\""
   },
   "dependencies": {
     "firebase": "^11.1.0",
@@ -20,7 +21,9 @@
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "esbuild": "^0.24.2",
+    "firebase-tools": "^15.26.0",
     "playwright": "^1.62.1"
   }
 }

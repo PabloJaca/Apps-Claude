@@ -10,3 +10,6 @@ node_modules/
 .probar-preview.mjs
 .prueba-est.mjs
 .fuentes.mjs
+firebase-debug.log
+firestore-debug.log
+.firebase/

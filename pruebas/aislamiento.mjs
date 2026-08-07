@@ -29,18 +29,26 @@ for (const dir of ["src/comun", "src/gastos", "src/salud"]) {
 /* ── 1. Ninguna ruta de Firestore fuera del usuario ─────────────────────── */
 
 const nube = leer("src/comun/nube.js");
+const reglas = leer("firestore.rules");
 
 const rutas = [...nube.matchAll(/(?:collection|doc)\(\s*s\.db\s*,([^)]*)\)/g)].map((m) =>
   m[1].replace(/\s+/g, " ").trim()
 );
 check("hay rutas de Firestore que revisar", rutas.length >= 6, String(rutas.length));
 /* El uid solo puede venir de dos sitios: el que recibe la función (comprobado
-   antes contra el usuario de la sesión) o el de la cuenta recién creada. */
+   antes contra el usuario de la sesión) o el de la cuenta recién creada.
+   La única ruta fuera de `usuarios` es la lista de invitados, y ahí solo se
+   mira la entrada del propio correo. */
 const dueño = /^"usuarios",\s*(uid|cred\.user\.uid)\b/;
+const listaInvitados = /^"permitidos",\s*normalizar\(email/;
 check(
-  "toda ruta de Firestore empieza por usuarios/{uid}",
-  rutas.every((r) => dueño.test(r)),
-  rutas.find((r) => !dueño.test(r))
+  "toda ruta de Firestore cuelga del usuario (salvo la lista de invitados)",
+  rutas.every((r) => dueño.test(r) || listaInvitados.test(r)),
+  rutas.find((r) => !dueño.test(r) && !listaInvitados.test(r))
+);
+check(
+  "la lista de invitados solo se consulta, nunca se escribe desde la app",
+  !/set(Doc|Data)\([^)]*"permitidos"/.test(nube) && /allow write: if false/.test(reglas)
 );
 
 check(
@@ -53,19 +61,66 @@ check(
   /!COLECCIONES\.includes\(coleccion\)/.test(nube)
 );
 
-/* Las reglas del servidor tienen que permitir exactamente las mismas. */
-const reglas = leer("firestore.rules");
+/* Las reglas del servidor tienen que cubrir exactamente las mismas. */
 const enCodigo = JSON.parse(
   nube.match(/export const COLECCIONES = (\[[^\]]*\])/)[1].replace(/'/g, '"')
 );
-const enReglas = [...reglas.matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+const enReglas = [...reglas.matchAll(/match \/usuarios\/\{uid\}\/(\w+)\/\{/g)].map((m) => m[1]);
 check(
-  "las reglas de Firestore cubren las mismas colecciones que el código",
-  enCodigo.every((c) => enReglas.includes(c)) && enReglas.every((c) => enCodigo.includes(c)),
-  `código: ${enCodigo} · reglas: ${enReglas}`
+  "cada colección del código tiene su bloque en las reglas",
+  enCodigo.every((c) => enReglas.includes(c)),
+  `faltan: ${enCodigo.filter((c) => !enReglas.includes(c))}`
 );
+check(
+  "y las reglas no abren ninguna colección que el código no use",
+  enReglas.every((c) => enCodigo.includes(c)),
+  `sobran: ${enReglas.filter((c) => !enCodigo.includes(c))}`
+);
+
 check("las reglas comprueban que el UID es el de quien pide", /request\.auth\.uid == uid/.test(reglas));
 check("las reglas cierran todo lo demás", /match \/\{document=\*\*\}[\s\S]*?if false/.test(reglas));
+
+/* Toda regla de datos pasa por `puede(uid)`, que es quien junta las dos
+   condiciones: eres tú y estás en la lista. */
+const bloquesDatos = [...reglas.matchAll(/match \/usuarios\/\{uid\}[^{]*\{([\s\S]*?)\n    \}/g)].map((m) => m[1]);
+check("hay bloques de datos que revisar", bloquesDatos.length === enCodigo.length + 1, String(bloquesDatos.length));
+check(
+  "ninguna regla de datos se salta la comprobación de usuario e invitación",
+  bloquesDatos.every((b) =>
+    b.split("\n").filter((l) => /allow/.test(l)).every((l) => /puede\(uid\)|if false/.test(l))),
+  bloquesDatos.find((b) => b.split("\n").some((l) => /allow/.test(l) && !/puede\(uid\)|if false/.test(l)))
+);
+check(
+  "la invitación se comprueba contra la lista, no contra un correo escrito a mano",
+  /exists\(\/databases\/\$\(database\)\/documents\/permitidos\/\$\(correo\(\)\)\)/.test(reglas)
+);
+
+/* Escribir tiene además que pasar una validación de forma y tamaño. */
+for (const col of enCodigo) {
+  const bloque = reglas.match(new RegExp(`match /usuarios/\\{uid\\}/${col}/\\{[\\s\\S]*?\\n    \\}`))[0];
+  check(
+    `${col}: crear o modificar exige validación de contenido`,
+    /allow create, update: if puede\(uid\) && \w+Ok\(\)/.test(bloque),
+    bloque.replace(/\s+/g, " ")
+  );
+}
+check("hay un tope de campos por documento", /keys\(\)\.size\(\) <= max/.test(reglas));
+check("y un tope de longitud para el texto", /valor is string && valor\.size\(\) <= max/.test(reglas));
+
+/* ── Que no se pueda averiguar quién tiene cuenta ────────────────────────── */
+
+const mensajes = nube.match(/const MENSAJES = \{[\s\S]*?\};/)[0];
+for (const codigo of ["auth/user-not-found", "auth/wrong-password", "auth/invalid-credential"]) {
+  check(
+    `«${codigo}» no delata si la cuenta existe`,
+    new RegExp(`"${codigo}": CREDENCIAL`).test(mensajes),
+    mensajes.split("\n").find((l) => l.includes(codigo))
+  );
+}
+check(
+  "recuperar la contraseña responde igual exista o no la cuenta",
+  /inocuo\.includes\(e && e\.code\)\) return;/.test(nube)
+);
 
 /* ── 2. Nada de datos del usuario en el propio dispositivo ──────────────── */
 

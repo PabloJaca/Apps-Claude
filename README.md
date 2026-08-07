@@ -37,6 +37,7 @@ npm run dev               # recompila al guardar
 npm run zip               # compila y regenera mis-apps.zip
 npm run servir            # compila y sirve en http://localhost:4173
 npm run probar            # aislamiento entre cuentas, migración y valoración
+npm run probar-reglas     # ejecuta firestore.rules contra el emulador de Firestore
 npm run probar-navegador  # abre las dos apps con dos cuentas y comprueba que no se mezclan
 ```
 
@@ -110,7 +111,9 @@ Las consecuencias importan:
 4. Menú **Compilación → Authentication → Comenzar** y activa
    **Correo electrónico/contraseña**.
 5. Menú **Compilación → Firestore Database → Crear base de datos**, en modo producción.
-   Luego, en la pestaña **Reglas**, pega el contenido de `firestore.rules` y publica.
+   Luego, en la pestaña **Datos**, crea la colección `permitidos` con un documento cuyo
+   identificador sea tu correo en minúsculas (ver «la lista de invitados», más abajo).
+   Y solo después, en la pestaña **Reglas**, pega `firestore.rules` y publica.
 6. En **Authentication → Configuración → Dominios autorizados**, añade el dominio donde
    tengas subidas las apps.
 7. Sube el sitio y abre cada app: lo primero que sale es la pantalla de acceso. Crea tu
@@ -130,20 +133,59 @@ subir **sin recompilar nada**.
 > proyecto → Cuentas de servicio*: esa sí abre la base de datos entera saltándose las
 > reglas.
 
+### Quién puede entrar: la lista de invitados
+
+La aplicación está colgada en una dirección pública, así que **cualquiera puede crearse
+una cuenta**. Lo que no puede es usarla: para leer o escribir algo, tu correo tiene que
+estar en la colección `permitidos`, y eso se comprueba en el servidor.
+
+Para dar acceso a alguien, en la consola → **Firestore Database → Datos**:
+
+```
+Colección:  permitidos
+ID doc:     su-correo@ejemplo.com     ← en minúsculas, tal cual
+Campo:      nombre (cadena) = "Quien sea"
+```
+
+Quien entre sin estar en la lista ve una pantalla que dice que la aplicación es privada,
+no un error de permisos. Para quitarle el acceso a alguien, se borra su documento.
+
+> **Date de alta a ti mismo antes de publicar las reglas.** Si no, te quedas fuera de tus
+> propios datos hasta que añadas el documento. La consola guarda el historial de reglas,
+> así que siempre se puede volver atrás.
+
 ### Que una cuenta no vea la de otra
 
-Es la garantía principal, así que está comprobada por partida triple:
+Es la garantía principal, así que está comprobada por partida cuádruple:
 
 - **En el servidor.** `firestore.rules` solo deja entrar a `usuarios/{uid}` cuando el
-  `uid` es el de quien pide. Se comprueba en Firebase, no en el móvil, así que da igual
-  lo que haga una aplicación modificada.
+  `uid` es el de quien pide **y** su correo está en la lista. Se comprueba en Firebase, no
+  en el móvil, así que da igual lo que haga una aplicación modificada.
+- **Ejecutando las reglas de verdad.** `npm run probar-reglas` levanta el emulador de
+  Firestore con `firestore.rules` tal cual se publica e intenta hacer las cosas que no
+  deben poderse: leer la carpeta de otro, escribir sin invitación, colar un peso de 5.000
+  kg, meter un texto de 10.000 caracteres, inventarse una colección. No se revisa el
+  archivo a ojo: se ejecuta.
 - **En el código.** Ninguna ruta de Firestore se construye sin identificador, y ninguna
   función de escritura acepta que falte. `pruebas/aislamiento.mjs` lo verifica archivo a
   archivo, junto con que las reglas y el código hablen de las mismas colecciones.
-- **En un navegador de verdad.** `pruebas/probar-navegador` abre las dos apps con un
+- **En un navegador de verdad.** `npm run probar-navegador` abre las dos apps con un
   Firebase de mentira, entra con una cuenta, apunta cosas, cierra sesión, entra con otra
   y comprueba que la segunda **no ve nada** de la primera — y que al volver la primera,
-  lo suyo sigue intacto. Se ejecuta también antes de publicar.
+  lo suyo sigue intacto.
+
+Las cuatro se ejecutan antes de publicar: si una falla, no se despliega.
+
+### Lo demás que protege
+
+- **Qué se puede escribir.** Las reglas no solo miran quién eres: comprueban la forma y el
+  tamaño de cada registro (fecha de 10 caracteres, peso entre 20 y 400 kg, textos con
+  tope, número de campos limitado). Sin eso, cualquiera con cuenta podría llenar la base
+  de datos con lo que quisiera dentro de su propio espacio.
+- **No se puede averiguar quién tiene cuenta.** Todos los fallos de acceso dicen lo mismo,
+  y recuperar la contraseña responde igual exista o no el correo. Conviene activar además
+  *Authentication → Configuración → Protección contra enumeración de correos*.
+- **Contraseñas de 8 caracteres** al crear la cuenta, en vez de los 6 de Firebase.
 
 ---
 

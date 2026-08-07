@@ -152,11 +152,37 @@ export function onSnapshot(ref, alRecibir, alFallar) {
   return () => escuchas.delete(emitir);
 }
 
+export async function getDoc(ref) {
+  window.__espia.rutasLeidas.push(ref.ruta);
+  if (!puede(ref.ruta)) throw denegado();
+  const s = leerServidor();
+  const datos = s.docs[ref.ruta];
+  return { exists: () => datos !== undefined, data: () => datos, metadata: { fromCache: false } };
+}
+
 export async function getDocs(ref) {
   window.__espia.rutasLeidas.push(ref.ruta);
+  if (!puede(ref.ruta)) throw denegado();
   const docs = hijosDe(ref.ruta).map((d) => ({ id: d.id, data: () => d.datos, ref: { tipo: "doc", ruta: d.ruta } }));
   return { docs, forEach: (f) => docs.forEach(f) };
 }
+
+/* La lista de invitados, igual que en las reglas de verdad: sin documento en
+   `permitidos` no se llega a nada. Sin excepciones ni atajos, porque si aquí
+   fuese más blando que el servidor las pruebas dejarían de valer. */
+const invitado = () => {
+  const u = usuarioActual();
+  return !!u && !!leerServidor().docs[`permitidos/${String(u.email).toLowerCase()}`];
+};
+
+const denegado = () => Object.assign(new Error("permission-denied"), { code: "permission-denied" });
+
+const puede = (ruta) => {
+  const u = usuarioActual();
+  if (!u) return false;
+  if (ruta.startsWith("permitidos/")) return ruta === `permitidos/${String(u.email).toLowerCase()}`;
+  return ruta === `usuarios/${u.uid}` || ruta.startsWith(`usuarios/${u.uid}/`) ? invitado() : false;
+};
 
 const comprobarValores = (datos, ruta) => {
   for (const [clave, valor] of Object.entries(datos)) {
@@ -167,6 +193,7 @@ const comprobarValores = (datos, ruta) => {
 
 export async function setDoc(ref, datos, opciones) {
   comprobarValores(datos, ref.ruta);
+  if (!puede(ref.ruta) || ref.ruta.startsWith("permitidos/")) throw denegado();
   window.__espia.rutasEscritas.push(ref.ruta);
   const s = leerServidor();
   s.docs[ref.ruta] = opciones && opciones.merge ? { ...(s.docs[ref.ruta] || {}), ...datos } : datos;
@@ -175,6 +202,7 @@ export async function setDoc(ref, datos, opciones) {
 }
 
 export async function deleteDoc(ref) {
+  if (!puede(ref.ruta)) throw denegado();
   window.__espia.rutasEscritas.push(ref.ruta);
   const s = leerServidor();
   delete s.docs[ref.ruta];

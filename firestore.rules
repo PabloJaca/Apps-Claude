@@ -1,39 +1,187 @@
 rules_version = '2';
 
-/* Reglas de Firestore para Mis Apps.
+/* ═══════════════════════════════════════════════════════════════════════════
+   Reglas de Firestore para Mis Apps.
 
-   Todo cuelga del usuario que lo creó:
+   Tres cosas, en este orden:
 
-       usuarios/{uid}                      → perfil y ajustes
-       usuarios/{uid}/{coleccion}/{id}     → un registro por documento
+     1. Solo entran los correos de la lista `permitidos`.
+     2. Cada cual solo llega a lo que cuelga de su propio UID.
+     3. Y lo que escribe tiene que tener la forma y el tamaño esperados.
 
-   Cada persona solo llega a lo que hay bajo su propio UID. Nadie puede leer ni
-   escribir en la carpeta de otro, ni aunque conozca su identificador, ni aunque
-   modifique la aplicación: esto se comprueba en el servidor, no en el móvil.
+   Esto se comprueba en el servidor. Da igual lo que haga una aplicación
+   modificada, un script suelto o alguien con la apiKey: la apiKey no es una
+   contraseña, la que manda es esta hoja.
 
-   Se pegan en: consola de Firebase → Firestore Database → Reglas → Publicar. */
+   ─────────────────────────────────────────────────────────────────────────
+   ANTES DE PUBLICAR ESTAS REGLAS, DATE DE ALTA A TI MISMO
+   ─────────────────────────────────────────────────────────────────────────
+   En la consola → Firestore Database → Datos → Iniciar colección:
+
+       Colección:   permitidos
+       ID doc:      tu-correo@ejemplo.com     ← en minúsculas, tal cual
+       Campo:       nombre (cadena) = "Pablo"
+
+   Uno por cada persona que deba entrar. Si publicas las reglas sin hacerlo,
+   te quedas fuera de tus propios datos hasta que añadas el documento; la
+   consola guarda el historial de reglas, así que siempre se puede volver
+   atrás.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function esSuyo(uid) {
-      return request.auth != null && request.auth.uid == uid;
+    /* ── quién eres ──────────────────────────────────────────────────────── */
+
+    function correo() {
+      return request.auth.token.email.lower();
     }
 
-    // El documento del usuario: correo, perfil y ajustes.
+    function invitado() {
+      return request.auth != null
+             && request.auth.token.email != null
+             && exists(/databases/$(database)/documents/permitidos/$(correo()));
+    }
+
+    /* Las dos condiciones, siempre juntas: eres tú, y estás invitado. */
+    function puede(uid) {
+      return request.auth != null && request.auth.uid == uid && invitado();
+    }
+
+    /* ── qué se puede escribir ───────────────────────────────────────────── */
+
+    function d() { return request.resource.data; }
+
+    function cadena(valor, max) {
+      return valor is string && valor.size() <= max;
+    }
+
+    function opcional(campo, max) {
+      return !(campo in d()) || d()[campo] == null || cadena(d()[campo], max);
+    }
+
+    function entre(valor, min, max) {
+      return valor is number && valor >= min && valor <= max;
+    }
+
+    /* Un día en formato 2026-08-07. Sirve de tope y de forma a la vez. */
+    function fechaOk() {
+      return 'fecha' in d() && cadena(d().fecha, 10) && d().fecha.size() == 10;
+    }
+
+    /* Tope de campos por documento: nadie mete un diccionario aquí dentro. */
+    function campos(max) {
+      return d().keys().size() <= max;
+    }
+
+    function pesoOk() {
+      return fechaOk() && campos(6)
+             && entre(d().kg, 20, 400)
+             && opcional('nota', 140);
+    }
+
+    function entrenoOk() {
+      return fechaOk() && campos(8)
+             && entre(d().minutos, 1, 1440)
+             && cadena(d().tipo, 20)
+             && opcional('intensidad', 20);
+    }
+
+    function comidaOk() {
+      return fechaOk() && campos(9)
+             && cadena(d().texto, 300)
+             && entre(d().volumen, 1, 5)
+             && (!('saciedad' in d()) || d().saciedad == null || entre(d().saciedad, 1, 4))
+             && opcional('momento', 20);
+    }
+
+    function gastoOk() {
+      return fechaOk() && campos(7)
+             && entre(d().importe, -1000000, 1000000)
+             && cadena(d().categoria, 60)
+             && opcional('nota', 140);
+    }
+
+    function fijoOk() {
+      return campos(9)
+             && cadena(d().nombre, 60)
+             && entre(d().importe, -1000000, 1000000)
+             && entre(d().dia, 1, 31)
+             && cadena(d().desde, 7)
+             && cadena(d().categoria, 60)
+             && opcional('hasta', 7);
+    }
+
+    function categoriaOk() {
+      return campos(8)
+             && cadena(d().nombre, 40)
+             && cadena(d().color, 9)
+             && opcional('icono', 30)
+             && (!('presupuesto' in d()) || d().presupuesto == null || entre(d().presupuesto, 0, 10000000))
+             && (!('orden' in d()) || entre(d().orden, 0, 999));
+    }
+
+    function usuarioOk() {
+      return campos(12)
+             && opcional('email', 200)
+             && (!('perfil' in d()) || d().perfil == null || d().perfil is map)
+             && (!('ajustes' in d()) || d().ajustes == null || d().ajustes is map);
+    }
+
+    /* ── la lista de invitados ───────────────────────────────────────────── */
+
+    match /permitidos/{correoInvitado} {
+      /* Cada cual puede mirar si está en la lista, y solo su propia entrada:
+         así la aplicación enseña un mensaje claro en vez de un error feo.
+         No se puede listar la colección ni ver quién más está. */
+      allow read: if request.auth != null
+                  && request.auth.token.email != null
+                  && correo() == correoInvitado;
+
+      /* Se gestiona desde la consola, nunca desde la aplicación. */
+      allow write: if false;
+    }
+
+    /* ── los datos de cada persona ───────────────────────────────────────── */
+
     match /usuarios/{uid} {
-      allow read, write: if esSuyo(uid);
+      allow read: if puede(uid);
+      allow create, update: if puede(uid) && usuarioOk();
+      allow delete: if false;   // se vacía por colecciones, no de un tirón
     }
 
-    // Sus registros. La lista de colecciones es cerrada a propósito: si algún
-    // día se añade una nueva a la app, hay que añadirla también aquí.
-    match /usuarios/{uid}/{coleccion}/{id} {
-      allow read, write: if esSuyo(uid)
-                         && coleccion in ['pesos', 'entrenos', 'comidas',
-                                          'gastos', 'fijos', 'categorias'];
+    match /usuarios/{uid}/pesos/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && pesoOk();
     }
 
-    // Todo lo demás, cerrado.
+    match /usuarios/{uid}/entrenos/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && entrenoOk();
+    }
+
+    match /usuarios/{uid}/comidas/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && comidaOk();
+    }
+
+    match /usuarios/{uid}/gastos/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && gastoOk();
+    }
+
+    match /usuarios/{uid}/fijos/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && fijoOk();
+    }
+
+    match /usuarios/{uid}/categorias/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && categoriaOk();
+    }
+
+    /* Todo lo demás, cerrado. Si algún día se añade una colección a la app,
+       hay que añadirla también aquí o no funcionará. */
     match /{document=**} {
       allow read, write: if false;
     }

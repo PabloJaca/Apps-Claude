@@ -98,6 +98,17 @@ const texto = (pag) => pag.innerText("body");
   const errores = [];
   pag.on("pageerror", (e) => errores.push(String(e)));
 
+  /* Las dos están invitadas: aquí se prueba el aislamiento, no la lista.
+     Se siembra solo la primera vez: este guion corre en cada navegación, y
+     cerrar sesión recarga la página. */
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {},
+      docs: { "permitidos/ana@ejemplo.com": { nombre: "Ana" }, "permitidos/bruno@ejemplo.com": { nombre: "Bruno" } },
+    }));
+  });
+
   await pag.goto("http://localhost:8321/salud.html");
   await pag.waitForTimeout(400);
 
@@ -112,17 +123,16 @@ const texto = (pag) => pag.innerText("body");
   await pag.waitForTimeout(600);
   check("salud: lo que apunta Ana aparece en su pantalla", /72,4/.test(await texto(pag)), await texto(pag));
 
-  const servidor = await pag.evaluate(() => window.__espia.verServidor());
-  const rutasAna = Object.keys(servidor.docs);
+  const escritas = await pag.evaluate(() => window.__espia.rutasEscritas);
   check(
     "salud: el peso se ha escrito en Firestore, dentro de su usuario",
-    rutasAna.some((r) => /^usuarios\/uid_ana_ejemplo_com\/pesos\//.test(r)),
-    rutasAna.join(" ")
+    escritas.some((r) => /^usuarios\/uid_ana_ejemplo_com\/pesos\//.test(r)),
+    escritas.join(" ")
   );
   check(
     "salud: no se ha escrito nada fuera de su carpeta",
-    rutasAna.every((r) => r.startsWith("usuarios/uid_ana_ejemplo_com")),
-    rutasAna.join(" ")
+    escritas.every((r) => r.startsWith("usuarios/uid_ana_ejemplo_com")),
+    escritas.join(" ")
   );
 
   // Cerrar sesión: pasa por la pantalla de cuenta y recarga la página.
@@ -184,14 +194,16 @@ const texto = (pag) => pag.innerText("body");
        los 20 anteriores, que son los que deben quedar detrás del botón. */
     const hoyIdx = (new Date().getDay() + 6) % 7; // 0 = lunes
     const uid = "usuarios/uid_dani_ejemplo_com";
-    const docs = { [uid]: { email: "dani@ejemplo.com" } };
+    const docs = { [uid]: { email: "dani@ejemplo.com" }, "permitidos/dani@ejemplo.com": { nombre: "Dani" } };
     for (let i = -20; i <= hoyIdx; i++) {
       docs[`${uid}/pesos/p${i + 20}`] = { fecha: dia(i), kg: 80 + i * 0.05, nota: "" };
       docs[`${uid}/comidas/c${i + 20}`] = { fecha: dia(i), texto: "Lentejas", momento: "comida", volumen: 3, saciedad: 3, ts: 1 };
     }
-    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
-      usuarios: { "dani@ejemplo.com": { clave: "secreta4", uid: "uid_dani_ejemplo_com" } }, docs,
-    }));
+    if (!localStorage.getItem("__servidor_de_mentira__")) {
+      localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+        usuarios: { "dani@ejemplo.com": { clave: "secreta4", uid: "uid_dani_ejemplo_com" } }, docs,
+      }));
+    }
     sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_dani_ejemplo_com", email: "dani@ejemplo.com" }));
     window.__cuentas = { estaSemana: hoyIdx + 1, anteriores: 20 };
   });
@@ -265,13 +277,57 @@ const texto = (pag) => pag.innerText("body");
   await ctx.close();
 }
 
-/* ── 4. Gastos: cuenta nueva, apunte y aislamiento ───────────────────────── */
+/* ── 4. La lista de invitados ────────────────────────────────────────────── */
 
 {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
   const pag = await ctx.newPage();
   const errores = [];
   pag.on("pageerror", (e) => errores.push(String(e)));
+
+  // Solo Eva está invitada.
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {
+        "eva@ejemplo.com": { clave: "secreta5", uid: "uid_eva" },
+        "fran@ejemplo.com": { clave: "secreta6", uid: "uid_fran" },
+      },
+      docs: { "permitidos/eva@ejemplo.com": { nombre: "Eva" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await acceder(pag, "fran@ejemplo.com", "secreta6");
+  await pag.waitForTimeout(1200);
+  const conFran = await texto(pag);
+  check("sin invitación se explica que la app es privada", /Esta aplicación es privada/.test(conFran), conFran.slice(0, 200));
+  check("y no se llega a ninguna pantalla de datos", !/Valorar mi semana/.test(conFran));
+
+  await pag.click("text=Salir");
+  await pag.waitForTimeout(1300);
+  await acceder(pag, "eva@ejemplo.com", "secreta5");
+  await pag.waitForTimeout(1200);
+  check("con invitación se entra con normalidad", /Peso|Entrenos|Comidas/.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  check("lista de invitados: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5. Gastos: cuenta nueva, apunte y aislamiento ───────────────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/carla@ejemplo.com": { nombre: "Carla" } },
+    }));
+  });
 
   await pag.goto("http://localhost:8321/gastos.html");
   await pag.waitForTimeout(400);

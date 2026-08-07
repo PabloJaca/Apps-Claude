@@ -3,10 +3,12 @@
 # Antes de publicar compila desde el código fuente y pasa las pruebas, así que
 # lo que acaba online siempre corresponde a lo que hay en /src.
 #
-# Entre las pruebas va una que abre las dos aplicaciones en un navegador de
-# verdad, entra con dos cuentas distintas y comprueba que ninguna ve los datos
-# de la otra. Tarda algo más, pero es exactamente el fallo que hubo una vez y
-# no puede volver a colarse.
+# Entre las pruebas van dos que valen su peso en oro:
+#   · las reglas de seguridad se ejecutan contra el emulador de Firestore, no
+#     se revisan a ojo, así que aflojar una salta aquí;
+#   · las dos aplicaciones se abren en un navegador de verdad con dos cuentas
+#     distintas, para comprobar que ninguna ve los datos de la otra. Es
+#     exactamente el fallo que hubo una vez y no puede volver a colarse.
 
 name: Publicar el sitio
 
@@ -46,6 +48,9 @@ jobs:
 
       - name: Pruebas de aislamiento, migración y valoración
         run: npm run probar
+
+      - name: Reglas de seguridad contra el emulador de Firestore
+        run: npm run probar-reglas
 
       - name: Instalar el navegador de pruebas
         run: npx playwright install --with-deps chromium
