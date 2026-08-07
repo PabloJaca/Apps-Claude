@@ -128,6 +128,19 @@ await check("rechaza un documento con un montón de campos", assertFails(
   guarda("pesos", Object.fromEntries([["fecha", "2026-08-07"], ["kg", 80], ...Array.from({ length: 40 }, (_, i) => [`relleno${i}`, i])]))
 ));
 
+/* ── 4bis. El documento del usuario ──────────────────────────────────────── */
+
+const usuario = (datos) => setDoc(doc(ana, "usuarios", "ana"), datos, { merge: true });
+
+await check("usuario: acepta el perfil", assertSucceeds(usuario({
+  perfil: { altura: "180", edad: "31", sexo: "hombre", actividad: "activa", objetivo: "bajar" } })));
+await check("usuario: acepta la marca de la bienvenida", assertSucceeds(usuario({ bienvenida: Date.now() })));
+await check("usuario: acepta perfil y bienvenida a la vez, como al terminar el alta",
+  assertSucceeds(usuario({ perfil: { altura: "180" }, bienvenida: Date.now(), actualizado: Date.now() })));
+await check("usuario: acepta los ajustes de gastos", assertSucceeds(usuario({ ajustes: { presupuestoGlobal: 1400 } })));
+await check("usuario: rechaza un perfil que no es un objeto", assertFails(usuario({ perfil: "alto" })));
+await check("usuario: rechaza un correo kilométrico", assertFails(usuario({ email: "x".repeat(500) })));
+
 /* ── 5. Colecciones que no existen ───────────────────────────────────────── */
 
 await check("no se puede inventar una colección nueva", assertFails(setDoc(doc(ana, "usuarios", "ana", "loquesea", "x"), { a: 1 })));
