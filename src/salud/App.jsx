@@ -15,10 +15,12 @@ import {
   ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, MESES_LARGOS, OBJETIVOS,
   PERFIL_VACIO, SACIEDADES,
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
-  comidasFrecuentes, enRango, etiquetaFecha, etiquetaTramo, exportar, fechaCorta,
+  EJERCICIOS_HABITUALES, EJERCICIOS_SUGERIDOS, comidasFrecuentes, ejerciciosUsados, enRango, etiquetaFecha,
+  etiquetaTramo, exportar, fechaCorta, mismoEjercicio, progresionEjercicio,
+  recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
-  plural, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe, tendenciaPeso,
-  volumenDe,
+  pesoCorto, plural, progresoMeta, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe,
+  tendenciaPeso, volumenDe,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -56,7 +58,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 @media (prefers-reduced-motion: reduce) { .rise,.fade,.spin,.pop { animation: none } }
 
 .contenedor { max-width: 520px; margin: 0 auto; }
-.rejilla { display: grid; gap: 14px; }
+/* La columna se ata al ancho disponible: una rejilla sin columnas definidas se
+   dimensiona al contenido más ancho, y basta un nombre de ejercicio largo para
+   que toda la pantalla se salga por la derecha. */
+.rejilla { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 
 /* utilidades mínimas (sustituyen a Tailwind, que aquí no hace falta) */
 .flex { display: flex } .grid { display: grid }
@@ -72,7 +77,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 /* En el ordenador se aprovecha el ancho en vez de dejar una columna flaca. */
 @media (min-width: 960px) {
   .contenedor { max-width: 940px; }
-  .rejilla { grid-template-columns: 1fr 1fr; align-items: start; }
+  .rejilla { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .rejilla > .ancho { grid-column: 1 / -1; }
   .barraInferior { border-radius: 22px; left: 50% !important; right: auto !important;
     transform: translateX(-50%); bottom: 18px !important; width: auto; padding: 8px 12px !important;
@@ -225,6 +230,29 @@ function Escala({ titulo, opciones, valor, onChange, color = C.teal, opcional })
   );
 }
 
+/**
+ * Envoltorio de las gráficas.
+ *
+ * Recharts mide su contenedor en el primer pintado. Dentro de una rejilla la
+ * columna todavía no tiene su ancho definitivo en ese instante: los ejes se
+ * recalculan al recibirlo, pero las barras no, y salen de un píxel. Esperar un
+ * fotograma basta para que la medida sea ya la buena.
+ */
+function Grafica({ alto, style, children }) {
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setListo(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return (
+    <div style={{ height: alto, width: "100%", ...style }}>
+      {listo && (
+        <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 function BotonGuardar({ onClick, disabled, children = "Guardar" }) {
   return (
     <button onClick={onClick} disabled={disabled}
@@ -240,6 +268,14 @@ function BotonGuardar({ onClick, disabled, children = "Guardar" }) {
 }
 
 const colorNota = (n) => (n >= 7 ? C.mint : n >= 5 ? C.amber : C.coral);
+
+/** «15 de septiembre», para fechas que aún están lejos. */
+const etiquetaLarga = (f) => {
+  const d = desdeIso(f);
+  const mes = MESES_LARGOS[d.getMonth()];
+  const ano = d.getFullYear() !== new Date().getFullYear() ? ` de ${d.getFullYear()}` : "";
+  return `${d.getDate()} de ${mes}${ano}`;
+};
 
 /**
  * Los dos botones que lleva cada registro: corregirlo o quitarlo.
@@ -416,6 +452,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
     [pesos]
   );
   const tendencia = useMemo(() => tendenciaPeso(datos.pesos), [datos.pesos]);
+  const meta = useMemo(() => progresoMeta(datos.pesos, datos.perfil), [datos.pesos, datos.perfil]);
   const dominio = useMemo(() => {
     if (!serie.length) return [0, 1];
     const v = serie.map((s) => s.kg);
@@ -486,9 +523,36 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
           </p>
         )}
 
+        {meta && (
+          <div style={{ marginTop: 14 }}>
+            <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+              <span style={{ fontFamily: body, fontSize: 12.5, fontWeight: 600, color: C.ink }}>
+                {meta.alcanzada
+                  ? "Meta conseguida"
+                  : `Te ${Math.abs(meta.restante) === 1 ? "queda" : "quedan"} ${num(Math.abs(meta.restante))} kg`}
+              </span>
+              <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint }}>
+                {num(meta.desde, 0)} → {num(meta.meta, 0)} kg
+              </span>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,.6)", overflow: "hidden" }}>
+              <div style={{
+                width: `${meta.porcentaje}%`, height: "100%", borderRadius: 999,
+                background: meta.alcanzada ? C.mint : C.teal, transition: "width .4s",
+              }} />
+            </div>
+            <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "6px 0 0" }}>
+              {meta.alcanzada
+                ? "A mantenerlo, que es la parte difícil."
+                : meta.fecha
+                ? `${meta.porcentaje}% del camino. A este ritmo llegas hacia el ${etiquetaLarga(meta.fecha.iso)}.`
+                : `${meta.porcentaje}% del camino.`}
+            </p>
+          </div>
+        )}
+
         {serie.length > 1 && (
-          <div style={{ height: 160, marginTop: 12, marginLeft: -10 }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <Grafica alto={160} style={{ marginTop: 12, marginLeft: -10 }}>
               <LineChart data={serie} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
                 <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
                 {/* Sin decimales: con un rango de pocos kilos salían marcas
@@ -496,13 +560,12 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
                     cortadas por delante («3,25»). */}
                 <YAxis domain={dominio} allowDecimals={false} tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={32} />
                 <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${num(v)} kg`, ""]} />
-                <Line type="monotone" dataKey="kg" stroke={C.teal} strokeWidth={2} strokeOpacity={0.35}
+                <Line type="monotone" dataKey="kg" isAnimationActive={false} stroke={C.teal} strokeWidth={2} strokeOpacity={0.35}
                   dot={{ r: 2.5, fill: C.teal, fillOpacity: 0.45, strokeWidth: 0 }} activeDot={{ r: 5 }} name="pesaje" />
-                <Line type="monotone" dataKey="media" stroke={C.teal} strokeWidth={3} dot={false}
+                <Line type="monotone" dataKey="media" isAnimationActive={false} stroke={C.teal} strokeWidth={3} dot={false}
                   connectNulls name="media de 7 días" />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
+            </Grafica>
         )}
 
         {rumbo && (
@@ -605,6 +668,33 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
   const [tipo, setTipo] = useState(null);
   const [dur, setDur] = useState(45);
   const [inten, setInten] = useState("media");
+  const [km, setKm] = useState("");
+  const [ejercicios, setEjercicios] = useState([]);
+  const [hojaEj, setHojaEj] = useState(null);   // { indice } o { indice: null } para uno nuevo
+  const [verEj, setVerEj] = useState(null);    // ficha de progresión de un ejercicio
+  const verEjercicio = (nombre) => setVerEj(nombre);
+
+  const ultimoConEjercicios = useMemo(() => ultimoEntrenoConEjercicios(entrenos, hoy()), [entrenos]);
+
+  const limpiar = () => {
+    setTipo(null); setDur(45); setInten("media"); setKm(""); setEjercicios([]);
+  };
+
+  const guardarEjercicio = (ej) => {
+    setEjercicios((lista) =>
+      hojaEj.indice === null ? [...lista, ej] : lista.map((x, i) => (i === hojaEj.indice ? ej : x))
+    );
+    setHojaEj(null);
+  };
+
+  /* Repetir la última sesión: mismos ejercicios y mismos pesos, listos para
+     subirlos o dejarlos. Es lo que se hace en el gimnasio de verdad. */
+  const repetirEntreno = () => {
+    if (!ultimoConEjercicios) return;
+    setTipo("fuerza");
+    setEjercicios(ultimoConEjercicios.ejercicios.map((e) => ({ ...e, series: e.series.map((s) => ({ ...s })) })));
+    if (ultimoConEjercicios.minutos) setDur(ultimoConEjercicios.minutos);
+  };
 
   const barras = useMemo(() => {
     const base = DIAS.map((d) => ({ x: d, min: 0 }));
@@ -615,8 +705,12 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
   const deHoy = useMemo(() => entrenos.filter((e) => e.fecha === hoy()).sort((a, b) => (a.ts || 0) - (b.ts || 0)), [entrenos]);
 
   const guardarEntreno = () => {
-    anadir("entrenos", { fecha: hoy(), tipo, minutos: dur, intensidad: inten, ts: Date.now() });
-    setTipo(null); setDur(45); setInten("media");
+    const registro = { fecha: hoy(), tipo, minutos: dur, intensidad: inten, ts: Date.now() };
+    if (tipo === "fuerza" && ejercicios.length) registro.ejercicios = ejercicios;
+    const dist = parseFloat(String(km).replace(",", "."));
+    if (tipo === "cardio" && dist > 0) registro.km = dist;
+    anadir("entrenos", registro);
+    limpiar();
   };
 
   return (
@@ -637,16 +731,14 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
             <span style={{ fontFamily: body, fontSize: 13, color: C.mid }}> min</span>
           </div>
         </div>
-        <div style={{ height: 120, marginTop: 10, marginLeft: -14 }}>
-          <ResponsiveContainer width="100%" height="100%">
+        <Grafica alto={120} style={{ marginTop: 10, marginLeft: -14 }}>
             <BarChart data={barras} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
               <XAxis dataKey="x" tick={{ fontSize: 10.5, fill: C.faint, fontFamily: body }} tickLine={false} axisLine={false} />
               <YAxis hide />
               <Tooltip cursor={{ fill: "rgba(21,48,61,.04)" }} contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} min`, ""]} />
-              <Bar dataKey="min" fill={C.indigo} radius={[8, 8, 8, 8]} maxBarSize={24} />
+              <Bar dataKey="min" fill={C.indigo} radius={[8, 8, 8, 8]} maxBarSize={24} isAnimationActive={false} />
             </BarChart>
-          </ResponsiveContainer>
-        </div>
+          </Grafica>
       </Card>
 
       <Card>
@@ -670,6 +762,26 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
           </div>
         )}
 
+        {/* Repetir la última sesión, con sus pesos: el atajo que de verdad se usa. */}
+        {!tipo && ultimoConEjercicios && (
+          <button onClick={repetirEntreno} className="flex items-center gap-2"
+            style={{
+              width: "100%", marginBottom: 12, border: "none", cursor: "pointer", textAlign: "left",
+              background: C.tealSoft, borderRadius: 16, padding: "11px 13px",
+            }}>
+            <RotateCcw size={15} color={C.teal} strokeWidth={2.6} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>
+                Repetir el entreno de {etiquetaFecha(ultimoConEjercicios.fecha).toLowerCase()}
+              </p>
+              <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {ultimoConEjercicios.ejercicios.map((x) => x.nombre).join(", ")}
+              </p>
+            </div>
+            <ChevronRight size={16} color={C.teal} style={{ flexShrink: 0 }} />
+          </button>
+        )}
+
         <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
           {TIPOS.map((t) => (
             <button key={t.id} onClick={() => setTipo(tipo === t.id ? null : t.id)} className="flex items-center gap-2"
@@ -685,7 +797,57 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
 
         {tipo && (
           <div className="rise" style={{ marginTop: 16 }}>
-            <Rotulo>Duración</Rotulo>
+            {/* La fuerza se describe por lo que levantas, no por lo que dura. */}
+            {tipo === "fuerza" && (
+              <div style={{ marginBottom: 16 }}>
+                <Rotulo>Ejercicios</Rotulo>
+                {ejercicios.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 8 }}>
+                    {ejercicios.map((ej, i) => (
+                      <FilaEjercicio key={i} ejercicio={ej}
+                        onEditar={() => setHojaEj({ indice: i })}
+                        onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => setHojaEj({ indice: null })}
+                  style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 8 }}>
+                  + Añadir ejercicio
+                </button>
+                {ejercicios.length > 0 && (
+                  <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
+                    {(() => {
+                      const r = resumenFuerza({ ejercicios });
+                      return `${plural(r.series, "serie")} · ${plural(r.reps, "repetición", "repeticiones")}${r.volumen ? ` · ${miles(r.volumen)} kg movidos` : ""}`;
+                    })()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {tipo === "cardio" && (
+              <div style={{ marginBottom: 16 }}>
+                <Rotulo>Distancia (opcional)</Rotulo>
+                <div className="flex items-center gap-2" style={{ marginTop: 7 }}>
+                  <input type="number" inputMode="decimal" step="0.1" value={km} placeholder="—"
+                    onChange={(e) => setKm(e.target.value)}
+                    style={{ ...inputBase, flex: 1, fontFamily: mono, fontWeight: 600 }} />
+                  <span style={{ fontFamily: body, fontSize: 14, color: C.mid }}>km</span>
+                </div>
+                {parseFloat(String(km).replace(",", ".")) > 0 && dur > 0 && (
+                  <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "7px 0 0" }}>
+                    Ritmo: {(() => {
+                      const d = parseFloat(String(km).replace(",", "."));
+                      const min = Math.floor(dur / d);
+                      const seg = Math.round((dur / d - min) * 60);
+                      return `${min}:${String(seg).padStart(2, "0")} min/km`;
+                    })()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <Rotulo>{tipo === "fuerza" ? "Duración (opcional)" : "Duración"}</Rotulo>
             <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
               {DURACIONES.map((d) => <Chip key={d} activo={dur === d} onClick={() => setDur(d)}>{d}′</Chip>)}
             </div>
@@ -700,9 +862,26 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
             <div style={{ marginTop: 16 }}>
               <BotonGuardar onClick={guardarEntreno}>Guardar entreno</BotonGuardar>
             </div>
+            <button onClick={limpiar}
+              style={{ width: "100%", marginTop: 8, border: "none", background: "transparent", color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 13, padding: "8px 0", cursor: "pointer" }}>
+              Cancelar
+            </button>
           </div>
         )}
       </Card>
+
+      {verEj && (
+        <PantallaEjercicio nombre={verEj} entrenos={datos.entrenos} onCerrar={() => setVerEj(null)} />
+      )}
+
+      {hojaEj && (
+        <HojaEjercicio
+          ejercicio={hojaEj.indice === null ? null : ejercicios[hojaEj.indice]}
+          entrenos={datos.entrenos}
+          onGuardar={guardarEjercicio}
+          onCerrar={() => setHojaEj(null)}
+        />
+      )}
 
       <Historial
         titulo="Sesiones"
@@ -711,12 +890,21 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
         pintar={(e) => {
           const t = tipoDe(e.tipo);
           const i = INTENS.find((x) => x.id === e.intensidad);
+          const r = resumenFuerza(e);
+          const detalle = [
+            etiquetaFecha(e.fecha),
+            e.minutos ? `${e.minutos} min` : null,
+            e.km ? `${num(e.km)} km` : null,
+            r.series ? plural(r.series, "serie") : null,
+            r.volumen ? `${miles(r.volumen)} kg` : null,
+          ].filter(Boolean).join(" · ");
           return (
-            <div key={e.id} className="flex items-center gap-3" style={{ padding: 10 }}>
+            <div key={e.id} style={{ padding: 10 }}>
+            <div className="flex items-center gap-3">
               <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
-                <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0 }}>{etiquetaFecha(e.fecha)} · {e.minutos} min</p>
+                <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detalle}</p>
               </div>
               {i && (
                 <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `${i.color}1F`, borderRadius: 999, padding: "3px 9px" }}>
@@ -724,6 +912,23 @@ function VistaEntrenos({ datos, anadir, borrar, editar }) {
                 </span>
               )}
               <Acciones que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
+            </div>
+
+            {/* Los ejercicios, a un toque de su ficha de progresión. */}
+            {(e.ejercicios || []).length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 4, marginTop: 8, paddingLeft: 46 }}>
+                {e.ejercicios.map((ej, k) => (
+                  <button key={k} onClick={() => verEjercicio(ej.nombre)} className="flex items-center gap-2"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left", padding: "2px 0", width: "100%" }}>
+                    <span style={{ fontFamily: body, fontSize: 12.5, color: C.mid, flexShrink: 0 }}>{ej.nombre}</span>
+                    <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {ej.series.map((x) => (x.kg ? `${pesoCorto(x.kg)}×${x.reps}` : `${x.reps}`)).join(" · ")}
+                    </span>
+                    <ChevronRight size={13} color={C.line} style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            )}
             </div>
           );
         }}
@@ -898,16 +1103,14 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
         )}
 
         {notas.length > 1 && (
-          <div style={{ height: 110, marginTop: 12, marginLeft: -14 }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <Grafica alto={110} style={{ marginTop: 12, marginLeft: -14 }}>
               <BarChart data={notas} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
                 <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
                 <YAxis domain={[0, 10]} hide />
                 <Tooltip cursor={{ fill: "rgba(21,48,61,.04)" }} contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} / 10`, ""]} />
-                <Bar dataKey="nota" fill={C.mint} radius={[8, 8, 8, 8]} maxBarSize={20} />
+                <Bar dataKey="nota" fill={C.mint} radius={[8, 8, 8, 8]} maxBarSize={20} isAnimationActive={false} />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+            </Grafica>
         )}
       </Card>
 
@@ -1252,10 +1455,41 @@ function PantallaPerfil({ perfil, pesoActual, datos, onGuardar, onRestaurar, onC
             )}
             {!vista && (
               <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, marginTop: 10, lineHeight: 1.45 }}>
-                Necesito altura, edad, sexo, actividad, objetivo y al menos un peso registrado para calcular tu gasto.
+                Hacen falta altura, edad, sexo, actividad, objetivo y al menos un peso registrado para calcular tu gasto.
               </p>
             )}
           </div>
+
+          {/* Una meta concreta convierte «bajar peso» en algo que se puede medir:
+              sin ella no hay barra que llenar ni fecha que estimar. */}
+          {p.objetivo && p.objetivo !== "mantener" && (
+            <div>
+              <Rotulo>¿A qué peso quieres llegar? (opcional)</Rotulo>
+              <div className="flex items-center gap-2" style={{ marginTop: 7 }}>
+                <input type="number" inputMode="decimal" step="0.1" value={p.meta ?? ""}
+                  placeholder={pesoActual ? String(Math.round(pesoActual + (p.objetivo === "bajar" ? -5 : 4))) : "—"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setP((x) => ({
+                      ...x,
+                      meta: v === "" ? null : Number(v),
+                      // El punto de partida se fija al ponerla, no al llegar:
+                      // si no, cambiarla a mitad recolocaría la barra sola.
+                      metaDesde: v === "" ? null : x.metaDesde || pesoActual || null,
+                    }));
+                  }}
+                  style={{ ...inputBase, flex: 1, fontFamily: mono, fontWeight: 600 }} />
+                <span style={{ fontFamily: body, fontSize: 14, color: C.mid }}>kg</span>
+              </div>
+              {p.meta > 0 && pesoActual > 0 && (
+                <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: "7px 0 0", lineHeight: 1.45 }}>
+                  {Math.abs(pesoActual - p.meta) < 0.1
+                    ? "Ya estás ahí."
+                    : `${num(Math.abs(pesoActual - p.meta))} kg desde tu peso de ahora.`}
+                </p>
+              )}
+            </div>
+          )}
 
           <BotonGuardar onClick={() => { onGuardar(p); onCerrar(); }}>Guardar perfil</BotonGuardar>
         </Card>
@@ -1392,9 +1626,18 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
     (sec === "comidas" && texto.trim().length > 1);
 
   /* Al corregir se conserva el id, así que se sobrescribe el mismo documento
-     en vez de crear otro. Y el `ts`, para que no salte de sitio en la lista. */
-  const conIdentidad = (campos) =>
-    editando ? { ...campos, id: editando.registro.id, ts: editando.registro.ts ?? campos.ts } : campos;
+     en vez de crear otro. Y el `ts`, para que no salte de sitio en la lista.
+     Los campos que esta hoja no toca —los ejercicios de un entreno de fuerza,
+     los kilómetros de una tirada— se arrastran tal cual: guardar desde aquí
+     no puede llevarse por delante lo que no se está editando. */
+  const conIdentidad = (campos) => {
+    if (!editando) return campos;
+    const r = editando.registro;
+    const salida = { ...campos, id: r.id, ts: r.ts ?? campos.ts };
+    if (r.ejercicios) salida.ejercicios = r.ejercicios;
+    if (r.km != null) salida.km = r.km;
+    return salida;
+  };
 
   const enviar = () => {
     if (!valido) return;
@@ -1554,6 +1797,285 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------- ejercicios de fuerza */
+
+const SERIE_VACIA = { reps: 8, kg: null, rir: null };
+
+/**
+ * Hoja para añadir o corregir un ejercicio con sus series.
+ *
+ * Al elegir un ejercicio que ya has hecho, se traen las series de la última
+ * vez: lo normal es repetir el mismo peso o subirlo un poco, así que partir de
+ * cero cada día era hacer teclear lo que ya se sabía.
+ */
+function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
+  const [nombre, setNombre] = useState(ejercicio ? ejercicio.nombre : "");
+  const [series, setSeries] = useState(() =>
+    ejercicio && ejercicio.series.length ? ejercicio.series.map((s) => ({ ...s })) : [{ ...SERIE_VACIA }]
+  );
+  const [tocado, setTocado] = useState(!!ejercicio);
+
+  const usados = useMemo(() => ejerciciosUsados(entrenos), [entrenos]);
+
+  /* Sugerencias: primero lo tuyo, luego el catálogo, sin repetir. */
+  const sugerencias = useMemo(() => {
+    const escrito = nombre.trim().toLowerCase();
+    const mios = usados.map((u) => u.nombre);
+    const sinRepetir = (lista) => lista.filter((e) => !mios.some((m) => mismoEjercicio(m, e)));
+
+    // Sin escribir nada: lo tuyo primero, y se completa con los habituales.
+    if (!escrito) return [...mios, ...sinRepetir(EJERCICIOS_HABITUALES)].slice(0, 8);
+
+    // Escribiendo: se busca en todo el catálogo, no solo en los habituales.
+    return [...mios, ...sinRepetir(EJERCICIOS_SUGERIDOS)]
+      .filter((e) => e.toLowerCase().includes(escrito))
+      .slice(0, 8);
+  }, [nombre, usados]);
+
+  const elegir = (n) => {
+    setNombre(n);
+    const ultima = ultimaVezEjercicio(entrenos, n);
+    if (ultima && ultima.series.length && !tocado) setSeries(ultima.series.map((s) => ({ ...s })));
+    setTocado(true);
+  };
+
+  const cambiar = (i, campo, valor) =>
+    setSeries((ss) => ss.map((s, j) => (j === i ? { ...s, [campo]: valor } : s)));
+
+  const anadirSerie = () =>
+    setSeries((ss) => [...ss, ss.length ? { ...ss[ss.length - 1] } : { ...SERIE_VACIA }]);
+
+  const quitarSerie = (i) => setSeries((ss) => (ss.length > 1 ? ss.filter((_, j) => j !== i) : ss));
+
+  const limpio = series
+    .map((s) => ({
+      reps: parseInt(s.reps, 10) || 0,
+      kg: s.kg === "" || s.kg === null || s.kg === undefined ? null : Number(String(s.kg).replace(",", ".")),
+      rir: s.rir === "" || s.rir === null || s.rir === undefined ? null : Number(s.rir),
+    }))
+    .filter((s) => s.reps > 0);
+
+  const valido = nombre.trim().length > 1 && limpio.length > 0;
+  const ultima = nombre.trim() ? ultimaVezEjercicio(entrenos, nombre) : null;
+
+  const campoNum = {
+    width: "100%", boxSizing: "border-box", border: "none", background: C.soft,
+    borderRadius: 12, padding: "10px 8px", fontSize: 16, color: C.ink,
+    fontFamily: mono, fontWeight: 600, textAlign: "center",
+  };
+
+  return (
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 85, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="rise" onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "90vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <h3 style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: C.ink, margin: 0 }}>
+            {ejercicio ? "Corregir ejercicio" : "Añadir ejercicio"}
+          </h3>
+          <button onClick={onCerrar} style={{ ...btnBorrar, background: C.soft }} aria-label="Cerrar"><X size={18} color={C.mid} /></button>
+        </div>
+
+        <Rotulo>Ejercicio</Rotulo>
+        <input value={nombre} autoFocus placeholder="Press banca"
+          onChange={(e) => { setNombre(e.target.value); setTocado(true); }}
+          style={{ ...inputBase, marginTop: 6 }} />
+
+        {sugerencias.length > 0 && !ejercicio && (
+          <div className="flex gap-2" style={{ marginTop: 9, flexWrap: "wrap" }}>
+            {sugerencias.map((sug) => (
+              <button key={sug} onClick={() => elegir(sug)}
+                style={{
+                  border: "none", cursor: "pointer", borderRadius: 999, padding: "7px 12px",
+                  background: C.soft, color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 12.5,
+                }}>
+                {sug}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {ultima && (
+          <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "9px 0 0" }}>
+            Última vez ({etiquetaFecha(ultima.fecha)}):{" "}
+            {ultima.series.map((s) => `${s.kg ? `${pesoCorto(s.kg)}×` : ""}${s.reps}`).join(" · ")}
+          </p>
+        )}
+
+        <div style={{ marginTop: 18, marginBottom: 8 }}><Rotulo>Series</Rotulo></div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7 }}>
+          <div className="flex items-center gap-2" style={{ padding: "0 4px" }}>
+            <span style={{ width: 18 }} />
+            <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>Reps</span>
+            <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>Kg</span>
+            <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>RIR</span>
+            <span style={{ width: 26 }} />
+          </div>
+          {series.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span style={{ width: 18, fontFamily: mono, fontSize: 12, color: C.faint, textAlign: "center" }}>{i + 1}</span>
+              <input type="number" inputMode="numeric" value={s.reps ?? ""} aria-label={`Repeticiones de la serie ${i + 1}`}
+                onChange={(e) => cambiar(i, "reps", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+              <input type="number" inputMode="decimal" step="0.5" value={s.kg ?? ""} placeholder="—"
+                aria-label={`Kilos de la serie ${i + 1}`}
+                onChange={(e) => cambiar(i, "kg", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+              <input type="number" inputMode="numeric" min="0" max="5" value={s.rir ?? ""} placeholder="—"
+                aria-label={`RIR de la serie ${i + 1}`}
+                onChange={(e) => cambiar(i, "rir", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+              <button onClick={() => quitarSerie(i)} style={{ ...btnBorrar, width: 26, padding: 4 }}
+                aria-label={`Quitar la serie ${i + 1}`} disabled={series.length === 1}>
+                <X size={14} color={series.length === 1 ? C.line : C.faint} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "9px 0 0", lineHeight: 1.45 }}>
+          Deja los kilos vacíos si es peso corporal. RIR son las repeticiones que te quedaban dentro; es opcional.
+        </p>
+
+        <button onClick={anadirSerie} style={{ ...btnMini, marginTop: 12 }}>+ Añadir serie</button>
+
+        <div style={{ marginTop: 16 }}>
+          <BotonGuardar onClick={() => valido && onGuardar({ nombre: nombre.trim(), series: limpio })} disabled={!valido}>
+            {ejercicio ? "Guardar los cambios" : "Añadir al entreno"}
+          </BotonGuardar>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Ficha de un ejercicio: si estás progresando o llevas meses en el mismo sitio.
+ *
+ * El eje es el máximo estimado a una repetición, no los kilos de la barra:
+ * 80×8 vale más que 90×5 y a ojo no se ve. Así una serie de más repeticiones
+ * con menos peso no parece un retroceso cuando no lo es.
+ */
+function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
+  const historia = useMemo(() => progresionEjercicio(entrenos, nombre), [entrenos, nombre]);
+  const record = useMemo(() => recordEjercicio(entrenos, nombre), [entrenos, nombre]);
+
+  useEffect(() => {
+    const alPulsar = (e) => e.key === "Escape" && onCerrar();
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  const serie = historia.filter((h) => h.mejor).map((h) => ({ x: fechaCorta(h.fecha), kg: h.mejor.estimado }));
+  const primero = serie.length ? serie[0].kg : null;
+  const ultimo = serie.length ? serie[serie.length - 1].kg : null;
+  const avance = primero !== null && serie.length > 1 ? Number((ultimo - primero).toFixed(1)) : null;
+
+  return (
+    <div className="fade" style={{ position: "fixed", inset: 0, zIndex: 78, background: C.bg, overflowY: "auto" }}>
+      <div className="contenedor" style={{ padding: "22px 16px 48px", maxWidth: 560 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
+          <div style={{ minWidth: 0 }}>
+            <Rotulo>Ejercicio</Rotulo>
+            <h2 style={{ fontFamily: display, fontWeight: 800, fontSize: 25, color: C.ink, letterSpacing: -0.6, margin: 0 }}>
+              {nombre}
+            </h2>
+          </div>
+          <button onClick={onCerrar} style={{ ...btnBorrar, background: C.card, padding: 10, borderRadius: 14, boxShadow: sh, marginLeft: 10 }} aria-label="Cerrar">
+            <X size={19} color={C.mid} />
+          </button>
+        </div>
+
+        {record && (
+          <Card style={{ background: `linear-gradient(155deg, ${C.tealSoft} 0%, ${C.card} 60%)`, padding: 20, marginBottom: 14 }}>
+            <div className="flex items-center justify-between">
+              <Rotulo>Tu mejor serie</Rotulo>
+              {record.esElUltimo && (
+                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: C.mint, background: "#fff", borderRadius: 999, padding: "3px 10px" }}>
+                  Récord reciente
+                </span>
+              )}
+            </div>
+            <div className="flex items-end gap-2" style={{ marginTop: 4 }}>
+              <span style={{ fontFamily: display, fontWeight: 800, fontSize: 42, lineHeight: 1, color: C.ink, letterSpacing: -1.2 }}>
+                {record.serie.kg ? pesoCorto(record.serie.kg) : record.serie.reps}
+              </span>
+              <span style={{ fontFamily: body, fontSize: 15, color: C.mid, marginBottom: 5 }}>
+                {record.serie.kg ? `kg × ${record.serie.reps}` : "repeticiones"}
+              </span>
+            </div>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: "8px 0 0" }}>
+              {etiquetaFecha(record.fecha)} · equivale a un máximo de ~{num(record.serie.estimado)} kg
+            </p>
+          </Card>
+        )}
+
+        <Card>
+          <Rotulo>Progresión</Rotulo>
+          {serie.length > 1 ? (
+            <>
+              <Grafica alto={170} style={{ marginTop: 10, marginLeft: -10 }}>
+                  <LineChart data={serie} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
+                    <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
+                    {/* Redondeado a mano: con `allowDecimals` no basta si el dominio se da
+                        como expresión, y un «107,5» no cabe en el ancho del eje. */}
+                    <YAxis domain={["dataMin - 3", "dataMax + 3"]} tickFormatter={(v) => Math.round(v)}
+                      tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={38} />
+                    <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`~${num(v)} kg`, "máximo estimado"]} />
+                    <Line type="monotone" dataKey="kg" isAnimationActive={false} stroke={C.teal} strokeWidth={3} dot={{ r: 3, fill: C.teal, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </Grafica>
+              {avance !== null && (
+                <p style={{ fontFamily: body, fontSize: 13.5, color: C.mid, margin: "8px 0 0", lineHeight: 1.5 }}>
+                  {Math.abs(avance) < 1
+                    ? `Llevas ${plural(historia.length, "sesión", "sesiones")} y el máximo estimado apenas se mueve. Toca subir peso o repeticiones.`
+                    : `${avance > 0 ? "+" : "−"}${num(Math.abs(avance))} kg de máximo estimado en ${plural(historia.length, "sesión", "sesiones")}.`}
+                </p>
+              )}
+            </>
+          ) : (
+            <Vacio texto="Con una sola sesión no hay progresión que enseñar. Vuelve a hacerlo y aquí verás la evolución." />
+          )}
+        </Card>
+
+        <div style={{ marginTop: 14 }}>
+          <div style={{ padding: "2px 4px 8px" }}><Rotulo>Sesiones</Rotulo></div>
+          <Card style={{ padding: 8 }}>
+            {[...historia].reverse().map((h) => (
+              <div key={h.fecha} className="flex items-center gap-3" style={{ padding: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>{etiquetaFecha(h.fecha)}</p>
+                  {h.volumen > 0 && (
+                    <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: 0 }}>{miles(h.volumen)} kg movidos</p>
+                  )}
+                </div>
+                {h.mejor && (
+                  <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13, color: C.ink }}>
+                    {pesoCorto(h.mejor.kg)}×{h.mejor.reps}
+                  </span>
+                )}
+              </div>
+            ))}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Una línea por ejercicio dentro del entreno que se está montando. */
+function FilaEjercicio({ ejercicio, onEditar, onBorrar }) {
+  return (
+    <div className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "10px 12px" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {ejercicio.nombre}
+        </p>
+        <p style={{ fontFamily: mono, fontSize: 11.5, color: C.mid, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {ejercicio.series.map((s) => (s.kg ? `${pesoCorto(s.kg)}×${s.reps}` : `${s.reps} rep`)).join(" · ")}
+        </p>
+      </div>
+      <Acciones size={13} que="el ejercicio" onEditar={onEditar} onBorrar={onBorrar} />
     </div>
   );
 }

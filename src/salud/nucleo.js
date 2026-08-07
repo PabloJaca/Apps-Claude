@@ -175,6 +175,10 @@ export function plural(n, singular, muchos) {
 
 export const num = (n, dec = 1) =>
   n === null || n === undefined || Number.isNaN(n) ? "—" : Number(n).toFixed(dec).replace(".", ",");
+/** Kilos como se dicen: «70», no «70,0»; pero «77,5» cuando toca. */
+export const pesoCorto = (n) =>
+  n === null || n === undefined || Number.isNaN(Number(n)) ? "—" : String(Number(n)).replace(".", ",");
+
 export const miles = (n) => (n === null || n === undefined ? "—" : Math.round(n).toLocaleString("es-ES"));
 
 /* ── energía ─────────────────────────────────────────────────────────────── */
@@ -209,6 +213,14 @@ export function calcularEnergia(perfil, pesoKg) {
 /* Sugerencias para no tener que escribir a pelo la primera vez. Viven en el
    código, no en la base de datos: son una ayuda al escribir, no datos tuyos.
    Lo que se guarda es el nombre que acabes poniendo. */
+/* Los ocho que se ofrecen cuando aún no has escrito nada ni tienes historial:
+   uno por patrón de movimiento, no los ocho primeros de la lista de abajo, que
+   resultan ser todos de empuje. */
+export const EJERCICIOS_HABITUALES = [
+  "Sentadilla", "Press banca", "Peso muerto", "Dominadas",
+  "Press militar", "Remo con barra", "Prensa", "Curl con barra",
+];
+
 export const EJERCICIOS_SUGERIDOS = [
   // empuje
   "Press banca", "Press inclinado", "Press militar", "Press mancuernas",
@@ -439,6 +451,54 @@ export function tendenciaPeso(pesos, { dias = 28, semanas = 4 } = {}) {
     semanas,
     prevision: estable ? null : Number((actual + kgSemana * semanas).toFixed(1)),
   };
+}
+
+/* ── meta de peso ────────────────────────────────────────────────────────── */
+
+/**
+ * Cuánto llevas de camino hacia el peso que quieres, y cuándo llegarías.
+ *
+ * El punto de partida es el peso que tenías al ponerte la meta (`metaDesde`);
+ * si no consta, el primero que haya. Sin eso, «llevas un 40%» no significaría
+ * nada: cambiar la meta a mitad de camino recolocaría la barra sola.
+ *
+ * La fecha solo sale si te estás moviendo hacia la meta. Si vas al revés o
+ * estás plano, no hay fecha que dar y se dice así.
+ */
+export function progresoMeta(pesos, perfil) {
+  const meta = Number(perfil && perfil.meta);
+  if (!(meta > 0)) return null;
+
+  const { fiables } = pesosFiables(pesos);
+  if (!fiables.length) return null;
+
+  const actual = fiables[fiables.length - 1].kg;
+  const desde = Number(perfil.metaDesde) > 0 ? Number(perfil.metaDesde) : fiables[0].kg;
+
+  const total = desde - meta;              // lo que había que recorrer
+  const hecho = desde - actual;            // lo recorrido
+  const restante = Number((actual - meta).toFixed(1));
+
+  // Si partías ya en la meta no hay barra que pintar, solo si sigues ahí.
+  const bajando = total > 0;
+  const alcanzada = bajando ? actual <= meta : total < 0 ? actual >= meta : true;
+
+  const porcentaje = Math.abs(total) < 0.05
+    ? (alcanzada ? 100 : 0)
+    : Math.max(0, Math.min(100, Math.round((hecho / total) * 100)));
+
+  let fecha = null;
+  const kgSemana = pendienteSemanal(fiables.slice(-12));
+  if (!alcanzada && kgSemana !== null && Math.abs(kgSemana) >= 0.1) {
+    const semanas = (meta - actual) / kgSemana;
+    if (semanas > 0 && semanas < 260) {          // más de cinco años no es un plan
+      const d = new Date();
+      d.setDate(d.getDate() + Math.round(semanas * 7));
+      fecha = { iso: iso(d), semanas: Math.round(semanas) };
+    }
+  }
+
+  return { meta, desde, actual, restante, porcentaje, alcanzada, fecha, sentido: bajando ? "bajar" : "subir" };
 }
 
 /* ── racha ───────────────────────────────────────────────────────────────── */

@@ -420,5 +420,48 @@ check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendien
   check("sugerencias: sin repetidos", new Set(n.EJERCICIOS_SUGERIDOS).size === n.EJERCICIOS_SUGERIDOS.length);
 }
 
+
+/* ── meta de peso ────────────────────────────────────────────────────────── */
+
+{
+  const { progresoMeta, iso } = await import("../src/salud/nucleo.js");
+  const d = (n) => { const x = new Date(); x.setHours(0,0,0,0); x.setDate(x.getDate() - n); return iso(x); };
+
+  // De 85 a 79, meta 79: va por la mitad justa.
+  const serie = [];
+  for (let i = 28; i >= 0; i -= 2) serie.push({ fecha: d(i), kg: Number((85 - (28 - i) * 3 / 28).toFixed(2)) });
+
+  const p = progresoMeta(serie, { meta: 79, metaDesde: 85 });
+  check("meta: calcula el porcentaje sobre el punto de partida", p.porcentaje === 50, JSON.stringify(p));
+  check("meta: dice lo que falta", p.restante === 3, String(p.restante));
+  check("meta: aún no está alcanzada", p.alcanzada === false);
+  check("meta: estima cuándo llegarías", p.fecha && p.fecha.semanas > 0, JSON.stringify(p.fecha));
+
+  check("meta: sin meta puesta no devuelve nada", progresoMeta(serie, {}) === null);
+  check("meta: sin pesajes tampoco", progresoMeta([], { meta: 79 }) === null);
+
+  const alcanzada = progresoMeta([...serie, { fecha: d(0), kg: 78.5 }], { meta: 79, metaDesde: 85 });
+  check("meta: al llegar lo dice", alcanzada.alcanzada === true, JSON.stringify(alcanzada));
+  check("meta: y la barra se llena", alcanzada.porcentaje === 100, String(alcanzada.porcentaje));
+
+  // Subir de peso: la barra tiene que ir igual de bien al revés.
+  const subiendo = [];
+  for (let i = 28; i >= 0; i -= 2) subiendo.push({ fecha: d(i), kg: Number((60 + (28 - i) * 2 / 28).toFixed(2)) });
+  const ps = progresoMeta(subiendo, { meta: 64, metaDesde: 60 });
+  check("meta: al subir también cuenta el avance", ps.porcentaje === 50, JSON.stringify(ps));
+  check("meta: y sabe que el sentido es subir", ps.sentido === "subir");
+
+  // Yendo al revés de la meta: no se inventa una fecha.
+  const alReves = [];
+  for (let i = 28; i >= 0; i -= 2) alReves.push({ fecha: d(i), kg: Number((80 + (28 - i) * 2 / 28).toFixed(2)) });
+  const pr = progresoMeta(alReves, { meta: 75, metaDesde: 80 });
+  check("meta: si vas al revés no da fecha", pr.fecha === null, JSON.stringify(pr.fecha));
+  check("meta: y el avance no baja de cero", pr.porcentaje === 0, String(pr.porcentaje));
+
+  // Sin metaDesde se usa el primer pesaje que haya.
+  const sinDesde = progresoMeta(serie, { meta: 79 });
+  check("meta: sin punto de partida usa el primer pesaje", sinDesde.desde === 85, String(sinDesde.desde));
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

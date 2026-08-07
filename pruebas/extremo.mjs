@@ -441,6 +441,112 @@ const saltarBienvenida = async (pag) => {
   await ctx.close();
 }
 
+/* ── 3quater. Entrenos con ejercicios, series y repeticiones ─────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dd = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return iso(d); };
+    const uid = "usuarios/uid_leo";
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "leo@ejemplo.com": { clave: "secreta10", uid: "uid_leo" } },
+      docs: {
+        "permitidos/leo@ejemplo.com": { nombre: "Leo" },
+        [uid]: { email: "leo@ejemplo.com", bienvenida: 1 },
+        // Dos sesiones anteriores de press banca, subiendo.
+        [`${uid}/entrenos/e1`]: { fecha: dd(7), tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1,
+          ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 70 }, { reps: 8, kg: 70 }] }] },
+        [`${uid}/entrenos/e2`]: { fecha: dd(3), tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1,
+          ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 75 }, { reps: 6, kg: 77.5 }] }] },
+      },
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_leo", email: "leo@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1600);
+  await pag.click("nav >> text=Entrenos");
+  await pag.waitForTimeout(700);
+
+  const inicio = await pag.innerText("body");
+  check("entrenos: el historial resume series y kilos movidos", /serie/.test(inicio), inicio.slice(0, 300));
+  check("entrenos: se ofrece repetir la última sesión", /Repetir el entreno/.test(inicio));
+
+  /* Repetir trae los ejercicios con sus pesos, listos para guardar. */
+  await pag.click("text=Repetir el entreno");
+  await pag.waitForTimeout(600);
+  const repetido = await pag.innerText("body");
+  check("repetir: aparece el ejercicio de la última vez", /Press banca/.test(repetido));
+  check("repetir: con los pesos de aquel día", /77,5×6|75×8/.test(repetido), repetido.slice(0, 400));
+
+  await pag.click("text=Guardar entreno");
+  await pag.waitForTimeout(1000);
+  const guardado = await pag.evaluate(() => {
+    const docs = window.__espia.verServidor().docs;
+    return Object.entries(docs).filter(([r]) => /\/entrenos\//.test(r)).map(([, d]) => d);
+  });
+  check("repetir: se guarda un tercer entreno", guardado.length === 3, String(guardado.length));
+  const nuevo = guardado.find((e) => (e.ejercicios || []).length && e.fecha === new Date().toISOString().slice(0, 10));
+  check("repetir: con sus ejercicios y series dentro del documento",
+    nuevo && nuevo.ejercicios[0].series.length === 2, JSON.stringify(nuevo && nuevo.ejercicios));
+
+  /* Añadir un ejercicio a mano, con sus series. */
+  await pag.click('button:has-text("Fuerza")');
+  await pag.waitForTimeout(400);
+  await pag.click("text=+ Añadir ejercicio");
+  await pag.waitForTimeout(500);
+  check("añadir ejercicio: se abre la hoja", /Añadir ejercicio/.test(await pag.innerText("body")));
+  check("añadir ejercicio: sugiere ejercicios para no teclear a pelo",
+    (await pag.$$eval(".rise button", (bs) => bs.map((b) => b.textContent.trim()))).includes("Sentadilla"));
+
+  await pag.click('.rise button:has-text("Sentadilla")');
+  await pag.waitForTimeout(400);
+  await pag.fill('.rise input[aria-label="Repeticiones de la serie 1"]', "5");
+  await pag.fill('.rise input[aria-label="Kilos de la serie 1"]', "100");
+  await pag.click("text=+ Añadir serie");
+  await pag.waitForTimeout(300);
+  check("añadir ejercicio: la serie nueva copia la anterior",
+    (await pag.inputValue('.rise input[aria-label="Kilos de la serie 2"]')) === "100");
+  await pag.click("text=Añadir al entreno");
+  await pag.waitForTimeout(500);
+  const conSentadilla = await pag.innerText("body");
+  check("añadir ejercicio: queda en la lista del entreno", /Sentadilla/.test(conSentadilla));
+  check("añadir ejercicio: y se resume lo levantado", /kg movidos/.test(conSentadilla), conSentadilla.slice(0, 400));
+  check("los kilos se escriben como se dicen: «75×8», no «75,0×8»",
+    /75×8/.test(conSentadilla) && !/75,0×/.test(conSentadilla));
+
+  /* Ficha de progresión. */
+  await pag.click("text=Cancelar");
+  await pag.waitForTimeout(400);
+  // Ojo: el botón de repetir también dice «Press banca» en su subtítulo; el del
+  // historial es el que lleva las series al lado.
+  await pag.click('button:has-text("77,5×6")');
+  await pag.waitForTimeout(700);
+  const ficha = await pag.innerText("body");
+  check("ficha: se abre la progresión del ejercicio", /Tu mejor serie|Progresión/i.test(ficha), ficha.slice(0, 250));
+  check("ficha: enseña el récord", /récord|mejor serie/i.test(ficha));
+  check("ficha: y cuántas sesiones lleva", /sesion/i.test(ficha));
+
+  check("entrenos: nada se sale de la pantalla a lo ancho",
+    await pag.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1),
+    JSON.stringify(await pag.evaluate(() => {
+      const w = document.documentElement.clientWidth; const malos = [];
+      document.querySelectorAll("*").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width > w + 1) malos.push({ tag: el.tagName, cls: String(el.className || "").slice(0, 24), w: Math.round(r.width), txt: (el.textContent || "").trim().slice(0, 40) });
+      });
+      return malos.slice(0, 4);
+    })));
+  check("entrenos: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 /* ── 4. La lista de invitados ────────────────────────────────────────────── */
 
 {
