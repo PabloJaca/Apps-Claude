@@ -49,6 +49,14 @@ jobs:
       - name: Pruebas de aislamiento, migración y valoración
         run: npm run probar
 
+      # El emulador de Firestore es un programa de Java, y firebase-tools pide
+      # la 21 o superior; la que trae el runner por defecto es más antigua.
+      - name: Preparar Java para el emulador
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
       - name: Reglas de seguridad contra el emulador de Firestore
         run: npm run probar-reglas
 
