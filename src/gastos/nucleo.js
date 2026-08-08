@@ -203,6 +203,20 @@ export function buscarMovimientos(datos, { texto = "", categoria = null, desde =
 }
 
 /**
+ * Un tope mensual con el que casi nadie discute: gastar el 85% de lo que
+ * entra, redondeado a decenas para que sea un número que se recuerde.
+ *
+ * Nunca por debajo de los gastos fijos: proponer un tope que ya está gastado
+ * antes de empezar el mes sería pedir lo imposible.
+ */
+export function topeSugerido(entra, fijos = 0) {
+  const dentro = Number(entra) || 0;
+  const sale = Number(fijos) || 0;
+  if (!(dentro > 0)) return 0;
+  return Math.max(sale, Math.round((dentro * 0.85) / 10) * 10);
+}
+
+/**
  * Un objetivo de ahorro, con lo que llevas y lo que falta.
  * Viven dentro de `ajustes` y no en su propia colección: son dos o tres, se
  * editan de uno en uno y no merecen la complicación de otra colección.

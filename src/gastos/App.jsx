@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, ReferenceLine,
+  Cell, ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, ReferenceLine,
 } from "recharts";
 import {
   UtensilsCrossed, Pizza, Coffee, Beer, ShoppingCart, PartyPopper, Music, Film,
@@ -9,7 +9,7 @@ import {
   GraduationCap, Gift, Dog, Baby, Wrench, CreditCard, PiggyBank, Package, Sparkles,
   ChevronLeft, ChevronRight, X, Plus, Trash2, Copy, Check, Wallet, Settings,
   PieChart as IcAnalisis, Repeat, ArrowUpRight, ArrowDownRight, Target, CalendarDays,
-  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp, Search,
+  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp, Search, Undo2,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
@@ -23,7 +23,7 @@ import {
   ORIGENES, balanceDeMes, buscarMovimientos, eur, exportar, gastosFrecuentes, plural,
   hoyISO, importar, ingresosDeMes, leerLegado, mesActualClave, movimientosDeMes,
   nombreMesClave, olvidarLegado, origenDe, porOrden, progresoObjetivo,
-  restarMeses, suma, uid,
+  restarMeses, suma, topeSugerido, uid,
 } from "./nucleo.js";
 
 /* ─────────────────────────────  ICONOS  ───────────────────────────── */
@@ -38,6 +38,8 @@ const ICONOS = {
   dumbbell: Dumbbell, book: BookOpen, graduation: GraduationCap, gift: Gift,
   dog: Dog, baby: Baby, wrench: Wrench, card: CreditCard, piggy: PiggyBank,
   package: Package, sparkles: Sparkles, repeat: Repeat,
+  // Los dos de los ingresos: sin ellos la nómina salía con la caja genérica.
+  wallet: Wallet, undo: Undo2,
 };
 const CLAVES_ICONO = Object.keys(ICONOS);
 
@@ -244,6 +246,28 @@ function Aplicacion({ sesion }) {
   const proyeccion = diasTranscurridos > 0 ? totalFijos + (totalVariable / diasTranscurridos) * nDias : totalFijos;
   const presupuesto = datos.ajustes?.presupuestoGlobal || null;
 
+  /* Lo que queda para el día a día una vez pagados los fijos, repartido entre
+     los días del mes. Es la línea de puntos del gráfico diario. */
+  const margenVariable = presupuesto ? presupuesto - totalFijos : null;
+  const ritmoDiario = margenVariable && margenVariable > 0 ? margenVariable / nDias : null;
+
+  /* Categorías que se están comiendo su tope. Solo en el mes en curso: en un
+     mes ya cerrado esto no es un aviso, es historia, y para eso está Análisis. */
+  const avisosTope = useMemo(() => {
+    if (!esMesEnCurso) return [];
+    return porCategoria
+      .filter((c) => c.presupuesto > 0 && c.total / c.presupuesto >= 0.8)
+      .map((c) => ({ ...c, ratio: c.total / c.presupuesto }))
+      .sort((a, b) => b.ratio - a.ratio);
+  }, [porCategoria, esMesEnCurso]);
+
+  /* Cuenta recién estrenada: ni un gasto, ni un ingreso, ni un fijo. Se
+     pregunta una sola vez y queda constancia, igual que en Salud, para no dar
+     la brasa a quien la saltó. */
+  const primeraVez =
+    listo && !usuario.bienvenida &&
+    !datos.gastos.length && !datos.ingresos.length && !datos.fijos.length;
+
   /* ── acciones ────────────────────────────────────────────────────────── */
 
   /* Cada acción escribe en Firestore al momento. La lista no se toca a mano:
@@ -263,6 +287,23 @@ function Aplicacion({ sesion }) {
 
   const guardarObjetivos = (lista) =>
     guardarUsuario({ ajustes: { ...datos.ajustes, objetivos: lista } });
+
+  const ponPresupuesto = (valor) =>
+    guardarUsuario({ ajustes: { ...datos.ajustes, presupuestoGlobal: valor } });
+
+  /* La bienvenida deja el mes montado de una vez: la nómina, el gasto fijo más
+     gordo y el tope. Lo que se haya rellenado se guarda; lo que no, se salta. */
+  const cerrarBienvenida = useCallback(
+    (inicial) => {
+      if (!inicial) return guardarUsuario({ bienvenida: Date.now() });
+      for (const f of inicial.fijos) guardar("fijos", f);
+      guardarUsuario({
+        bienvenida: Date.now(),
+        ajustes: { ...AJUSTES_VACIO, presupuestoGlobal: inicial.presupuesto ?? null },
+      });
+    },
+    [guardar, guardarUsuario]
+  );
 
   const restaurar = useCallback(
     (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
@@ -301,6 +342,8 @@ function Aplicacion({ sesion }) {
     return () => window.removeEventListener("keydown", alPulsar);
   }, [moverMes, esMesEnCurso, hoja, hojaFijo, pantalla]);
 
+  /* Los dos returns de abajo van después de todos los hooks a propósito: se
+     ejecutan igual, lo único que cambia es lo que se dibuja. */
   if (!listo && !error) {
     return (
       <div className="gx">
@@ -308,6 +351,10 @@ function Aplicacion({ sesion }) {
         <div className="cargando"><div className="spinner" /><p>Abriendo tus cuentas…</p></div>
       </div>
     );
+  }
+
+  if (primeraVez) {
+    return <Bienvenida onTerminar={cerrarBienvenida} onSaltar={() => cerrarBienvenida(null)} />;
   }
 
   return (
@@ -339,9 +386,10 @@ function Aplicacion({ sesion }) {
         {vista === "resumen" && (
           <Resumen
             total={totalMes} totalFijos={totalFijos} totalVariable={totalVariable}
-            totalAnterior={totalMesAnterior} porDiaVariable={porDiaVariable}
+            totalAnterior={totalMesAnterior}
             nDias={nDias} diasTranscurridos={diasTranscurridos} esMesEnCurso={esMesEnCurso}
-            proyeccion={proyeccion} presupuesto={presupuesto} balance={balance}
+            proyeccion={proyeccion} presupuesto={presupuesto} margenVariable={margenVariable}
+            balance={balance} avisosTope={avisosTope}
             frecuentes={frecuentes} objetivos={objetivos}
             movimientos={movimientos} nFijos={fijosMes.length} catPorId={catPorId}
             onAbrir={abrirMovimiento}
@@ -351,6 +399,8 @@ function Aplicacion({ sesion }) {
             onNuevoFijo={() => setHojaFijo({ modo: "nuevo", mesVisto: mesKey })}
             onRevisar={() => setPantalla("revision")}
             onObjetivos={() => setPantalla("objetivos")}
+            onPresupuesto={ponPresupuesto}
+            onVerTopes={() => setVista("analisis")}
           />
         )}
 
@@ -358,7 +408,11 @@ function Aplicacion({ sesion }) {
           <Analisis
             porCategoria={porCategoria} total={totalMes} ultimosMeses={ultimosMeses}
             ranking={ranking} presupuestoGlobal={presupuesto}
+            porDiaVariable={porDiaVariable} nDias={nDias}
+            diasTranscurridos={diasTranscurridos} esMesEnCurso={esMesEnCurso}
+            ritmoDiario={ritmoDiario} totalVariable={totalVariable}
             onRevisar={() => setPantalla("revision")}
+            onNuevo={() => setHoja({ modo: "nuevo" })}
           />
         )}
 
@@ -367,8 +421,8 @@ function Aplicacion({ sesion }) {
             datos={datos} catPorId={catPorId} mesKey={mesKey}
             guardar={guardar} borrar={borrar} guardarUsuario={guardarUsuario}
             onRestaurar={restaurar} onVaciar={vaciar}
-            onEditarFijo={(f) => setHojaFijo({ modo: "editar", fijo: f, mesVisto: mesKey })}
-            onNuevoFijo={() => setHojaFijo({ modo: "nuevo", mesVisto: mesKey })}
+            onFijos={() => setPantalla("fijos")}
+            onObjetivos={() => setPantalla("objetivos")}
             onCuenta={() => setPantalla("cuenta")}
             sesion={sesion}
           />
@@ -402,9 +456,19 @@ function Aplicacion({ sesion }) {
 
       {hojaFijo && (
         <HojaFijo
-          modo={hojaFijo.modo} fijo={hojaFijo.fijo} mesVisto={hojaFijo.mesVisto}
+          modo={hojaFijo.modo} fijo={hojaFijo.fijo} tipo={hojaFijo.tipo || "gasto"}
+          mesVisto={hojaFijo.mesVisto}
           categorias={datos.categorias} onGuardar={guardarFijo} onEliminar={eliminarFijo}
           onCerrar={() => setHojaFijo(null)}
+        />
+      )}
+
+      {pantalla === "fijos" && (
+        <PantallaFijos
+          fijos={datos.fijos} catPorId={catPorId} mesKey={mesKey}
+          onEditar={(f) => setHojaFijo({ modo: "editar", fijo: f, mesVisto: mesKey })}
+          onNuevo={(tipo) => setHojaFijo({ modo: "nuevo", tipo, mesVisto: mesKey })}
+          onCerrar={() => setPantalla(null)}
         />
       )}
 
@@ -442,20 +506,165 @@ function Aplicacion({ sesion }) {
   );
 }
 
+/* ─────────────────────────────  BIENVENIDA  ───────────────────────────── */
+
+/**
+ * Tres preguntas al entrar por primera vez.
+ *
+ * Antes se aterrizaba en un mes vacío con nueve categorías que nadie había
+ * elegido, y la app solo sabía restar. Estas tres preguntas dejan el mes
+ * montado: lo que entra, lo que sale sí o sí, y el tope. El tercer paso
+ * termina enseñando lo que sobra, que es el momento en el que se entiende
+ * para qué sirve todo esto.
+ *
+ * Se puede saltar en cualquier momento; lo que se haya rellenado se guarda.
+ */
+function Bienvenida({ onTerminar, onSaltar }) {
+  const [paso, setPaso] = useState(0);
+  const [nomina, setNomina] = useState("");
+  const [fijoNombre, setFijoNombre] = useState("Alquiler");
+  const [fijoImporte, setFijoImporte] = useState("");
+  const [tope, setTope] = useState("");
+
+  const num = (v) => {
+    const n = Number(String(v).replace(",", "."));
+    return n > 0 ? Math.round(n * 100) / 100 : 0;
+  };
+  const entra = num(nomina);
+  const sale = num(fijoImporte);
+  const mes = mesActualClave();
+
+  const sugerido = topeSugerido(entra, sale);
+  const topeFinal = num(tope) || sugerido;
+  const libre = entra > 0 && topeFinal > 0 ? entra - topeFinal : null;
+
+  const PASOS = [
+    { titulo: "¿Cuánto te entra al mes?", pie: "La nómina, la beca, lo que sea. Sin esto la app solo puede decirte lo que gastas, no lo que te queda.", puede: entra > 0 },
+    { titulo: "¿Y lo que pagas sí o sí?", pie: "El alquiler, o el recibo más gordo que tengas. Los demás los añades luego en dos toques.", puede: true },
+    { titulo: "¿Cuánto quieres gastar como mucho?", pie: "Un tope mensual, fijos incluidos. Es la barra que verás en la pantalla principal.", puede: true },
+  ];
+  const actual = PASOS[paso];
+
+  const terminar = () => {
+    const fijos = [];
+    if (entra > 0) {
+      fijos.push({
+        id: uid(), tipo: "ingreso", nombre: "Nómina", importe: entra,
+        categoria: "otros", origen: "nomina", dia: 1, desde: mes, hasta: null,
+      });
+    }
+    if (sale > 0 && fijoNombre.trim()) {
+      fijos.push({
+        id: uid(), tipo: "gasto", nombre: fijoNombre.trim().slice(0, 40), importe: sale,
+        categoria: "casa", origen: null, dia: 1, desde: mes, hasta: null,
+      });
+    }
+    onTerminar({ fijos, presupuesto: topeFinal > 0 ? topeFinal : null });
+  };
+
+  const siguiente = () => {
+    if (!actual.puede) return;
+    if (paso < 2) {
+      // Al llegar al tope se deja escrita la sugerencia: un número en gris de
+      // marcador se lee como «no hay nada puesto» y se acaba escribiendo otro.
+      if (paso === 1 && !tope && sugerido > 0) setTope(String(sugerido));
+      return setPaso(paso + 1);
+    }
+    terminar();
+  };
+
+  return (
+    <div className="gx">
+      <style>{CSS}</style>
+      <div className="lienzo bienvenida">
+        <div className="filaCabecera" style={{ marginTop: 14 }}>
+          <span className="etiqueta">{paso + 1} de 3</span>
+          <button className="botonTexto" onClick={onSaltar}>Ahora no</button>
+        </div>
+
+        <div>
+          <h1 className="tituloBienvenida">{actual.titulo}</h1>
+          <p className="pie" style={{ marginTop: 6 }}>{actual.pie}</p>
+        </div>
+
+        <section className="tarjeta">
+          {paso === 0 && (
+            <div className="importeZona compacta">
+              <input className="importeInput mono" type="number" inputMode="decimal" step="0.01"
+                placeholder="0" value={nomina} autoFocus
+                onChange={(e) => setNomina(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && siguiente()} />
+              <span className="importeMoneda">€</span>
+              <span className="porMes">al mes</span>
+            </div>
+          )}
+
+          {paso === 1 && (
+            <>
+              <div className="bloque">
+                <span className="etiquetaCampo">Concepto</span>
+                <input className="campoAncho" maxLength={40} placeholder="Alquiler"
+                  value={fijoNombre} onChange={(e) => setFijoNombre(e.target.value)} />
+              </div>
+              <div className="importeZona compacta">
+                <input className="importeInput mono" type="number" inputMode="decimal" step="0.01"
+                  placeholder="0" value={fijoImporte} autoFocus
+                  onChange={(e) => setFijoImporte(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && siguiente()} />
+                <span className="importeMoneda">€</span>
+                <span className="porMes">al mes</span>
+              </div>
+            </>
+          )}
+
+          {paso === 2 && (
+            <>
+              <div className="importeZona compacta">
+                <input className="importeInput mono" type="number" inputMode="decimal" step="0.01"
+                  placeholder={sugerido ? String(sugerido) : "0"} value={tope} autoFocus
+                  onChange={(e) => setTope(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && siguiente()} />
+                <span className="importeMoneda">€</span>
+              </div>
+              {libre !== null && (
+                <p className="pie sup" style={{ textAlign: "center", margin: 0 }}>
+                  {libre > 0 ? (
+                    <>Gastando eso te sobrarían <strong className="txtVerde mono">{eur(libre)}</strong> al mes.</>
+                  ) : (
+                    <>Con ese tope no te sobraría nada: gastarías todo lo que entra.</>
+                  )}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* Sin `ancho`: ese `flex:1` sirve para repartir una fila, pero aquí la
+            columna es vertical y estiraba el botón hasta el final de la
+            pantalla. En la columna ya sale a todo lo ancho por sí solo. */}
+        <button className="botonPrincipal" disabled={!actual.puede} onClick={siguiente}>
+          {paso < 2 ? <>Seguir <ChevronRight size={17} /></> : <><Check size={17} /> Empezar</>}
+        </button>
+
+        {paso === 1 && sale === 0 && (
+          <button className="botonTexto" onClick={() => setPaso(2)}>No tengo ninguno fijo</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────  RESUMEN  ───────────────────────────── */
 
 function Resumen({
-  total, totalFijos, totalVariable, totalAnterior, porDiaVariable,
-  nDias, diasTranscurridos, esMesEnCurso, proyeccion, presupuesto, balance,
-  frecuentes, objetivos, movimientos, nFijos, catPorId,
+  total, totalFijos, totalVariable, totalAnterior,
+  nDias, diasTranscurridos, esMesEnCurso, proyeccion, presupuesto, margenVariable,
+  balance, avisosTope, frecuentes, objetivos, movimientos, nFijos, catPorId,
   onAbrir, onNuevo, onNuevoFijo, onNuevoIngreso, onRepetir, onRevisar, onObjetivos,
+  onPresupuesto, onVerTopes,
 }) {
   const diff = total - totalAnterior;
   const pct = totalAnterior > 0 ? (diff / totalAnterior) * 100 : null;
-  const maxDia = Math.max(...porDiaVariable, 1);
-  const margenVariable = presupuesto ? presupuesto - totalFijos : null;
-  const ritmoDiario = margenVariable && margenVariable > 0 ? margenVariable / nDias : null;
-  const usado = presupuesto ? total / presupuesto : null;
 
   return (
     <>
@@ -499,82 +708,46 @@ function Resumen({
           )}
           <span className="trozo"><Wallet size={13} /> <b className="mono">{eur(totalVariable, false)}</b> variable</span>
         </div>
-
-        <div className="pulso">
-          <div className="pulsoBarras">
-            {ritmoDiario && ritmoDiario < maxDia && (
-              <div className="pulsoRitmo" style={{ bottom: `${Math.min(96, (ritmoDiario / maxDia) * 100)}%` }}>
-                <span>ritmo {eur(ritmoDiario)}/día</span>
-              </div>
-            )}
-            {porDiaVariable.map((v, i) => {
-              const futuro = esMesEnCurso && i + 1 > diasTranscurridos;
-              const esHoy = esMesEnCurso && i + 1 === diasTranscurridos;
-              const alto = v > 0 ? Math.max(4, (v / maxDia) * 100) : 3;
-              const pasado = ritmoDiario && v > ritmoDiario;
-              return (
-                <div
-                  key={i}
-                  className={`pulsoBarra ${futuro ? "futuro" : ""} ${pasado ? "excede" : ""} ${esHoy ? "hoy" : ""}`}
-                  style={{ height: `${alto}%` }}
-                  title={`Día ${i + 1}: ${eur(v)}`}
-                />
-              );
-            })}
-          </div>
-          <div className="pulsoEje">
-            <span>gasto variable por día</span>
-            <span className="mono">{nDias} días</span>
-          </div>
-        </div>
       </section>
 
-      <BotonRevision onRevisar={onRevisar} />
+      {/* Con el mes recién empezado no hay nada que revisar, y la tarjeta negra
+          es lo más llamativo de la pantalla: prometía un informe vacío. */}
+      {movimientos.length >= 3 && <BotonRevision onRevisar={onRevisar} />}
 
-      {presupuesto ? (
-        <section className="tarjeta">
+      {/* Una categoría a punto de reventar su tope es lo único que hay que
+          mirar hoy: va arriba, y solo cuando de verdad está pasando. */}
+      {avisosTope.length > 0 && (
+        <section className="tarjeta avisoTopes">
           <div className="filaCabecera">
-            <h2>Presupuesto del mes</h2>
-            <span className="etiquetaValor mono">{eur(presupuesto)}</span>
+            <h2><AlertTriangle size={15} className="hIcono" /> Ojo con estos topes</h2>
+            <button className="botonTexto" onClick={onVerTopes}>Ver todos</button>
           </div>
-          <div className="barraPres">
-            {totalFijos > 0 && (
-              <div className="barraPresFijos" style={{ width: `${Math.min(100, (totalFijos / presupuesto) * 100)}%` }} />
-            )}
-            <div
-              className={`barraPresRelleno ${usado > 1 ? "rojo" : usado > 0.85 ? "ambar" : ""}`}
-              style={{ width: `${Math.min(100, usado * 100)}%` }}
-            />
-            {esMesEnCurso && (
-              <div className="barraPresMarca" style={{ left: `${Math.min(100, (diasTranscurridos / nDias) * 100)}%` }} />
-            )}
-          </div>
-          <p className="pie">
-            {usado > 1 ? (
-              <>Te has pasado {eur(total - presupuesto)}.</>
-            ) : margenVariable !== null && margenVariable <= 0 ? (
-              <>Tus gastos fijos ya se comen el presupuesto entero.</>
-            ) : (
-              <>Quedan {eur(presupuesto - total)} para {Math.max(0, nDias - diasTranscurridos)} días{totalFijos > 0 && <> (fijos ya descontados)</>}.</>
-            )}
-            {esMesEnCurso && (
-              <> A este ritmo cerrarás en{" "}
-                <strong className={proyeccion > presupuesto ? "txtRojo" : "txtVerde"}>{eur(proyeccion)}</strong>.
-              </>
-            )}
-          </p>
+          <ul className="listaAvisos">
+            {avisosTope.map((c) => (
+              <li key={c.id}>
+                <span className="insignia mini" style={{ background: `${c.color}1F`, color: c.color }}>
+                  <Icono nombre={c.icono} size={14} />
+                </span>
+                <span className="avisoTexto">
+                  <span className="avisoNombre">{c.nombre}</span>
+                  <span className="avisoPie">
+                    {c.ratio >= 1
+                      ? `te has pasado ${eur(c.total - c.presupuesto, false)}`
+                      : `quedan ${eur(c.presupuesto - c.total, false)} de ${eur(c.presupuesto, false)}`}
+                  </span>
+                </span>
+                <span className={`chip ${c.ratio >= 1 ? "chipRojo" : "chipAmbar"}`}>{Math.round(c.ratio * 100)}%</span>
+              </li>
+            ))}
+          </ul>
         </section>
-      ) : (
-        esMesEnCurso && total > 0 && (
-          <section className="tarjeta">
-            <div className="filaCabecera"><h2>Proyección</h2></div>
-            <p className="pie">
-              A este ritmo cerrarás el mes en <strong>{eur(proyeccion)}</strong>. Pon un presupuesto
-              en Ajustes para saber si vas bien.
-            </p>
-          </section>
-        )
       )}
+
+      <TarjetaPresupuesto
+        presupuesto={presupuesto} total={total} totalFijos={totalFijos}
+        margenVariable={margenVariable} nDias={nDias} diasTranscurridos={diasTranscurridos}
+        esMesEnCurso={esMesEnCurso} proyeccion={proyeccion} onPresupuesto={onPresupuesto}
+      />
 
       {/* Lo que apuntas una y otra vez, a un toque. Es el atajo que convierte
           «apuntar los gastos» en algo que se hace de verdad todos los días. */}
@@ -683,30 +856,184 @@ function BotonRevision({ onRevisar }) {
   );
 }
 
+/**
+ * El presupuesto, y el sitio donde se cambia.
+ *
+ * Estaba enterrado en Ajustes, que es el último sitio donde alguien mira: es
+ * el número que da sentido a toda la pantalla principal, así que se edita
+ * donde se ve. Se guarda al confirmar y no en cada tecla, que si no cada
+ * dígito sería una escritura en la nube.
+ */
+function TarjetaPresupuesto({
+  presupuesto, total, totalFijos, margenVariable, nDias, diasTranscurridos,
+  esMesEnCurso, proyeccion, onPresupuesto,
+}) {
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState("");
+
+  const abrir = () => { setBorrador(presupuesto ? String(presupuesto) : ""); setEditando(true); };
+  const confirmar = () => {
+    const n = Number(String(borrador).replace(",", "."));
+    onPresupuesto(borrador === "" || !(n > 0) ? null : Math.round(n * 100) / 100);
+    setEditando(false);
+  };
+
+  if (editando) {
+    return (
+      <section className="tarjeta">
+        <div className="filaCabecera"><h2><Wallet size={15} className="hIcono" /> Presupuesto del mes</h2></div>
+        <div className="filaEditor">
+          <div className="inputEuro">
+            <input type="number" inputMode="decimal" placeholder="Sin límite" autoFocus
+              value={borrador} onChange={(e) => setBorrador(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmar(); if (e.key === "Escape") setEditando(false); }} />
+            <span>€</span>
+          </div>
+          <button className="botonPrincipal" onClick={confirmar}><Check size={16} /> Guardar</button>
+        </div>
+        <p className="pie">
+          Incluye los gastos fijos, que ya suman {eur(totalFijos, false)}. Déjalo vacío para quitarlo.
+        </p>
+      </section>
+    );
+  }
+
+  if (!presupuesto) {
+    if (!esMesEnCurso || total === 0) return null;
+    return (
+      <section className="tarjeta">
+        <div className="filaCabecera"><h2>Proyección</h2></div>
+        <p className="pie sup">
+          A este ritmo cerrarás el mes en <strong>{eur(proyeccion)}</strong>. Con un tope sabrás si eso
+          es mucho o poco.
+        </p>
+        <button className="botonSecundario" onClick={abrir}><Target size={16} /> Poner un presupuesto</button>
+      </section>
+    );
+  }
+
+  const usado = total / presupuesto;
+  return (
+    <section className="tarjeta">
+      <div className="filaCabecera">
+        <h2>Presupuesto del mes</h2>
+        <button className="botonTexto mono" onClick={abrir}>{eur(presupuesto)} · Editar</button>
+      </div>
+      <button className="barraPres pulsable" onClick={abrir} aria-label="Cambiar el presupuesto">
+        {totalFijos > 0 && (
+          <div className="barraPresFijos" style={{ width: `${Math.min(100, (totalFijos / presupuesto) * 100)}%` }} />
+        )}
+        <div
+          className={`barraPresRelleno ${usado > 1 ? "rojo" : usado > 0.85 ? "ambar" : ""}`}
+          style={{ width: `${Math.min(100, usado * 100)}%` }}
+        />
+        {esMesEnCurso && (
+          <div className="barraPresMarca" style={{ left: `${Math.min(100, (diasTranscurridos / nDias) * 100)}%` }} />
+        )}
+      </button>
+      <p className="pie">
+        {usado > 1 ? (
+          <>Te has pasado {eur(total - presupuesto)}.</>
+        ) : margenVariable !== null && margenVariable <= 0 ? (
+          <>Tus gastos fijos ya se comen el presupuesto entero.</>
+        ) : (
+          <>Quedan {eur(presupuesto - total)} para {Math.max(0, nDias - diasTranscurridos)} días{totalFijos > 0 && <> (fijos ya descontados)</>}.</>
+        )}
+        {esMesEnCurso && (
+          <> A este ritmo cerrarás en{" "}
+            <strong className={proyeccion > presupuesto ? "txtRojo" : "txtVerde"}>{eur(proyeccion)}</strong>.
+          </>
+        )}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * El gasto variable, día a día.
+ *
+ * Vivía en la pantalla principal, donde competía con la cifra grande sin
+ * responder a ninguna pregunta urgente. Aquí, en Análisis, está entre sus
+ * iguales y la principal respira.
+ */
+function PulsoDiario({ porDiaVariable, nDias, diasTranscurridos, esMesEnCurso, ritmoDiario, totalVariable }) {
+  const maxDia = Math.max(...porDiaVariable, 1);
+  const media = diasTranscurridos > 0 ? totalVariable / diasTranscurridos : 0;
+
+  return (
+    <section className="tarjeta">
+      <div className="filaCabecera">
+        <h2><CalendarDays size={15} className="hIcono" /> Día a día</h2>
+        <span className="etiquetaValor mono">{eur(media)}/día</span>
+      </div>
+      <div className="pulso enTarjeta">
+        <div className="pulsoBarras">
+          {ritmoDiario && ritmoDiario < maxDia && (
+            <div className="pulsoRitmo" style={{ bottom: `${Math.min(96, (ritmoDiario / maxDia) * 100)}%` }}>
+              <span>ritmo {eur(ritmoDiario)}/día</span>
+            </div>
+          )}
+          {porDiaVariable.map((v, i) => {
+            const futuro = esMesEnCurso && i + 1 > diasTranscurridos;
+            const esHoy = esMesEnCurso && i + 1 === diasTranscurridos;
+            const alto = v > 0 ? Math.max(4, (v / maxDia) * 100) : 3;
+            const pasado = ritmoDiario && v > ritmoDiario;
+            return (
+              <div
+                key={i}
+                className={`pulsoBarra ${futuro ? "futuro" : ""} ${pasado ? "excede" : ""} ${esHoy ? "hoy" : ""}`}
+                style={{ height: `${alto}%` }}
+                title={`Día ${i + 1}: ${eur(v)}`}
+              />
+            );
+          })}
+        </div>
+        <div className="pulsoEje">
+          <span>gasto variable por día</span>
+          <span className="mono">{nDias} días</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ─────────────────────────────  ANÁLISIS  ───────────────────────────── */
 
-function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGlobal, onRevisar }) {
+function Analisis({
+  porCategoria, total, ultimosMeses, ranking, presupuestoGlobal,
+  porDiaVariable, nDias, diasTranscurridos, esMesEnCurso, ritmoDiario, totalVariable,
+  onRevisar, onNuevo,
+}) {
+  /* Este `useState` va arriba del todo por obligación: si se declarase después
+     del return de abajo, el día que aparece el primer gasto React pasaría de
+     cero hooks a uno y se caería la pestaña entera. */
+  const [soloVariable, setSoloVariable] = useState(true);
+
   if (total === 0 && ultimosMeses.every((m) => m.total === 0)) {
     return (
       <section className="tarjeta">
         <div className="vacio">
           <div className="vacioIcono"><IcAnalisis size={26} strokeWidth={1.7} /></div>
-          <p>Aún no hay suficientes datos que analizar. Apunta unos cuantos gastos y vuelve.</p>
+          <p>
+            Aquí verás en qué se te va el dinero, cómo va cada tope y qué se ha disparado
+            respecto a tus meses anteriores. Necesito unos cuantos gastos apuntados.
+          </p>
+          <div className="vacioBotones">
+            <button className="botonPrincipal" onClick={onNuevo}><Plus size={17} /> Apuntar el primero</button>
+          </div>
         </div>
       </section>
     );
   }
 
   const conPresupuesto = porCategoria.filter((c) => c.presupuesto > 0);
-
-  const [soloVariable, setSoloVariable] = useState(true);
   const lista = soloVariable ? porCategoria.filter((c) => c.variable > 0).map((c) => ({ ...c, total: c.variable })) : porCategoria;
   const totalLista = lista.reduce((s, c) => s + c.total, 0);
   const totalFijosCat = porCategoria.reduce((s, c) => s + (c.total - (c.variable || 0)), 0);
 
   return (
     <>
-      <BotonRevision onRevisar={onRevisar} />
+      {total > 0 && <BotonRevision onRevisar={onRevisar} />}
 
       <section className="tarjeta">
         <div className="filaCabecera">
@@ -734,7 +1061,10 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
                     <Icono nombre={c.icono} size={14} />
                   </span>
                   <span className="leyNombre">{c.nombre}</span>
-                  <span className="leyBarra"><i style={{ width: `${(c.total / total) * 100}%`, background: c.color }} /></span>
+                  {/* La barra se mide contra lo que hay en la lista, no contra
+                      el total del mes: en «Variable» el alquiler no está y
+                      todas las barras salían diminutas. */}
+                  <span className="leyBarra"><i style={{ width: `${(c.total / (totalLista || 1)) * 100}%`, background: c.color }} /></span>
                   <span className="leyImporte mono">{eur(c.total)}</span>
                 </li>
               ))}
@@ -742,6 +1072,11 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
           </>
         )}
       </section>
+
+      <PulsoDiario
+        porDiaVariable={porDiaVariable} nDias={nDias} diasTranscurridos={diasTranscurridos}
+        esMesEnCurso={esMesEnCurso} ritmoDiario={ritmoDiario} totalVariable={totalVariable}
+      />
 
       <section className="tarjeta">
         <div className="filaCabecera"><h2>Últimos seis meses</h2></div>
@@ -817,17 +1152,6 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
         )}
       </section>
     </>
-  );
-}
-
-function TipCat({ active, payload, total }) {
-  if (!active || !payload || !payload.length) return null;
-  const p = payload[0].payload;
-  return (
-    <div className="tip">
-      <strong>{p.nombre}</strong>
-      <span className="mono">{eur(p.total)} · {((p.total / total) * 100).toFixed(0)}%</span>
-    </div>
   );
 }
 
@@ -981,6 +1305,8 @@ function Revision({ datos, catPorId, mesKey, onMover, esMesEnCurso, onCerrar }) 
 function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState(null);
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
   const refBusca = useRef(null);
 
   useEffect(() => {
@@ -990,12 +1316,23 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
     return () => { clearTimeout(t); window.removeEventListener("keydown", alPulsar); };
   }, [onCerrar]);
 
+  /* Los tres tramos que se piden de verdad. Escribir dos fechas a mano en el
+     móvil para preguntar «¿cuánto llevo este año?» no lo hace nadie. */
+  const hoy = hoyISO();
+  const TRAMOS = [
+    { id: "todo", label: "Todo", desde: "", hasta: "" },
+    { id: "ano", label: "Este año", desde: `${hoy.slice(0, 4)}-01-01`, hasta: "" },
+    { id: "12m", label: "12 meses", desde: `${Number(hoy.slice(0, 4)) - 1}${hoy.slice(4)}`, hasta: "" },
+  ];
+  const tramoActivo = TRAMOS.find((t) => t.desde === desde && t.hasta === hasta);
+
   const resultados = useMemo(
-    () => buscarMovimientos(datos, { texto, categoria }),
-    [datos, texto, categoria]
+    () => buscarMovimientos(datos, { texto, categoria, desde: desde || null, hasta: hasta || null }),
+    [datos, texto, categoria, desde, hasta]
   );
   const gastado = resultados.filter((m) => m.tipo === "gasto").reduce((s, m) => s + m.importe, 0);
-  const hayFiltro = texto.trim() || categoria;
+  const ingresado = resultados.filter((m) => m.tipo === "ingreso").reduce((s, m) => s + m.importe, 0);
+  const hayFiltro = texto.trim() || categoria || desde || hasta;
 
   return (
     <div className="pantallaCompleta">
@@ -1021,11 +1358,35 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
           ))}
         </div>
 
+        <div className="bloque">
+          <span className="etiquetaCampo">Cuándo</span>
+          <div className="chips" style={{ marginBottom: 10 }}>
+            {TRAMOS.map((t) => (
+              <button key={t.id} className={`chipCat ${tramoActivo?.id === t.id ? "sel" : ""}`}
+                style={tramoActivo?.id === t.id ? { background: "#0F9E8E", borderColor: "#0F9E8E", color: "#fff" } : undefined}
+                onClick={() => { setDesde(t.desde); setHasta(t.hasta); }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="dosColumnas">
+            <label className="campo">
+              <span>Desde</span>
+              <input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+            </label>
+            <label className="campo">
+              <span>Hasta</span>
+              <input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+            </label>
+          </div>
+        </div>
+
         {hayFiltro && (
           <section className="tarjeta">
             <p className="pie">
               <b className="mono">{plural(resultados.length, "movimiento")}</b>
-              {gastado > 0 && ` · ${eur(gastado)} gastados en total`}
+              {gastado > 0 && ` · ${eur(gastado)} gastados`}
+              {ingresado > 0 && ` · ${eur(ingresado)} ingresados`}
             </p>
           </section>
         )}
@@ -1159,11 +1520,146 @@ function PantallaObjetivos({ objetivos, onGuardar, onCerrar }) {
   );
 }
 
+/* ─────────────────────────────  LO QUE SE REPITE  ───────────────────────────── */
+
+/**
+ * Nómina, alquiler y suscripciones, en su propia pantalla.
+ *
+ * Estaban dentro de Ajustes, que medía dos pantallas de scroll y los mezclaba
+ * con las copias de seguridad. No son un ajuste: son la parte del mes que ya
+ * está decidida antes de empezar, y de ellos sale lo que de verdad te queda.
+ */
+function PantallaFijos({ fijos, catPorId, mesKey, onEditar, onNuevo, onCerrar }) {
+  useEffect(() => {
+    const alPulsar = (e) => e.key === "Escape" && onCerrar();
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  const activos = fijos.filter((f) => !f.hasta || mesKey <= f.hasta);
+  const dadosDeBaja = fijos.filter((f) => f.hasta && mesKey > f.hasta);
+  const ingresos = activos.filter((f) => f.tipo === "ingreso");
+  const gastos = activos.filter((f) => f.tipo !== "ingreso");
+  const enCurso = (l) => l.filter((f) => f.desde <= mesKey).reduce((s, f) => s + f.importe, 0);
+  const entra = enCurso(ingresos);
+  const sale = enCurso(gastos);
+
+  const Fila = ({ f, apagado }) => {
+    const esIngreso = f.tipo === "ingreso";
+    const c = catPorId[f.categoria];
+    const color = apagado ? "#9DB0C2" : esIngreso ? "#1FB47A" : c?.color || "#7C93A8";
+    const pendiente = f.desde > mesKey;
+    return (
+      <li>
+        <button className="itemGasto" onClick={() => onEditar(f)}>
+          <span className="insignia" style={{ background: apagado ? "#EDF2F7" : `${color}1F`, color }}>
+            <Icono nombre={esIngreso ? origenDe(f.origen).icono : c?.icono} size={17} />
+          </span>
+          <span className="itemTexto">
+            <span className="itemCat">{f.nombre}</span>
+            <span className="itemNota">
+              día {f.dia}
+              {/* Con la nómina llamada «Nómina», repetir el origen debajo no
+                  añade nada: solo se dice cuando aporta algo. */}
+              {(() => {
+                const et = esIngreso ? origenDe(f.origen).label : c?.nombre || "Sin categoría";
+                return et.toLowerCase() === f.nombre.trim().toLowerCase() ? "" : ` · ${et}`;
+              })()}
+              {pendiente && ` · desde ${nombreMesClave(f.desde)}`}
+              {f.hasta && ` · hasta ${nombreMesClave(f.hasta)}`}
+            </span>
+          </span>
+          <span className="itemImporte mono" style={esIngreso && !apagado ? { color: "#1FB47A" } : undefined}>
+            {esIngreso ? "+" : ""}{eur(f.importe)}
+          </span>
+        </button>
+      </li>
+    );
+  };
+
+  return (
+    <div className="pantallaCompleta">
+      <div className="pantallaCaja">
+        <div className="hojaCabecera">
+          <h2><Repeat size={16} className="hIcono" /> Cada mes</h2>
+          <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
+        </div>
+
+        {fijos.length === 0 ? (
+          <section className="tarjeta">
+            <div className="vacio">
+              <div className="vacioIcono"><Repeat size={26} strokeWidth={1.7} /></div>
+              <p>
+                Lo que entra y sale sin que tengas que apuntarlo: la nómina, el alquiler, las
+                suscripciones. Se ponen una vez y aparecen solos todos los meses.
+              </p>
+              <div className="vacioBotones">
+                <button className="botonPrincipal" onClick={() => onNuevo("ingreso")}>
+                  <ArrowDownRight size={17} /> Añadir la nómina
+                </button>
+                <button className="botonSecundario" onClick={() => onNuevo("gasto")}>
+                  <Plus size={16} /> Añadir un gasto fijo
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="tarjeta">
+              <div className="filaCabecera">
+                <h2><ArrowDownRight size={15} className="hIcono" /> Lo que entra</h2>
+                {entra > 0 && <span className="etiquetaValor mono">{eur(entra, false)}/mes</span>}
+              </div>
+              {ingresos.length === 0 ? (
+                <p className="pie sup">
+                  Sin la nómina apuntada, la app solo puede decirte lo que gastas, no lo que te queda.
+                </p>
+              ) : (
+                <ul className="listaFijos">{ingresos.map((f) => <Fila key={f.id} f={f} />)}</ul>
+              )}
+              <button className="botonSecundario espaciado" onClick={() => onNuevo("ingreso")}>
+                <Plus size={16} /> Añadir un ingreso fijo
+              </button>
+            </section>
+
+            <section className="tarjeta">
+              <div className="filaCabecera">
+                <h2><ArrowUpRight size={15} className="hIcono" /> Lo que sale</h2>
+                {sale > 0 && <span className="etiquetaValor mono">{eur(sale, false)}/mes</span>}
+              </div>
+              {gastos.length === 0 ? (
+                <p className="pie sup">El alquiler, la luz, el gimnasio: lo que se paga sí o sí.</p>
+              ) : (
+                <ul className="listaFijos">{gastos.map((f) => <Fila key={f.id} f={f} />)}</ul>
+              )}
+              <button className="botonSecundario espaciado" onClick={() => onNuevo("gasto")}>
+                <Plus size={16} /> Añadir un gasto fijo
+              </button>
+            </section>
+
+            {dadosDeBaja.length > 0 && (
+              <section className="tarjeta">
+                <div className="filaCabecera"><h2>Ya no activos</h2></div>
+                <ul className="listaFijos apagada">
+                  {dadosDeBaja.map((f) => <Fila key={f.id} f={f} apagado />)}
+                </ul>
+                <p className="pie">
+                  Siguen contando en los meses anteriores, así que tu historial no cambia.
+                </p>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────  AJUSTES  ───────────────────────────── */
 
 function Ajustes({
   datos, catPorId, mesKey, guardar, borrar, guardarUsuario, onRestaurar, onVaciar,
-  onEditarFijo, onNuevoFijo, onCuenta, sesion,
+  onFijos, onObjetivos, onCuenta, sesion,
 }) {
   const [nuevaCat, setNuevaCat] = useState("");
   const [colorCat, setColorCat] = useState(PALETA[0]);
@@ -1176,9 +1672,11 @@ function Ajustes({
 
   const fijos = datos.fijos || [];
   const activos = fijos.filter((f) => !f.hasta || mesKey <= f.hasta);
-  const dadosDeBaja = fijos.filter((f) => f.hasta && mesKey > f.hasta);
-  const totalFijosActivos = activos.filter((f) => f.desde <= mesKey).reduce((s, f) => s + f.importe, 0);
+  const enCurso = activos.filter((f) => f.desde <= mesKey);
+  const totalFijosActivos = enCurso.filter((f) => f.tipo !== "ingreso").reduce((s, f) => s + f.importe, 0);
+  const totalIngresosFijos = enCurso.filter((f) => f.tipo === "ingreso").reduce((s, f) => s + f.importe, 0);
   const presupuesto = datos.ajustes?.presupuestoGlobal ?? null;
+  const objetivos = datos.ajustes?.objetivos || [];
 
   const anadirCategoria = () => {
     const nombre = nuevaCat.trim();
@@ -1239,75 +1737,41 @@ function Ajustes({
 
   return (
     <>
-      <section className="tarjeta">
-        <div className="filaCabecera">
-          <h2><Repeat size={15} className="hIcono" /> Gastos fijos</h2>
-          {totalFijosActivos > 0 && <span className="etiquetaValor mono">{eur(totalFijosActivos, false)}/mes</span>}
-        </div>
+      {/* Los fijos no son un ajuste: son la mitad de tu mes. Tienen pantalla
+          propia, y aquí solo queda la puerta para entrar. */}
+      <button className="filaAjuste" onClick={onFijos}>
+        <span className="insignia" style={{ background: "#E7F6F4", color: "var(--accent)" }}>
+          <Repeat size={17} />
+        </span>
+        <span className="itemTexto">
+          <span className="itemCat">Lo que se repite cada mes</span>
+          <span className="itemNota">
+            {fijos.length === 0
+              ? "Nómina, alquiler, suscripciones…"
+              : `${plural(enCurso.length, "apunte")}` +
+                (totalIngresosFijos > 0 ? ` · +${eur(totalIngresosFijos, false)}` : "") +
+                (totalFijosActivos > 0 ? ` · −${eur(totalFijosActivos, false)}` : "")}
+          </span>
+        </span>
+        <ChevronRight size={19} className="hIcono" />
+      </button>
 
-        {fijos.length === 0 ? (
-          <div className="vacio">
-            <div className="vacioIcono"><Repeat size={26} strokeWidth={1.7} /></div>
-            <p>Apunta aquí el alquiler, las suscripciones o cualquier cosa que se repita. Aparecerán solos cada mes.</p>
-            <button className="botonPrincipal" onClick={onNuevoFijo}><Plus size={17} /> Crear gasto fijo</button>
-          </div>
-        ) : (
-          <>
-            <ul className="listaFijos">
-              {activos.map((f) => {
-                const c = catPorId[f.categoria];
-                const color = c?.color || "#7C93A8";
-                const pendiente = f.desde > mesKey;
-                return (
-                  <li key={f.id}>
-                    <button className="itemGasto" onClick={() => onEditarFijo(f)}>
-                      <span className="insignia" style={{ background: `${color}1F`, color }}>
-                        <Icono nombre={c?.icono} size={17} />
-                      </span>
-                      <span className="itemTexto">
-                        <span className="itemCat">{f.nombre}</span>
-                        <span className="itemNota">
-                          día {f.dia} · {c?.nombre || "Sin categoría"}
-                          {pendiente && ` · desde ${nombreMesClave(f.desde)}`}
-                          {f.hasta && ` · hasta ${nombreMesClave(f.hasta)}`}
-                        </span>
-                      </span>
-                      <span className="itemImporte mono">{eur(f.importe)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-
-            {dadosDeBaja.length > 0 && (
-              <>
-                <p className="pie separador">Ya no activos</p>
-                <ul className="listaFijos apagada">
-                  {dadosDeBaja.map((f) => (
-                    <li key={f.id}>
-                      <button className="itemGasto" onClick={() => onEditarFijo(f)}>
-                        <span className="insignia" style={{ background: "#EDF2F7", color: "#9DB0C2" }}>
-                          <Icono nombre={catPorId[f.categoria]?.icono} size={17} />
-                        </span>
-                        <span className="itemTexto">
-                          <span className="itemCat">{f.nombre}</span>
-                          <span className="itemNota">hasta {nombreMesClave(f.hasta)}</span>
-                        </span>
-                        <span className="itemImporte mono">{eur(f.importe)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            <button className="botonSecundario espaciado" onClick={onNuevoFijo}>
-              <Plus size={16} /> Añadir otro gasto fijo
-            </button>
-            <p className="pie">Al darlos de baja siguen contando en los meses anteriores, así que tu historial no cambia.</p>
-          </>
-        )}
-      </section>
+      {/* La tarjeta de objetivos del Resumen solo aparece cuando ya hay
+          alguno, así que sin esta fila no había forma de crear el primero. */}
+      <button className="filaAjuste" onClick={onObjetivos}>
+        <span className="insignia" style={{ background: "#DFF6EB", color: "var(--mint)" }}>
+          <Target size={17} />
+        </span>
+        <span className="itemTexto">
+          <span className="itemCat">Objetivos de ahorro</span>
+          <span className="itemNota">
+            {objetivos.length === 0
+              ? "«3.000 € para el coche», y ver cuánto llevas"
+              : plural(objetivos.length, "objetivo")}
+          </span>
+        </span>
+        <ChevronRight size={19} className="hIcono" />
+      </button>
 
       <section className="tarjeta">
         <div className="filaCabecera"><h2><Wallet size={15} className="hIcono" /> Presupuesto mensual</h2></div>
@@ -1325,6 +1789,7 @@ function Ajustes({
           {presupuesto
             ? ` te quedan ${eur(Math.max(0, presupuesto - totalFijosActivos), false)} para el resto.`
             : " ponle un tope y verás cuánto te queda libre."}
+          {" "}También se puede cambiar tocando la barra del Resumen.
         </p>
       </section>
 
@@ -1559,10 +2024,14 @@ function HojaGasto({ modo, gasto, tipo = "gasto", categorias, onGuardar, onBorra
 
 /* ─────────────────────────────  HOJA: GASTO FIJO  ───────────────────────────── */
 
-function HojaFijo({ modo, fijo, mesVisto, categorias, onGuardar, onEliminar, onCerrar }) {
+function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar, onEliminar, onCerrar }) {
+  /* El tipo se lee del propio apunte cuando se está editando: si no, abrir una
+     nómina desde la lista la convertiría en gasto al guardar. */
+  const esIngreso = (fijo ? fijo.tipo : tipo) === "ingreso";
   const [nombre, setNombre] = useState(fijo?.nombre || "");
   const [importe, setImporte] = useState(fijo ? String(fijo.importe) : "");
   const [categoria, setCategoria] = useState(fijo ? fijo.categoria : categorias[0]?.id || "");
+  const [origen, setOrigen] = useState(fijo?.origen || "nomina");
   const [dia, setDia] = useState(fijo ? String(fijo.dia) : "1");
   const [desde, setDesde] = useState(fijo?.desde || mesVisto);
   const [confirmarBorrado, setConfirmarBorrado] = useState(false);
@@ -1576,11 +2045,17 @@ function HojaFijo({ modo, fijo, mesVisto, categorias, onGuardar, onEliminar, onC
   const dadoDeBaja = Boolean(fijo?.hasta);
   const valido = nombre.trim() && Number(importe) > 0 && categoria && desde;
 
+  /* `categoria` va siempre, también en los ingresos: las reglas la exigen y
+     tener el campo relleno cuesta menos que abrirles una excepción. Lo que
+     distingue una nómina de un recibo es `tipo`, y eso es lo que mira
+     `expandirFijos`. */
   const construir = (extra = {}) => ({
     id: fijo?.id,
+    tipo: esIngreso ? "ingreso" : "gasto",
     nombre: nombre.trim(),
     importe: Math.round(Number(importe) * 100) / 100,
     categoria,
+    origen: esIngreso ? origen : null,
     dia: Math.min(31, Math.max(1, parseInt(dia, 10) || 1)),
     desde,
     hasta: fijo?.hasta ?? null,
@@ -1592,13 +2067,16 @@ function HojaFijo({ modo, fijo, mesVisto, categorias, onGuardar, onEliminar, onC
       <div className="hoja" onClick={(e) => e.stopPropagation()}>
         <div className="tirador" />
         <div className="hojaCabecera">
-          <h2><Repeat size={16} className="hIcono" /> {modo === "editar" ? "Gasto fijo" : "Nuevo gasto fijo"}</h2>
+          <h2><Repeat size={16} className="hIcono" /> {esIngreso
+            ? (modo === "editar" ? "Ingreso fijo" : "Nuevo ingreso fijo")
+            : (modo === "editar" ? "Gasto fijo" : "Nuevo gasto fijo")}</h2>
           <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
         </div>
 
         <div className="bloque">
           <span className="etiquetaCampo">Concepto</span>
-          <input ref={refNombre} className="campoAncho" placeholder="Alquiler, Netflix, gimnasio…"
+          <input ref={refNombre} className="campoAncho"
+            placeholder={esIngreso ? "Nómina, alquiler que cobro…" : "Alquiler, Netflix, gimnasio…"}
             value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={40} />
         </div>
 
@@ -1649,7 +2127,9 @@ function HojaFijo({ modo, fijo, mesVisto, categorias, onGuardar, onEliminar, onC
 
         <div className="hojaAcciones">
           <button className="botonPrincipal ancho" disabled={!valido} onClick={() => onGuardar(construir())}>
-            <Check size={17} /> {modo === "editar" ? "Guardar cambios" : "Crear gasto fijo"}
+            <Check size={17} /> {modo === "editar"
+              ? "Guardar cambios"
+              : esIngreso ? "Crear ingreso fijo" : "Crear gasto fijo"}
           </button>
         </div>
 

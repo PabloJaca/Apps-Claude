@@ -26,6 +26,10 @@ const check = (nombre, cond, extra = "") => {
   if (!cond) fallos++;
 };
 
+/* El inventario de pantallas que este guion abre vive aparte, en
+   `extremo-inventario.mjs`, para que aislamiento.mjs pueda leerlo sin
+   arrancar un navegador. Si añades una pantalla, ábrela aquí y anótala allí. */
+
 /* ── 1. Compilar las dos apps contra el Firebase de mentira ──────────────── */
 
 const dir = await mkdtemp(path.join(tmpdir(), "extremo-"));
@@ -98,6 +102,17 @@ const saltarBienvenida = async (pag) => {
     await boton.first().click();
     await pag.waitForTimeout(900);
   }
+};
+
+/* Apuntar un gasto en la app de Gastos, como se hace a mano: botón flotante,
+   importe, concepto y guardar. */
+const apuntarGasto = async (pag, importe, concepto) => {
+  await pag.click(".fab");
+  await pag.waitForTimeout(320);
+  await pag.fill(".hoja .importeInput", String(importe));
+  if (concepto) await pag.fill('.hoja .dosColumnas input:not([type="date"])', concepto);
+  await pag.click('.hoja button:has-text("Añadir gasto")');
+  await pag.waitForTimeout(480);
 };
 
 /* ── 2. Salud: dos cuentas en el mismo navegador ─────────────────────────── */
@@ -616,6 +631,16 @@ const saltarBienvenida = async (pag) => {
   check("datos rotos: la valoración se genera", /Cómo va todo/i.test(val), val.slice(0, 200));
   check("datos rotos: la valoración no enseña «undefined» ni «NaN»", !/undefined|NaN/.test(val), val.replace(/\n+/g, " | ").slice(0, 260));
 
+  /* El perfil es la última pantalla de Salud que quedaba sin abrir en ninguna
+     prueba, que es exactamente como se cuela un fallo hasta producción. */
+  await pag.click('[aria-label="Cerrar"]');
+  await pag.waitForTimeout(400);
+  await pag.click('button[aria-label="Perfil"]');
+  await pag.waitForTimeout(600);
+  const perfil = await pag.innerText("body");
+  check("datos rotos: el perfil se abre", /Altura|Objetivo/i.test(perfil), perfil.slice(0, 220));
+  check("datos rotos: y no enseña «undefined» ni «NaN»", !/undefined|NaN/.test(perfil), perfil.slice(0, 260));
+
   check("datos rotos: ni un solo error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
@@ -678,7 +703,54 @@ const saltarBienvenida = async (pag) => {
   await acceder(pag, "carla@ejemplo.com", "secreta3", { registrar: true });
   await pag.waitForTimeout(900);
 
-  check("gastos: tras entrar se ve el mes", /Resumen|Análisis|Ajustes/.test(await texto(pag)));
+  /* ── la bienvenida deja el mes montado ─────────────────────────────────── */
+
+  /* Los rótulos van en versalitas por CSS, así que `innerText` los devuelve
+     en mayúsculas: las comparaciones de texto van sin distinguir. */
+  check("gastos: una cuenta nueva aterriza en la bienvenida", /1 de 3/i.test(await texto(pag)));
+
+  await pag.fill(".importeInput", "2000");
+  await pag.click('button:has-text("Seguir")');
+  await pag.waitForTimeout(300);
+  await pag.fill(".importeInput", "700");
+  await pag.click('button:has-text("Seguir")');
+  await pag.waitForTimeout(300);
+
+  /* 2000 que entran menos el 15% redondeado a decenas = 1700 de tope, y por
+     tanto 300 que sobran. Si esa cuenta cambia, este número canta. */
+  check("gastos: el tercer paso sugiere un tope y dice lo que sobra",
+    /sobrarían/.test(await texto(pag)) && /300/.test(await texto(pag)), await texto(pag));
+
+  await pag.click('button:has-text("Empezar")');
+  await pag.waitForTimeout(1000);
+
+  check("gastos: tras la bienvenida se ve el mes", /Resumen|Análisis|Ajustes/.test(await texto(pag)));
+  check("gastos: y con la nómina apuntada la cifra grande es lo que queda",
+    /Te queda este mes/i.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  const trasBienvenida = await pag.evaluate(() => window.__espia.verServidor());
+  const fijosCreados = Object.entries(trasBienvenida.docs)
+    .filter(([r]) => /\/fijos\//.test(r))
+    .map(([, d]) => d);
+  check("gastos: la bienvenida crea la nómina como ingreso fijo",
+    fijosCreados.some((f) => f.tipo === "ingreso" && f.importe === 2000),
+    JSON.stringify(fijosCreados));
+  check("gastos: y el gasto fijo como gasto",
+    fijosCreados.some((f) => f.tipo === "gasto" && f.importe === 700),
+    JSON.stringify(fijosCreados));
+  check("gastos: el tope queda guardado en la cuenta",
+    trasBienvenida.docs["usuarios/uid_carla_ejemplo_com"]?.ajustes?.presupuestoGlobal === 1700,
+    JSON.stringify(trasBienvenida.docs["usuarios/uid_carla_ejemplo_com"]?.ajustes));
+
+  /* ── la tarjeta de revisión no aparece con el mes recién empezado ──────── */
+
+  check("gastos: sin apenas movimientos no se ofrece revisar el mes",
+    (await pag.locator(".tarjetaRevision").count()) === 0);
+
+  await apuntarGasto(pag, 42.3, "Mercadona");
+  await apuntarGasto(pag, 18, "Gasolina");
+  check("gastos: con tres movimientos ya sí",
+    (await pag.locator(".tarjetaRevision").count()) === 1);
 
   const servidor = await pag.evaluate(() => window.__espia.verServidor());
   const cats = Object.keys(servidor.docs).filter((r) => /\/categorias\//.test(r));
@@ -689,7 +761,7 @@ const saltarBienvenida = async (pag) => {
   );
 
   // El orden pensado tiene que sobrevivir a que Firestore ordene por id.
-  await pag.click("text=Ajustes");
+  await pag.click('.pestana:has-text("Ajustes")');
   await pag.waitForTimeout(500);
   const enPantalla = await pag.$$eval(".listaCat .catNombre", (els) => els.map((e) => e.value));
   check("gastos: la lista de categorías se pinta", enPantalla.length >= 9, String(enPantalla.length));
@@ -745,7 +817,167 @@ const saltarBienvenida = async (pag) => {
   check("gastos: y su subtítulo se lee (contraste ≥ 4,5)",
     pintura[".revisionPie"] && pintura[".revisionPie"].contraste >= 4.5, JSON.stringify(pintura[".revisionPie"]));
 
+  /* ── lo que se repite: pantalla propia y hoja que no revienta ──────────── */
+
+  /* Esto es lo que faltaba: la hoja del gasto fijo no se abría en ninguna
+     prueba, y llegó a producción llamando a variables que no existían en su
+     ámbito. Se abre ReferenceError en mano y se lleva la pantalla entera. */
+  await pag.click('.pestana:has-text("Ajustes")');
+  await pag.waitForTimeout(400);
+  await pag.click(".filaAjuste");
+  await pag.waitForTimeout(500);
+
+  const enFijos = await texto(pag);
+  check("gastos: los fijos tienen pantalla propia", /Lo que entra/.test(enFijos) && /Lo que sale/.test(enFijos), enFijos.slice(0, 300));
+  check("gastos: y separan la nómina del alquiler",
+    /Nómina/.test(enFijos) && /Alquiler/.test(enFijos), enFijos.slice(0, 300));
+
+  await pag.click('.listaFijos button:has-text("Alquiler")');
+  await pag.waitForTimeout(450);
+  check("gastos: la hoja del gasto fijo se abre sin romperse",
+    /Gasto fijo/.test(await texto(pag)) && errores.length === 0, errores.join(" | "));
+  await pag.click('.hoja button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(300);
+
+  await pag.click('.listaFijos button:has-text("Nómina")');
+  await pag.waitForTimeout(450);
+  const enHojaIngreso = await texto(pag);
+  check("gastos: y la de la nómina se abre como ingreso",
+    /Ingreso fijo/.test(enHojaIngreso) && /DE DÓNDE VIENE/i.test(enHojaIngreso), enHojaIngreso.slice(0, 300));
+  await pag.click('.hoja button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(300);
+
+  await pag.click('.pantallaCompleta button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(400);
+
+  /* ── el presupuesto se cambia desde donde se ve ────────────────────────── */
+
+  await pag.click('.pestana:has-text("Resumen")');
+  await pag.waitForTimeout(400);
+  await pag.click(".barraPres.pulsable");
+  await pag.waitForTimeout(320);
+  await pag.fill(".filaEditor input", "1500");
+  await pag.click('.filaEditor button:has-text("Guardar")');
+  await pag.waitForTimeout(700);
+
+  const trasTope = await pag.evaluate(() => window.__espia.verServidor());
+  check("gastos: el tope se edita desde el Resumen",
+    trasTope.docs["usuarios/uid_carla_ejemplo_com"]?.ajustes?.presupuestoGlobal === 1500,
+    JSON.stringify(trasTope.docs["usuarios/uid_carla_ejemplo_com"]?.ajustes));
+
+  /* ── el buscador filtra por fecha, no solo por texto ───────────────────── */
+
+  await pag.click('button[aria-label="Buscar movimientos"]');
+  await pag.waitForTimeout(450);
+  /* Solo lo que hay dentro del buscador: la lista del Resumen sigue detrás,
+     en el DOM, y miraría por él. */
+  const enBuscador = () => pag.innerText(".pantallaCompleta");
+
+  await pag.fill(".pantallaCaja .campoAncho", "mercadona");
+  await pag.waitForTimeout(350);
+  check("gastos: el buscador encuentra por concepto",
+    /Mercadona/.test(await enBuscador()) && !/Gasolina/.test(await enBuscador()),
+    (await enBuscador()).slice(0, 300));
+
+  await pag.fill(".pantallaCaja .campoAncho", "");
+  await pag.click('.chips button:has-text("Este año")');
+  await pag.waitForTimeout(350);
+  check("gastos: y el tramo «este año» deja pasar lo de este mes",
+    /Mercadona/.test(await enBuscador()) && /Gasolina/.test(await enBuscador()),
+    (await enBuscador()).slice(0, 300));
+
+  /* Un rango que no contiene nada tiene que vaciar la lista, no ignorarse. */
+  await pag.fill('.pantallaCaja input[type="date"] >> nth=0', "2001-01-01");
+  await pag.fill('.pantallaCaja input[type="date"] >> nth=1', "2001-12-31");
+  await pag.waitForTimeout(350);
+  check("gastos: un rango de fechas vacío no devuelve nada",
+    /Nada coincide/.test(await enBuscador()) && !/Mercadona/.test(await enBuscador()),
+    (await enBuscador()).slice(0, 300));
+  await pag.click('.pantallaCaja button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(350);
+
+  /* ── objetivos de ahorro: hay que poder crear el primero ───────────────── */
+
+  /* La tarjeta de objetivos del Resumen solo sale cuando ya hay alguno: sin
+     una puerta en Ajustes no había forma de crear el primero. */
+  await pag.click('.pestana:has-text("Ajustes")');
+  await pag.waitForTimeout(400);
+  await pag.click('.filaAjuste:has-text("Objetivos")');
+  await pag.waitForTimeout(450);
+  check("gastos: se llega a los objetivos sin tener ninguno",
+    /Objetivos de ahorro/i.test(await pag.innerText(".pantallaCompleta")));
+
+  await pag.click('.pantallaCaja button:has-text("Añadir objetivo")');
+  await pag.waitForTimeout(300);
+  await pag.fill('.pantallaCaja input[placeholder="Un coche"]', "Un coche");
+  await pag.fill('.pantallaCaja input[placeholder="3000"]', "3000");
+  await pag.fill('.pantallaCaja input[placeholder="0"]', "600");
+  await pag.click('.pantallaCaja button:has-text("Guardar")');
+  await pag.waitForTimeout(800);
+
+  await pag.click('.pestana:has-text("Resumen")');
+  await pag.waitForTimeout(500);
+  const conObjetivo = await pag.innerText("main");
+  check("gastos: el objetivo aparece en el Resumen con su avance",
+    /Un coche/.test(conObjetivo) && /20%/.test(conObjetivo), conObjetivo.slice(0, 400));
+
+  /* ── la revisión del mes ───────────────────────────────────────────────── */
+
+  await pag.click(".tarjetaRevision");
+  await pag.waitForTimeout(700);
+  const revision = await pag.innerText(".pantallaCompleta");
+  check("gastos: la revisión del mes se abre y dice algo", revision.length > 80, revision.slice(0, 200));
+  check("gastos: y no enseña ni un «undefined» ni un «null»",
+    !/undefined|NaN|\[object/.test(revision), revision.slice(0, 400));
+  await pag.click('.pantallaCaja button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(350);
+
   check("gastos: ningún error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 6. Gastos: Análisis con la cuenta vacía y justo después con datos ────── */
+
+/* El día que se apunta el primer gasto estando en Análisis, la pestaña pasa de
+   «no hay nada» a tener contenido sin desmontarse. Si algún `useState` vive
+   por debajo de ese return, React ve aparecer un hook y tumba la pantalla. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/diego@ejemplo.com": { nombre: "Diego" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(400);
+  await acceder(pag, "diego@ejemplo.com", "secreta4", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  await pag.click('.pestana:has-text("Análisis")');
+  await pag.waitForTimeout(500);
+  const vacio = await texto(pag);
+  check("gastos: Análisis vacío explica qué se verá aquí", /en qué se te va el dinero/.test(vacio), vacio.slice(0, 300));
+  check("gastos: y ofrece apuntar el primero", /Apuntar el primero/.test(vacio));
+
+  await apuntarGasto(pag, 25, "Cena");
+  await pag.waitForTimeout(600);
+
+  const conDatos = await texto(pag);
+  check("gastos: apuntar desde Análisis no tumba la pestaña",
+    /Dónde se va el dinero/.test(conDatos), conDatos.slice(0, 300));
+  check("gastos: el gráfico diario vive ahora en Análisis", /Día a día/.test(conDatos));
+  await pag.click('.pestana:has-text("Resumen")');
+  await pag.waitForTimeout(500);
+  check("gastos: y ya no está en el Resumen", (await pag.locator(".pulsoBarras").count()) === 0);
+
+  check("gastos: ningún error de JavaScript al pasar de vacío a lleno", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
 

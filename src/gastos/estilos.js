@@ -67,6 +67,7 @@ export const CSS = `
 .trozo b { font-weight:600; color:var(--ink); }
 
 .pulso { margin-top:20px; }
+.pulso.enTarjeta { margin-top:4px; }
 .pulsoBarras { display:flex; align-items:flex-end; gap:2px; height:76px; position:relative; }
 .pulsoBarra { flex:1; background:var(--accent); border-radius:3px 3px 1px 1px; min-height:3px;
   opacity:.9; transition:opacity .15s; }
@@ -75,8 +76,10 @@ export const CSS = `
 .pulsoBarra.hoy { outline:2px solid var(--ink); outline-offset:1px; border-radius:3px; }
 .pulsoBarra:hover { opacity:1; }
 .pulsoRitmo { position:absolute; left:0; right:0; border-top:1.5px dashed #A9BECE; pointer-events:none; }
+/* El gráfico vive dentro de una tarjeta, así que la etiqueta se recorta contra
+   el blanco de la tarjeta y no contra el fondo de la página. */
 .pulsoRitmo span { position:absolute; right:0; top:-16px; font-size:9.5px;
-  font-family:'IBM Plex Mono', monospace; color:var(--soft); background:var(--paper);
+  font-family:'IBM Plex Mono', monospace; color:var(--soft); background:var(--card);
   padding:0 5px; letter-spacing:-.02em; }
 .pulsoEje { display:flex; justify-content:space-between; margin-top:8px; font-size:10.5px; color:var(--soft); }
 
@@ -114,6 +117,11 @@ export const CSS = `
 .insignia.pulsable:active { transform:scale(.92); }
 
 .barraPres { position:relative; height:10px; background:#EDF2F7; border-radius:99px; }
+/* Cuando la barra es el botón de editar el presupuesto hay que devolverle el
+   display de bloque: el reset de botones la deja en inline-flex y las capas
+   de dentro, que van posicionadas, se descolocan. */
+.barraPres.pulsable { display:block; width:100%; padding:0; }
+.barraPres.pulsable:hover { box-shadow:0 0 0 3px rgba(15,158,142,.12); }
 .barraPres.pequena { height:7px; }
 .barraPresRelleno { position:relative; height:100%; background:var(--accent);
   border-radius:99px; transition:width .35s ease; z-index:1; }
@@ -168,6 +176,35 @@ export const CSS = `
   min-width:64px; text-align:center; flex-shrink:0; }
 .chipRojo { background:#FFEDE9; color:#D64A34; }
 .chipVerde { background:#DFF6EB; color:#0E8A5F; }
+.chipAmbar { background:#FFF4E2; color:#B87400; }
+
+/* ── avisos de tope ──────────────────────────────────────────────────── */
+
+.avisoTopes { border-left:4px solid var(--amber); }
+.listaAvisos li { display:flex; align-items:center; gap:10px; padding:7px 2px; }
+.avisoTexto { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.avisoNombre { font-size:13.5px; font-weight:500; }
+.avisoPie { font-size:11.5px; color:var(--soft); }
+
+/* ── fila que lleva a otra pantalla ──────────────────────────────────── */
+
+.filaAjuste { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  justify-content:flex-start; background:var(--card); border-radius:18px; padding:15px 17px;
+  box-shadow:var(--sombra); transition:transform .12s; }
+.filaAjuste:active { transform:scale(.99); }
+
+.filaEditor { display:flex; align-items:center; gap:9px; }
+.filaEditor .inputEuro { flex:1; }
+.filaEditor .botonPrincipal { flex-shrink:0; padding:11px 16px; }
+
+/* ── bienvenida ──────────────────────────────────────────────────────── */
+
+.tituloBienvenida { font-family:'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  font-weight:800; font-size:28px; letter-spacing:-.03em; line-height:1.15; margin:0; }
+.bienvenida { max-width:520px; width:100%; margin:0 auto; }
+/* La columna reparte el alto sobrante: sin esto, la tarjeta y los botones se
+   estiran hasta el fondo de la pantalla. */
+.bienvenida > * { flex:0 0 auto; }
 
 .listaPres li { padding:9px 2px; }
 .presFila { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:13.5px; }
@@ -360,7 +397,9 @@ export const CSS = `
     max-width:1000px; display:grid; align-content:start;
     grid-template-columns:1fr 1fr; gap:16px; padding:8px 24px 120px;
   }
-  .hero, .anchoCompleto, .tarjetaRevision { grid-column:1 / -1; }
+  .hero, .anchoCompleto, .tarjetaRevision, .filaAjuste { grid-column:1 / -1; }
+  /* La bienvenida es una columna de preguntas: en dos columnas se leería en zigzag. */
+  .lienzo.bienvenida { display:flex; max-width:520px; padding-bottom:48px; }
   .cabecera { max-width:1000px; padding:18px 24px 14px; }
   .aviso { max-width:1000px; margin:0 auto 6px; }
   .barra {

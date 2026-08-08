@@ -74,6 +74,27 @@ check("buscar: distingue ingresos de gastos",
 check("buscar: sin filtros devuelve todo", g.buscarMovimientos(datos, {}).length === 7,
   String(g.buscarMovimientos(datos, {}).length));
 check("buscar: algo que no existe devuelve nada", g.buscarMovimientos(datos, { texto: "zzzz" }).length === 0);
+check("buscar: un rango abierto por abajo coge todo lo posterior",
+  g.buscarMovimientos(datos, { desde: "2026-08-01" }).length === 5,
+  String(g.buscarMovimientos(datos, { desde: "2026-08-01" }).length));
+check("buscar: y abierto por arriba, todo lo anterior",
+  g.buscarMovimientos(datos, { hasta: "2026-07-31" }).length === 2,
+  String(g.buscarMovimientos(datos, { hasta: "2026-07-31" }).length));
+check("buscar: un rango sin nada dentro no devuelve nada",
+  g.buscarMovimientos(datos, { desde: "2001-01-01", hasta: "2001-12-31" }).length === 0);
+check("buscar: los extremos del rango entran",
+  g.buscarMovimientos(datos, { desde: "2026-08-03", hasta: "2026-08-03" }).length === 1);
+check("buscar: fecha y texto se combinan, no se pisan",
+  g.buscarMovimientos(datos, { texto: "mercadona", desde: "2026-08-01" }).length === 2,
+  String(g.buscarMovimientos(datos, { texto: "mercadona", desde: "2026-08-01" }).length));
+
+/* ── el tope que propone la bienvenida ───────────────────────────────────── */
+
+check("tope: propone el 85% redondeado a decenas", g.topeSugerido(2000, 700) === 1700, String(g.topeSugerido(2000, 700)));
+check("tope: nunca por debajo de los fijos", g.topeSugerido(1000, 900) === 900, String(g.topeSugerido(1000, 900)));
+check("tope: sin ingresos no propone nada", g.topeSugerido(0, 500) === 0);
+check("tope: sin fijos también funciona", g.topeSugerido(1200) === 1020, String(g.topeSugerido(1200)));
+check("tope: un texto vacío no lo vuelve NaN", g.topeSugerido("", "") === 0);
 
 /* ── objetivos de ahorro ─────────────────────────────────────────────────── */
 

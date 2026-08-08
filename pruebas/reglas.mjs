@@ -123,6 +123,8 @@ await check("gasto: acepta uno normal", assertSucceeds(guarda("gastos", { fecha:
 await check("categoría: acepta una normal", assertSucceeds(guarda("categorias", { nombre: "Comida", color: "#F4614E", icono: "utensils", presupuesto: null, orden: 0 })));
 await check("fijo: acepta uno normal", assertSucceeds(guarda("fijos", { nombre: "Alquiler", importe: 750, categoria: "casa", dia: 1, desde: "2026-01", hasta: null })));
 await check("fijo: rechaza un día de mes imposible", assertFails(guarda("fijos", { nombre: "X", importe: 10, categoria: "casa", dia: 99, desde: "2026-01" })));
+await check("fijo: acepta la nómina como ingreso fijo", assertSucceeds(guarda("fijos", { tipo: "ingreso", nombre: "Nómina", importe: 2000, categoria: "otros", origen: "nomina", dia: 1, desde: "2026-01", hasta: null })));
+await check("fijo: rechaza un origen que sea una parrafada", assertFails(guarda("fijos", { tipo: "ingreso", nombre: "N", importe: 10, categoria: "otros", origen: "x".repeat(400), dia: 1, desde: "2026-01" })));
 
 await check("rechaza un documento con un montón de campos", assertFails(
   guarda("pesos", Object.fromEntries([["fecha", "2026-08-07"], ["kg", 80], ...Array.from({ length: 40 }, (_, i) => [`relleno${i}`, i])]))

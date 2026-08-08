@@ -116,9 +116,12 @@ service cloud.firestore {
              && opcional('nota', 140);
     }
 
+    /* Un fijo puede ser lo que sale (el alquiler) o lo que entra (la nómina).
+       Lo decide `tipo`; `origen` solo lo llevan los ingresos. */
     function fijoOk() {
       return campos(10)
              && opcional('tipo', 10)
+             && opcional('origen', 20)
              && cadena(d().nombre, 60)
              && entre(d().importe, -1000000, 1000000)
              && entre(d().dia, 1, 31)

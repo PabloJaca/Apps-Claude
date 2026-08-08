@@ -180,6 +180,31 @@ check(
   /clearIndexedDbPersistence/.test(nube) && /window\.location\.reload\(\)/.test(nube)
 );
 
+/* ── 3bis. Ninguna pantalla se queda sin abrir en las pruebas ───────────── */
+
+/* Una hoja que no se abre en ninguna prueba puede llegar rota a producción.
+   Pasó: la del gasto fijo se quedó llamando a variables de otro componente y
+   no reventó hasta que alguien la abrió. `pruebas/extremo.mjs` lleva el
+   inventario de lo que abre; aquí solo se comprueba que no falte ninguna. */
+{
+  const { PANTALLAS_ABIERTAS } = await import("./extremo-inventario.mjs");
+  for (const app of ["gastos", "salud"]) {
+    const texto = leer(`src/${app}/App.jsx`);
+    const definidas = [...texto.matchAll(/^function (Hoja\w+|Pantalla\w+|Bienvenida)\(/gm)].map((m) => m[1]);
+    const abiertas = PANTALLAS_ABIERTAS[app] || [];
+    check(
+      `${app}: la prueba de navegador abre todas las pantallas y hojas`,
+      definidas.every((c) => abiertas.includes(c)),
+      `sin abrir: ${definidas.filter((c) => !abiertas.includes(c))}`
+    );
+    check(
+      `${app}: y el inventario no nombra pantallas que ya no existen`,
+      abiertas.every((c) => definidas.includes(c)),
+      `sobran: ${abiertas.filter((c) => !definidas.includes(c))}`
+    );
+  }
+}
+
 /* ── 4. Las dos apps pasan por la puerta ────────────────────────────────── */
 
 for (const app of ["gastos", "salud"]) {
