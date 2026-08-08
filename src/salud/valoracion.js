@@ -12,8 +12,8 @@
 
 import {
   ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, detalleTramo,
-  diasTranscurridos, enTramo, etiquetaTramo, miles, num, pendienteSemanal,
-  pesosFiables, plural, rangoMes, rangoSemana,
+  conFecha, diasTranscurridos, enTramo, etiquetaTramo, miles, num, pendienteSemanal,
+  pesosFiables, plural, porFecha, rangoMes, rangoSemana,
 } from "./nucleo.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 
@@ -42,11 +42,11 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   const diasPasados = diasTranscurridos(tramo);
   const diasTotales = Math.round((tramo[1] - tramo[0]) / 86400000) + 1;
 
-  const pesosTramo = datos.pesos
-    .filter((p) => enTramo(p.fecha, tramo))
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const entrenos = datos.entrenos.filter((e) => enTramo(e.fecha, tramo));
-  const comidas = datos.comidas.filter((c) => enTramo(c.fecha, tramo));
+  /* Se filtra lo que no tiene fecha antes de nada: sin ella no se puede decir
+     si cae en el tramo, y romper aquí dejaría la valoración en blanco. */
+  const pesosTramo = conFecha(datos.pesos).filter((p) => enTramo(p.fecha, tramo)).sort(porFecha);
+  const entrenos = conFecha(datos.entrenos).filter((e) => enTramo(e.fecha, tramo));
+  const comidas = conFecha(datos.comidas).filter((c) => enTramo(c.fecha, tramo));
 
   if (!pesosTramo.length && !entrenos.length && !comidas.length) {
     return { hayDatos: false, etiqueta, detalle, motivo: "No hay nada apuntado en este periodo." };

@@ -547,6 +547,79 @@ const saltarBienvenida = async (pag) => {
   await ctx.close();
 }
 
+/* ── 3quinquies. Un registro corrupto no puede dejar la pantalla en blanco ── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  /* Registros rotos de todas las formas que se me ocurren, mezclados con unos
+     buenos. La app tiene que enseñar los buenos y no caerse por los otros. */
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dd = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return iso(d); };
+    const uid = "usuarios/uid_mara";
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "mara@ejemplo.com": { clave: "secreta11", uid: "uid_mara" } },
+      docs: {
+        "permitidos/mara@ejemplo.com": { nombre: "Mara" },
+        [uid]: { email: "mara@ejemplo.com", bienvenida: 1, perfil: { altura: "170", edad: "29", sexo: "mujer", actividad: "ligera", objetivo: "bajar" } },
+
+        [`${uid}/pesos/bueno`]: { fecha: dd(1), kg: 64.2, nota: "" },
+        [`${uid}/pesos/sinFecha`]: { kg: 63 },
+        [`${uid}/pesos/sinKg`]: { fecha: dd(2) },
+        [`${uid}/pesos/fechaRara`]: { fecha: "ayer por la tarde", kg: 64 },
+        [`${uid}/pesos/kgTexto`]: { fecha: dd(3), kg: "sesenta" },
+
+        [`${uid}/entrenos/bueno`]: { fecha: dd(1), tipo: "fuerza", minutos: 45, intensidad: "media", ts: 1 },
+        [`${uid}/entrenos/sinTipo`]: { fecha: dd(2), minutos: 30 },
+        [`${uid}/entrenos/ejSinSeries`]: { fecha: dd(2), tipo: "fuerza", ts: 1, ejercicios: [{ nombre: "Sentadilla" }] },
+        [`${uid}/entrenos/ejSinNombre`]: { fecha: dd(3), tipo: "fuerza", ts: 1, ejercicios: [{ series: [{ reps: 8, kg: 40 }] }] },
+        [`${uid}/entrenos/ejRaros`]: { fecha: dd(3), tipo: "fuerza", ts: 2, ejercicios: [{ nombre: "Prensa", series: [{ reps: "ocho", kg: "cuarenta" }] }] },
+
+        [`${uid}/comidas/buena`]: { fecha: dd(1), texto: "Ensalada y pollo", momento: "comida", volumen: 3, saciedad: 3, ts: 1 },
+        [`${uid}/comidas/sinTexto`]: { fecha: dd(1), momento: "cena", volumen: 3, ts: 2 },
+        [`${uid}/comidas/sinVolumen`]: { fecha: dd(2), texto: "Tostada", momento: "desayuno", ts: 1 },
+        [`${uid}/comidas/emojis`]: { fecha: dd(2), texto: "🍕🍺🎂", momento: "cena", volumen: 5, ts: 2 },
+        [`${uid}/comidas/larguisima`]: { fecha: dd(2), texto: "arroz ".repeat(200), momento: "comida", volumen: 3, ts: 3 },
+      },
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_mara", email: "mara@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1800);
+
+  const hayApp = async () => /Peso|Entrenos|Comidas/.test(await pag.innerText("body"));
+  check("datos rotos: la app arranca igual", await hayApp(), (await pag.innerText("body")).slice(0, 200));
+  check("datos rotos: se ve el pesaje bueno", /64,2/.test(await pag.innerText("body")));
+
+  for (const t of ["Entrenos", "Comidas"]) {
+    await pag.click(`nav >> text=${t}`);
+    await pag.waitForTimeout(800);
+    check(`datos rotos: la pestaña de ${t} se pinta`, await hayApp(), (await pag.innerText("body")).slice(0, 160));
+    check(`datos rotos: ${t} no enseña «undefined» ni «NaN»`,
+      !/undefined|NaN/.test(await pag.innerText("body")),
+      (await pag.innerText("body")).replace(/\n+/g, " | ").slice(0, 240));
+    check(`datos rotos: ${t} no se sale de la pantalla`,
+      await pag.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1),
+      String(await pag.evaluate(() => document.body.scrollWidth)));
+  }
+
+  // Y la valoración, que es la que más cuentas echa.
+  await pag.click("text=Valorar mi semana");
+  await pag.waitForTimeout(1200);
+  const val = await pag.innerText("body");
+  check("datos rotos: la valoración se genera", /Cómo va todo/i.test(val), val.slice(0, 200));
+  check("datos rotos: la valoración no enseña «undefined» ni «NaN»", !/undefined|NaN/.test(val), val.replace(/\n+/g, " | ").slice(0, 260));
+
+  check("datos rotos: ni un solo error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 /* ── 4. La lista de invitados ────────────────────────────────────────────── */
 
 {

@@ -46,7 +46,7 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Pruebas de aislamiento, migración y valoración
+      - name: Pruebas de aislamiento, migración, valoración y robustez
         run: npm run probar
 
       # El emulador de Firestore es un programa de Java, y firebase-tools pide

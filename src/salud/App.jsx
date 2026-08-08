@@ -15,7 +15,7 @@ import {
   ACTIVIDADES, COLECCIONES, DIAS, DURACIONES, MESES_LARGOS, OBJETIVOS,
   PERFIL_VACIO, SACIEDADES,
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
-  EJERCICIOS_HABITUALES, EJERCICIOS_SUGERIDOS, comidasFrecuentes, ejerciciosUsados, enRango, etiquetaFecha,
+  EJERCICIOS_HABITUALES, EJERCICIOS_SUGERIDOS, comidasFrecuentes, conFecha, saneaEntrenos, ejerciciosUsados, enRango, etiquetaFecha,
   etiquetaTramo, exportar, fechaCorta, mismoEjercicio, progresionEjercicio,
   recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
@@ -2260,12 +2260,16 @@ function Aplicacion({ sesion }) {
 
   /* La pantalla sigue viendo un único objeto `datos`, pero ya no es un estado
      propio: es lo que hay ahora mismo en Firestore. No se escribe nunca aquí. */
+  /* Se filtra aquí, en la única puerta por la que entran los datos: todo lo de
+     abajo ordena y agrupa por fecha, y un registro sin ella no daría un número
+     raro, dejaría la pantalla en blanco. No debería llegar ninguno —las reglas
+     la exigen—, pero eso no es motivo para no ponerse a cubierto. */
   const datos = useMemo(
     () => ({
       perfil: { ...PERFIL_VACIO, ...(usuario.perfil || {}) },
-      pesos: registros.pesos,
-      entrenos: registros.entrenos,
-      comidas: registros.comidas,
+      pesos: conFecha(registros.pesos),
+      entrenos: saneaEntrenos(registros.entrenos),
+      comidas: conFecha(registros.comidas),
     }),
     [usuario.perfil, registros.pesos, registros.entrenos, registros.comidas]
   );

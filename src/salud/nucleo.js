@@ -162,6 +162,44 @@ export const detalleTramo = (periodo, offset) => {
   return `${a.getDate()} ${MESES[a.getMonth()]} – ${b.getDate()} ${MESES[b.getMonth()]}`;
 };
 
+/* ── higiene de los registros ────────────────────────────────────────────── */
+
+/**
+ * Los registros con los que se puede trabajar: los que existen y llevan fecha.
+ *
+ * Todo lo de esta app se ordena y se agrupa por fecha, así que un registro sin
+ * ella no es que dé un resultado raro: rompe el `sort` y deja la pantalla en
+ * blanco. Se filtran una vez al entrar y ya nadie más tiene que preocuparse.
+ *
+ * No debería llegar ninguno —las reglas de Firestore exigen la fecha—, pero
+ * una pantalla en blanco es un precio demasiado alto para confiarse.
+ */
+export const conFecha = (lista) =>
+  (lista || []).filter((r) => r && typeof r.fecha === "string" && r.fecha.length === 10);
+
+/**
+ * Entrenos con la forma que la pantalla espera.
+ *
+ * Un ejercicio sin `series` no daba un hueco: rompía el `map` y tumbaba la
+ * pestaña entera. Se normaliza aquí, una vez, en vez de poner un `|| []` en
+ * cada sitio que los dibuja y confiar en no olvidarse de ninguno.
+ */
+export const saneaEntrenos = (lista) =>
+  conFecha(lista).map((e) => {
+    if (!e.ejercicios) return e;
+    const ejercicios = (Array.isArray(e.ejercicios) ? e.ejercicios : [])
+      .filter((ej) => ej && typeof ej === "object")
+      .map((ej) => ({
+        ...ej,
+        nombre: String(ej.nombre || "Sin nombre"),
+        series: (Array.isArray(ej.series) ? ej.series : []).filter((x) => x && typeof x === "object"),
+      }));
+    return { ...e, ejercicios };
+  });
+
+/** Comparador por fecha que aguanta lo que le echen. */
+export const porFecha = (a, b) => String((a && a.fecha) || "").localeCompare(String((b && b.fecha) || ""));
+
 /* ── formato ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -397,7 +435,7 @@ export function pendienteSemanal(serie) {
  * de dos puntos no es una media.
  */
 export function mediaMovil(pesos, ventana = 7) {
-  const serie = [...(pesos || [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const serie = conFecha(pesos).sort(porFecha);
   return serie.map((p) => {
     const hasta = desdeIso(p.fecha).getTime();
     const desde = hasta - (ventana - 1) * 86400000;
@@ -602,9 +640,9 @@ export function revisarPeso(kg, fecha, pesos) {
     return { ok: false, motivo: `${num(valor)} kg no parece un peso real. ¿Te has dejado un número?` };
   }
 
-  const previos = (pesos || [])
+  const previos = conFecha(pesos)
     .filter((p) => p.fecha < fecha)
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+    .sort(porFecha);
   const ref = previos[previos.length - 1];
   if (!ref) return { ok: true };
 
@@ -631,7 +669,7 @@ export function revisarPeso(kg, fecha, pesos) {
  * antes: si el cambio se mantiene, es que el peso cambió de verdad.
  */
 export function pesosFiables(pesos) {
-  const serie = [...(pesos || [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const serie = conFecha(pesos).sort(porFecha);
   if (serie.length < 3) return { fiables: serie, sospechosos: [] };
 
   const fiables = [serie[0]];
