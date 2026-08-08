@@ -79,9 +79,11 @@ check(
   [...G.gastos, ...G.fijos, ...G.categorias].every((x) => x.mod === undefined)
 );
 check(
-  "gastos: no se cuela nada fuera de las tres colecciones",
-  Object.keys(G).sort().join(",") === "categorias,fijos,gastos"
+  "gastos: no se cuela nada fuera de sus colecciones",
+  Object.keys(G).sort().join(",") === "categorias,fijos,gastos,ingresos",
+  Object.keys(G).sort().join(",")
 );
+check("gastos: una copia sin ingresos no los inventa", G.ingresos.length === 0);
 
 const comoDatos = { ...G, ajustes: campoG.ajustes };
 const julio = movimientosDeMes(comoDatos, "2026-07");

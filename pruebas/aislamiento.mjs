@@ -83,7 +83,7 @@ check("las reglas cierran todo lo demás", /match \/\{document=\*\*\}[\s\S]*?if 
 /* Toda regla de datos pasa por `puede(uid)`, que es quien junta las dos
    condiciones: eres tú y estás en la lista. */
 const bloquesDatos = [...reglas.matchAll(/match \/usuarios\/\{uid\}[^{]*\{([\s\S]*?)\n    \}/g)].map((m) => m[1]);
-check("hay bloques de datos que revisar", bloquesDatos.length === enCodigo.length + 1, String(bloquesDatos.length));
+check("hay bloques de datos que revisar", bloquesDatos.length === enCodigo.length + 1, `${bloquesDatos.length} bloques para ${enCodigo.length} colecciones`);
 check(
   "ninguna regla de datos se salta la comprobación de usuario e invitación",
   bloquesDatos.every((b) =>

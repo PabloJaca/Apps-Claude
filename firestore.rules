@@ -109,8 +109,16 @@ service cloud.firestore {
              && opcional('nota', 140);
     }
 
+    function ingresoOk() {
+      return fechaOk() && campos(7)
+             && entre(d().importe, 0, 10000000)
+             && opcional('origen', 20)
+             && opcional('nota', 140);
+    }
+
     function fijoOk() {
-      return campos(9)
+      return campos(10)
+             && opcional('tipo', 10)
              && cadena(d().nombre, 60)
              && entre(d().importe, -1000000, 1000000)
              && entre(d().dia, 1, 31)
@@ -175,6 +183,11 @@ service cloud.firestore {
     match /usuarios/{uid}/gastos/{id} {
       allow read, delete: if puede(uid);
       allow create, update: if puede(uid) && gastoOk();
+    }
+
+    match /usuarios/{uid}/ingresos/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && ingresoOk();
     }
 
     match /usuarios/{uid}/fijos/{id} {

@@ -88,6 +88,19 @@ export const CSS = `
 .pie.sup { margin:0 0 12px; }
 .pie.separador { margin-top:16px; padding-top:14px; border-top:1px solid var(--line);
   text-transform:uppercase; letter-spacing:.08em; font-size:10.5px; font-weight:600; }
+.cifraGrande.enRojo { color:var(--coral); }
+.conmutador { display:flex; gap:2px; background:#EDF2F7; border-radius:10px; padding:2px; flex-shrink:0; }
+.conmutador button { font-size:12px; font-weight:600; padding:5px 11px; border-radius:8px; color:var(--soft); }
+.conmutador button.sel { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(21,41,60,.10); }
+.pie.sup { margin-bottom:10px; }
+.botonTexto { font-size:12.5px; font-weight:600; color:var(--accent); padding:4px 6px; }
+.chipRepetir { display:flex; align-items:center; gap:7px; width:100%; background:#F7FAFC;
+  border:1.5px solid var(--line); border-radius:12px; padding:9px 11px; text-align:left; margin-bottom:6px; }
+.chipRepetir .nom { flex:1; min-width:0; font-size:13px; font-weight:600; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chipRepetir .imp { font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--soft); flex-shrink:0; }
+.barraObj { height:8px; border-radius:999px; background:#EDF2F7; overflow:hidden; margin:7px 0 5px; }
+.barraObj > div { height:100%; border-radius:999px; background:var(--mint); transition:width .4s; }
 .parrafo { font-size:14px; line-height:1.6; margin:0; color:var(--ink); }
 .txtRojo { color:var(--coral); }
 .txtVerde { color:var(--mint); }

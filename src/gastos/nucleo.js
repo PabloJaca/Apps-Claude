@@ -6,7 +6,7 @@
 import { nuevoId } from "../comun/id.js";
 
 /** Colecciones de Firestore que usa esta app: usuarios/{uid}/<nombre>/{id}. */
-export const COLECCIONES = ["gastos", "fijos", "categorias"];
+export const COLECCIONES = ["gastos", "ingresos", "fijos", "categorias"];
 
 export const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -33,10 +33,21 @@ export const CATEGORIAS_INICIALES = [
   { id: "otros", nombre: "Otros", color: "#7C93A8", icono: "package" },
 ];
 
-export const AJUSTES_VACIO = { presupuestoGlobal: null };
+export const AJUSTES_VACIO = { presupuestoGlobal: null, objetivos: [] };
+
+/* De dónde viene el dinero. Son cuatro y van en el código: los ingresos no
+   necesitan el editor de categorías que sí tienen los gastos, porque casi todo
+   el mundo tiene una nómina y poco más. */
+export const ORIGENES = [
+  { id: "nomina", label: "Nómina", icono: "wallet" },
+  { id: "extra", label: "Extra", icono: "sparkles" },
+  { id: "devolucion", label: "Devolución", icono: "undo" },
+  { id: "otro", label: "Otro", icono: "package" },
+];
+export const origenDe = (id) => ORIGENES.find((o) => o.id === id) || ORIGENES[3];
 
 /** Lo que la app espera tener en pantalla mientras Firestore aún no ha hablado. */
-export const VACIO = { gastos: [], fijos: [], categorias: [], ajustes: AJUSTES_VACIO };
+export const VACIO = { gastos: [], ingresos: [], fijos: [], categorias: [], ajustes: AJUSTES_VACIO };
 
 /* ── formato ─────────────────────────────────────────────────────────────── */
 
@@ -49,6 +60,9 @@ export const eur = (n, decimales = true) => {
     maximumFractionDigits: decimales ? 2 : 0,
   });
 };
+
+/** «1 categoría», no «1 categorías». */
+export const plural = (n, singular, muchos) => `${n} ${n === 1 ? singular : muchos || `${singular}s`}`;
 
 export const pct = (n, dec = 0) => `${(Number(n) || 0).toFixed(dec).replace(".", ",")}%`;
 
@@ -121,6 +135,92 @@ export const adivinarIcono = (nombre = "") => {
   for (const [re, ic] of PISTAS_ICONO) if (re.test(nombre)) return ic;
   return "package";
 };
+
+/* ── repetir, buscar y objetivos ─────────────────────────────────────────── */
+
+/** Dos conceptos son el mismo si se escriben igual salvo tildes y mayúsculas. */
+const huella = (t) =>
+  String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Lo que apuntas una y otra vez: «Mercadona», «Café», «Metro».
+ *
+ * Manda la costumbre reciente, y hace falta haberlo apuntado al menos dos veces
+ * para que salga: un gasto suelto no es una costumbre. El importe que se ofrece
+ * es el de la última vez, que es el que más se parece al de hoy.
+ */
+export function gastosFrecuentes(gastos, limite = 3, hoy = hoyISO()) {
+  const grupos = new Map();
+  for (const g of gastos || []) {
+    if (!g || !g.nota || !g.fecha) continue;
+    const clave = huella(g.nota);
+    if (!clave) continue;
+    const dias = Math.max(0, Math.round((new Date(hoy) - new Date(g.fecha)) / 86400000));
+    if (dias > 120) continue;
+    const peso = dias <= 14 ? 1 : dias <= 45 ? 0.7 : 0.5;
+
+    const previo = grupos.get(clave);
+    if (!previo) {
+      grupos.set(clave, { nota: g.nota, categoria: g.categoria, importe: g.importe, fecha: g.fecha, veces: 1, puntos: peso });
+    } else {
+      previo.veces++;
+      previo.puntos += peso;
+      if (g.fecha > previo.fecha) {
+        Object.assign(previo, { nota: g.nota, categoria: g.categoria, importe: g.importe, fecha: g.fecha });
+      }
+    }
+  }
+  return [...grupos.values()]
+    .filter((g) => g.veces >= 2)
+    .sort((a, b) => b.puntos - a.puntos || b.fecha.localeCompare(a.fecha))
+    .slice(0, limite)
+    .map(({ puntos, fecha, ...resto }) => resto);
+}
+
+/**
+ * Busca en todo el historial, no solo en el mes que se está mirando.
+ *
+ * Es lo que faltaba para poder responder «¿cuánto llevo en el dentista?». Se
+ * hace en el cliente porque los datos ya están todos en memoria: pedirle a
+ * Firestore una consulta por texto costaría índices y no haría falta.
+ */
+export function buscarMovimientos(datos, { texto = "", categoria = null, desde = null, hasta = null } = {}) {
+  const clave = huella(texto);
+  const dentro = (m) =>
+    (!clave || huella(m.nota).includes(clave)) &&
+    (!categoria || m.categoria === categoria) &&
+    (!desde || m.fecha >= desde) &&
+    (!hasta || m.fecha <= hasta);
+
+  const gastos = (datos.gastos || []).filter(dentro).map((g) => ({ ...g, tipo: "gasto" }));
+  const ingresos = (datos.ingresos || [])
+    .filter((i) => (!clave || huella(i.nota).includes(clave)) && (!desde || i.fecha >= desde) && (!hasta || i.fecha <= hasta))
+    .filter(() => !categoria)          // los ingresos no tienen categoría de gasto
+    .map((i) => ({ ...i, tipo: "ingreso" }));
+
+  return [...gastos, ...ingresos].sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+/**
+ * Un objetivo de ahorro, con lo que llevas y lo que falta.
+ * Viven dentro de `ajustes` y no en su propia colección: son dos o tres, se
+ * editan de uno en uno y no merecen la complicación de otra colección.
+ */
+export function progresoObjetivo(objetivo) {
+  const meta = Number(objetivo && objetivo.meta) || 0;
+  const ahorrado = Number(objetivo && objetivo.ahorrado) || 0;
+  if (!(meta > 0)) return null;
+  const porcentaje = Math.max(0, Math.min(100, Math.round((ahorrado / meta) * 100)));
+  return {
+    ...objetivo,
+    meta,
+    ahorrado,
+    restante: Math.max(0, Math.round((meta - ahorrado) * 100) / 100),
+    porcentaje,
+    conseguido: ahorrado >= meta,
+  };
+}
 
 /* ── migración ───────────────────────────────────────────────────────────── */
 
@@ -218,9 +318,18 @@ export function repartir(guardado) {
       ? d.presupuestoGlobal
       : null;
 
+  const ingresos = (d.ingresos || []).map((i) => ({
+    ...limpiar(i),
+    id: i.id || nuevoId(),
+    importe: Number(i.importe) || 0,
+    fecha: i.fecha,
+    origen: i.origen || "otro",
+    nota: i.nota || "",
+  }));
+
   return {
-    porColeccion: { gastos, fijos, categorias },
-    campos: { ajustes: { presupuestoGlobal } },
+    porColeccion: { gastos, ingresos, fijos, categorias },
+    campos: { ajustes: { presupuestoGlobal, objetivos: Array.isArray(d.objetivos) ? d.objetivos : (d.ajustes && d.ajustes.objetivos) || [] } },
   };
 }
 
@@ -280,11 +389,12 @@ export function olvidarLegado(almacen) {
 /* ── cálculo de movimientos ──────────────────────────────────────────────── */
 
 /** Convierte los fijos activos en movimientos concretos de un mes. */
-export function expandirFijos(fijos, mesKey) {
+export function expandirFijos(fijos, mesKey, tipo = "gasto") {
   const { y, m } = desdeClaveMes(mesKey);
   const nDias = diasDelMes(y, m);
   return (fijos || [])
     .filter((f) => f.desde <= mesKey && (!f.hasta || mesKey <= f.hasta))
+    .filter((f) => (tipo === "ingreso" ? f.tipo === "ingreso" : f.tipo !== "ingreso"))
     .map((f) => {
       const dia = Math.min(Math.max(1, f.dia || 1), nDias);
       return {
@@ -302,6 +412,32 @@ export function expandirFijos(fijos, mesKey) {
 export function movimientosDeMes(datos, mesKey) {
   const reales = (datos.gastos || []).filter((g) => mesDeISO(g.fecha) === mesKey);
   return [...reales, ...expandirFijos(datos.fijos, mesKey)];
+}
+
+/** Lo que entra en el mes: lo apuntado a mano más la nómina y demás fijos. */
+export function ingresosDeMes(datos, mesKey) {
+  const reales = (datos.ingresos || []).filter((g) => mesDeISO(g.fecha) === mesKey);
+  return [...reales, ...expandirFijos(datos.fijos, mesKey, "ingreso")];
+}
+
+/**
+ * Lo que de verdad quiere saber cualquiera: cuánto entra, cuánto sale y qué
+ * queda. Sin ingresos apuntados no se devuelve un balance de cero, se devuelve
+ * `null`: decir «has ahorrado −1.091 €» porque no has metido la nómina sería
+ * una mentira con pinta de dato.
+ */
+export function balanceDeMes(datos, mesKey) {
+  const entra = suma(ingresosDeMes(datos, mesKey));
+  const sale = suma(movimientosDeMes(datos, mesKey));
+  if (!(entra > 0)) return { hayIngresos: false, gastos: sale, ingresos: 0, ahorro: null, tasa: null };
+  const ahorro = entra - sale;
+  return {
+    hayIngresos: true,
+    ingresos: entra,
+    gastos: sale,
+    ahorro,
+    tasa: Math.round((ahorro / entra) * 100),
+  };
 }
 
 export const suma = (lista) => lista.reduce((s, g) => s + (Number(g.importe) || 0), 0);

@@ -9,7 +9,7 @@ import {
   GraduationCap, Gift, Dog, Baby, Wrench, CreditCard, PiggyBank, Package, Sparkles,
   ChevronLeft, ChevronRight, X, Plus, Trash2, Copy, Check, Wallet, Settings,
   PieChart as IcAnalisis, Repeat, ArrowUpRight, ArrowDownRight, Target, CalendarDays,
-  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp,
+  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp, Search,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
@@ -20,8 +20,10 @@ import { CSS } from "./estilos.js";
 import {
   AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
   adivinarIcono, categoriasIniciales, claveMes, diaDeISO, diasDelMes,
-  eur, exportar, hoyISO, importar, leerLegado, mesActualClave, movimientosDeMes,
-  nombreMesClave, olvidarLegado, porOrden, restarMeses, suma, uid,
+  ORIGENES, balanceDeMes, buscarMovimientos, eur, exportar, gastosFrecuentes, plural,
+  hoyISO, importar, ingresosDeMes, leerLegado, mesActualClave, movimientosDeMes,
+  nombreMesClave, olvidarLegado, origenDe, porOrden, progresoObjetivo,
+  restarMeses, suma, uid,
 } from "./nucleo.js";
 
 /* ─────────────────────────────  ICONOS  ───────────────────────────── */
@@ -38,6 +40,28 @@ const ICONOS = {
   package: Package, sparkles: Sparkles, repeat: Repeat,
 };
 const CLAVES_ICONO = Object.keys(ICONOS);
+
+/**
+ * Envoltorio de las gráficas.
+ *
+ * Recharts mide su contenedor en el primer pintado, cuando la columna todavía
+ * no tiene su ancho definitivo: los ejes se recalculan al recibirlo, pero las
+ * barras no, y salen de un píxel o no salen. Esperar un fotograma basta.
+ * A cambio hay que desactivar la animación de entrada, que si no se queda sin
+ * disparar por montarse dentro del propio fotograma.
+ */
+function Grafica({ alto, style, children }) {
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setListo(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return (
+    <div style={{ height: alto, width: "100%", ...style }}>
+      {listo && <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>}
+    </div>
+  );
+}
 
 function Icono({ nombre, size = 18, className, style }) {
   const C = ICONOS[nombre] || Package;
@@ -83,13 +107,14 @@ function Aplicacion({ sesion }) {
   const datos = useMemo(
     () => ({
       gastos: registros.gastos,
+      ingresos: registros.ingresos,
       // Firestore devuelve los documentos por identificador, así que el orden
       // que ve la persona se decide aquí, no en la base de datos.
       fijos: [...registros.fijos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es")),
       categorias: [...registros.categorias].sort(porOrden),
       ajustes: { ...AJUSTES_VACIO, ...(usuario.ajustes || {}) },
     }),
-    [registros.gastos, registros.fijos, registros.categorias, usuario.ajustes]
+    [registros.gastos, registros.ingresos, registros.fijos, registros.categorias, usuario.ajustes]
   );
 
   /* Cuenta recién creada: se siembran las categorías de partida una sola vez.
@@ -127,6 +152,14 @@ function Aplicacion({ sesion }) {
   const totalFijos = useMemo(() => suma(fijosMes), [fijosMes]);
   const totalVariable = useMemo(() => suma(variablesMes), [variablesMes]);
 
+  const balance = useMemo(() => balanceDeMes(datos, mesKey), [datos, mesKey]);
+  const ingresosMes = useMemo(() => ingresosDeMes(datos, mesKey), [datos, mesKey]);
+  const frecuentes = useMemo(() => gastosFrecuentes(datos.gastos), [datos.gastos]);
+  const objetivos = useMemo(
+    () => (datos.ajustes.objetivos || []).map(progresoObjetivo).filter(Boolean),
+    [datos.ajustes.objetivos]
+  );
+
   const mesAnteriorKey = useMemo(() => {
     const p = restarMeses(cursor.y, cursor.m, 1);
     return claveMes(p.y, p.m);
@@ -135,10 +168,16 @@ function Aplicacion({ sesion }) {
 
   const porCategoria = useMemo(() => {
     const m = {};
-    for (const g of movimientos) m[g.categoria] = (m[g.categoria] || 0) + g.importe;
+    // Se guarda aparte lo variable para poder mirar solo eso, que es lo único
+    // sobre lo que se puede decidir algo a mitad de mes.
+    for (const g of movimientos) {
+      const e = (m[g.categoria] = m[g.categoria] || { total: 0, variable: 0 });
+      e.total += g.importe;
+      if (!g.esFijo) e.variable += g.importe;
+    }
     return Object.entries(m)
-      .map(([id, total]) => ({
-        id, total,
+      .map(([id, { total, variable }]) => ({
+        id, total, variable,
         nombre: catPorId[id]?.nombre || "Sin categoría",
         color: catPorId[id]?.color || "#7C93A8",
         icono: catPorId[id]?.icono || "package",
@@ -214,6 +253,17 @@ function Aplicacion({ sesion }) {
   const guardarFijo = (f) => { guardar("fijos", f); setHojaFijo(null); };
   const eliminarFijo = (id) => { borrar("fijos", id); setHojaFijo(null); };
 
+  const guardarIngreso = (i) => { guardar("ingresos", i); setHoja(null); };
+  const borrarIngreso = (id) => { borrar("ingresos", id); setHoja(null); };
+
+  /* Repetir un gasto de los de siempre: se abre la hoja con todo puesto para
+     poder cambiar el importe, que es lo único que suele variar. */
+  const repetirGasto = (g) =>
+    setHoja({ modo: "nuevo", gasto: { importe: g.importe, categoria: g.categoria, nota: g.nota, fecha: hoyISO() } });
+
+  const guardarObjetivos = (lista) =>
+    guardarUsuario({ ajustes: { ...datos.ajustes, objetivos: lista } });
+
   const restaurar = useCallback(
     (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
     [importarDatos]
@@ -273,6 +323,9 @@ function Aplicacion({ sesion }) {
           <span className="mesAno">{cursor.y}</span>
         </div>
         <div className="cabeceraDerecha">
+          <button className="flecha" onClick={() => setPantalla("buscar")} aria-label="Buscar movimientos">
+            <Search size={18} />
+          </button>
           <PastillaSync estado={estado} paleta={PALETA_CUENTA} onAbrir={() => setPantalla("cuenta")} />
           <button className="flecha" onClick={() => moverMes(1)} aria-label="Mes siguiente" disabled={esMesEnCurso}>
             <ChevronRight size={20} />
@@ -288,12 +341,16 @@ function Aplicacion({ sesion }) {
             total={totalMes} totalFijos={totalFijos} totalVariable={totalVariable}
             totalAnterior={totalMesAnterior} porDiaVariable={porDiaVariable}
             nDias={nDias} diasTranscurridos={diasTranscurridos} esMesEnCurso={esMesEnCurso}
-            proyeccion={proyeccion} presupuesto={presupuesto}
+            proyeccion={proyeccion} presupuesto={presupuesto} balance={balance}
+            frecuentes={frecuentes} objetivos={objetivos}
             movimientos={movimientos} nFijos={fijosMes.length} catPorId={catPorId}
             onAbrir={abrirMovimiento}
             onNuevo={() => setHoja({ modo: "nuevo" })}
+            onNuevoIngreso={() => setHoja({ modo: "nuevo", tipo: "ingreso" })}
+            onRepetir={repetirGasto}
             onNuevoFijo={() => setHojaFijo({ modo: "nuevo", mesVisto: mesKey })}
             onRevisar={() => setPantalla("revision")}
+            onObjetivos={() => setPantalla("objetivos")}
           />
         )}
 
@@ -336,8 +393,10 @@ function Aplicacion({ sesion }) {
 
       {hoja && (
         <HojaGasto
-          modo={hoja.modo} gasto={hoja.gasto} categorias={datos.categorias}
-          onGuardar={guardarGasto} onBorrar={borrarGasto} onCerrar={() => setHoja(null)}
+          modo={hoja.modo} gasto={hoja.gasto} tipo={hoja.tipo || "gasto"} categorias={datos.categorias}
+          onGuardar={hoja.tipo === "ingreso" ? guardarIngreso : guardarGasto}
+          onBorrar={hoja.tipo === "ingreso" ? borrarIngreso : borrarGasto}
+          onCerrar={() => setHoja(null)}
         />
       )}
 
@@ -354,6 +413,14 @@ function Aplicacion({ sesion }) {
           datos={datos} catPorId={catPorId} mesKey={mesKey}
           onMover={moverMes} esMesEnCurso={esMesEnCurso} onCerrar={() => setPantalla(null)}
         />
+      )}
+
+      {pantalla === "buscar" && (
+        <PantallaBuscar datos={datos} catPorId={catPorId} onAbrir={abrirMovimiento} onCerrar={() => setPantalla(null)} />
+      )}
+
+      {pantalla === "objetivos" && (
+        <PantallaObjetivos objetivos={datos.ajustes.objetivos || []} onGuardar={guardarObjetivos} onCerrar={() => setPantalla(null)} />
       )}
 
       {pantalla === "cuenta" && (
@@ -379,8 +446,9 @@ function Aplicacion({ sesion }) {
 
 function Resumen({
   total, totalFijos, totalVariable, totalAnterior, porDiaVariable,
-  nDias, diasTranscurridos, esMesEnCurso, proyeccion, presupuesto,
-  movimientos, nFijos, catPorId, onAbrir, onNuevo, onNuevoFijo, onRevisar,
+  nDias, diasTranscurridos, esMesEnCurso, proyeccion, presupuesto, balance,
+  frecuentes, objetivos, movimientos, nFijos, catPorId,
+  onAbrir, onNuevo, onNuevoFijo, onNuevoIngreso, onRepetir, onRevisar, onObjetivos,
 }) {
   const diff = total - totalAnterior;
   const pct = totalAnterior > 0 ? (diff / totalAnterior) * 100 : null;
@@ -392,11 +460,34 @@ function Resumen({
   return (
     <>
       <section className="hero anchoCompleto">
-        <span className="etiqueta">Gastado este mes</span>
-        <div className="cifraGrande">{eur(total)}</div>
+        {/* Lo primero es lo que se quiere saber: qué queda. Lo gastado es el
+            camino, no el destino, y va debajo con el resto del desglose. */}
+        {balance.hayIngresos ? (
+          <>
+            <span className="etiqueta">Te queda este mes</span>
+            <div className={`cifraGrande ${balance.ahorro < 0 ? "enRojo" : ""}`}>{eur(balance.ahorro)}</div>
+            <div className="filaResumen">
+              <span className="trozo"><ArrowDownRight size={13} /> <b className="mono">{eur(balance.ingresos, false)}</b> entra</span>
+              <span className="trozo"><ArrowUpRight size={13} /> <b className="mono">{eur(total, false)}</b> sale</span>
+              {balance.tasa !== null && (
+                <span className={`delta ${balance.tasa >= 0 ? "baja" : "sube"}`}>
+                  <span className="mono">{balance.tasa}%</span> ahorrado
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="etiqueta">Gastado este mes</span>
+            <div className="cifraGrande">{eur(total)}</div>
+          </>
+        )}
 
         <div className="filaResumen">
-          {totalAnterior > 0 && (
+          {/* La comparación con el mes pasado solo cuando no hay balance: con
+              él ya van tres cifras arriba y una cuarta sobra. Lo que cambió
+              respecto al mes anterior lo cuenta la revisión, con su porqué. */}
+          {totalAnterior > 0 && !balance.hayIngresos && (
             <span className={`delta ${diff > 0 ? "sube" : diff < 0 ? "baja" : ""}`}>
               {diff > 0 ? <ArrowUpRight size={14} strokeWidth={2.6} /> : diff < 0 ? <ArrowDownRight size={14} strokeWidth={2.6} /> : null}
               <span className="mono">{eur(Math.abs(diff), false)}</span>
@@ -485,6 +576,47 @@ function Resumen({
         )
       )}
 
+      {/* Lo que apuntas una y otra vez, a un toque. Es el atajo que convierte
+          «apuntar los gastos» en algo que se hace de verdad todos los días. */}
+      {frecuentes.length > 0 && (
+        <section className="tarjeta">
+          <div className="filaCabecera"><h2>De siempre</h2></div>
+          {frecuentes.map((g) => {
+            const c = catPorId[g.categoria];
+            return (
+              <button key={g.nota} className="chipRepetir" onClick={() => onRepetir(g)}>
+                <span className="insignia mini" style={{ background: `${c?.color || "#7C93A8"}1F`, color: c?.color || "#7C93A8" }}>
+                  <Icono nombre={c?.icono} size={14} />
+                </span>
+                <span className="nom">{g.nota}</span>
+                <span className="imp">{eur(g.importe)}</span>
+              </button>
+            );
+          })}
+        </section>
+      )}
+
+      {objetivos.length > 0 && (
+        <section className="tarjeta">
+          <div className="filaCabecera">
+            <h2><Target size={15} className="hIcono" /> Objetivos</h2>
+            <button className="botonTexto" onClick={onObjetivos}>Editar</button>
+          </div>
+          {objetivos.map((o) => (
+            <div key={o.id} style={{ marginBottom: 10 }}>
+              <div className="filaCabecera" style={{ marginBottom: 0 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{o.nombre}</span>
+                <span className="etiquetaValor mono">{o.porcentaje}%</span>
+              </div>
+              <div className="barraObj"><div style={{ width: `${o.porcentaje}%` }} /></div>
+              <p className="pie">
+                {o.conseguido ? "¡Conseguido!" : `${eur(o.ahorrado, false)} de ${eur(o.meta, false)} · faltan ${eur(o.restante, false)}`}
+              </p>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="tarjeta">
         <div className="filaCabecera">
           <h2>Movimientos</h2>
@@ -497,6 +629,9 @@ function Resumen({
             <p>Todavía no hay nada apuntado en este mes.</p>
             <div className="vacioBotones">
               <button className="botonPrincipal" onClick={onNuevo}><Plus size={17} /> Añadir un gasto</button>
+            <button className="botonSecundario espaciado" onClick={onNuevoIngreso}>
+              <ArrowDownRight size={16} /> Apuntar un ingreso
+            </button>
               <button className="botonSecundario" onClick={onNuevoFijo}><Repeat size={16} /> Crear un gasto fijo</button>
             </div>
           </div>
@@ -512,11 +647,13 @@ function Resumen({
                       <Icono nombre={c?.icono} size={17} />
                     </span>
                     <span className="itemTexto">
+                      {/* El concepto manda: «Mercadona» dice mucho más que
+                          «Comida», que ya se ve en el color y en el icono. */}
                       <span className="itemCat">
-                        {g.esFijo ? g.nota : c?.nombre || "Sin categoría"}
+                        {g.nota || c?.nombre || "Sin categoría"}
                         {g.esFijo && <span className="marcaFijo"><Repeat size={9} strokeWidth={2.6} />fijo</span>}
                       </span>
-                      <span className="itemNota">{g.esFijo ? c?.nombre || "Sin categoría" : g.nota || ""}</span>
+                      <span className="itemNota">{g.nota ? c?.nombre || "Sin categoría" : ""}</span>
                     </span>
                     <span className="itemDerecha">
                       <span className="itemImporte mono">{eur(g.importe)}</span>
@@ -562,34 +699,36 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
 
   const conPresupuesto = porCategoria.filter((c) => c.presupuesto > 0);
 
+  const [soloVariable, setSoloVariable] = useState(true);
+  const lista = soloVariable ? porCategoria.filter((c) => c.variable > 0).map((c) => ({ ...c, total: c.variable })) : porCategoria;
+  const totalLista = lista.reduce((s, c) => s + c.total, 0);
+  const totalFijosCat = porCategoria.reduce((s, c) => s + (c.total - (c.variable || 0)), 0);
+
   return (
     <>
       <BotonRevision onRevisar={onRevisar} />
 
       <section className="tarjeta">
-        <div className="filaCabecera"><h2>Dónde se va el dinero</h2></div>
-        {porCategoria.length === 0 ? (
-          <p className="pie">Sin gastos en este mes.</p>
+        <div className="filaCabecera">
+          <h2>Dónde se va el dinero</h2>
+          {/* Los fijos no se pueden cambiar este mes: el alquiler se lleva el
+              70% y aplasta todo lo demás. Lo interesante es lo variable, que
+              es sobre lo que se puede decidir algo. */}
+          <div className="conmutador">
+            <button className={soloVariable ? "sel" : ""} onClick={() => setSoloVariable(true)}>Variable</button>
+            <button className={soloVariable ? "" : "sel"} onClick={() => setSoloVariable(false)}>Todo</button>
+          </div>
+        </div>
+        {lista.length === 0 ? (
+          <p className="pie">{soloVariable ? "Sin gastos variables este mes." : "Sin gastos en este mes."}</p>
         ) : (
           <>
-            <div className="donutZona">
-              <ResponsiveContainer width="100%" height={206}>
-                <PieChart>
-                  <Pie data={porCategoria} dataKey="total" nameKey="nombre"
-                    innerRadius={62} outerRadius={92} paddingAngle={3} stroke="none" cornerRadius={5}>
-                    {porCategoria.map((c) => <Cell key={c.id} fill={c.color} />)}
-                  </Pie>
-                  <Tooltip content={<TipCat total={total} />} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="donutCentro">
-                <span className="donutTotal mono">{eur(total, false)}</span>
-                <span className="donutPie">este mes</span>
-              </div>
-            </div>
-
+            <p className="pie sup">
+              <b className="mono">{eur(totalLista, false)}</b> en {plural(lista.length, "categoría", "categorías")}
+              {soloVariable && totalFijosCat > 0 && ` · ${eur(totalFijosCat, false)} más en fijos`}
+            </p>
             <ul className="leyenda">
-              {porCategoria.map((c) => (
+              {lista.map((c) => (
                 <li key={c.id}>
                   <span className="insignia mini" style={{ background: `${c.color}1F`, color: c.color }}>
                     <Icono nombre={c.icono} size={14} />
@@ -606,8 +745,7 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
 
       <section className="tarjeta">
         <div className="filaCabecera"><h2>Últimos seis meses</h2></div>
-        <div style={{ height: 190, marginLeft: -8 }}>
-          <ResponsiveContainer width="100%" height="100%">
+        <Grafica alto={190} style={{ marginLeft: -8 }}>
             <BarChart data={ultimosMeses} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
               <XAxis dataKey="etiqueta" tickLine={false} axisLine={false}
                 tick={{ fill: "#7C93A8", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }} />
@@ -615,12 +753,11 @@ function Analisis({ porCategoria, total, ultimosMeses, ranking, presupuestoGloba
               {presupuestoGlobal > 0 && (
                 <ReferenceLine y={presupuestoGlobal} stroke="#F4614E" strokeDasharray="4 4" strokeWidth={1.5} />
               )}
-              <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+              <Bar dataKey="total" radius={[6, 6, 0, 0]} isAnimationActive={false}>
                 {ultimosMeses.map((m) => <Cell key={m.clave} fill={m.actual ? "#0F9E8E" : "#D6E2EC"} />)}
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
-        </div>
+        </Grafica>
         {presupuestoGlobal > 0 && <p className="pie">La línea roja marca tu presupuesto de {eur(presupuestoGlobal)}.</p>}
       </section>
 
@@ -827,6 +964,196 @@ function Revision({ datos, catPorId, mesKey, onMover, esMesEnCurso, onCerrar }) 
             </p>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────  BUSCAR  ───────────────────────────── */
+
+/**
+ * Buscar en todo el historial, no solo en el mes que se está mirando.
+ *
+ * Era lo que faltaba para poder responder «¿cuánto llevo en el dentista?».
+ * Se filtra en el cliente porque los datos ya están todos en memoria: pedirle
+ * esto a Firestore costaría índices y no aportaría nada.
+ */
+function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
+  const [texto, setTexto] = useState("");
+  const [categoria, setCategoria] = useState(null);
+  const refBusca = useRef(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => refBusca.current?.focus(), 120);
+    const alPulsar = (e) => e.key === "Escape" && onCerrar();
+    window.addEventListener("keydown", alPulsar);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", alPulsar); };
+  }, [onCerrar]);
+
+  const resultados = useMemo(
+    () => buscarMovimientos(datos, { texto, categoria }),
+    [datos, texto, categoria]
+  );
+  const gastado = resultados.filter((m) => m.tipo === "gasto").reduce((s, m) => s + m.importe, 0);
+  const hayFiltro = texto.trim() || categoria;
+
+  return (
+    <div className="pantallaCompleta">
+      <div className="pantallaCaja">
+        <div className="hojaCabecera">
+          <h2>Buscar</h2>
+          <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
+        </div>
+
+        <div className="bloque">
+          <input ref={refBusca} className="campoAncho" placeholder="Mercadona, gasolina, dentista…"
+            value={texto} onChange={(e) => setTexto(e.target.value)} />
+        </div>
+
+        <div className="chipsCat" style={{ marginBottom: 14 }}>
+          <button className={`chipCat ${!categoria ? "sel" : ""}`} onClick={() => setCategoria(null)}>Todas</button>
+          {datos.categorias.map((c) => (
+            <button key={c.id} className={`chipCat ${categoria === c.id ? "sel" : ""}`}
+              style={categoria === c.id ? { background: c.color, borderColor: c.color, color: "#fff" } : undefined}
+              onClick={() => setCategoria(categoria === c.id ? null : c.id)}>
+              <Icono nombre={c.icono} size={15} /> {c.nombre}
+            </button>
+          ))}
+        </div>
+
+        {hayFiltro && (
+          <section className="tarjeta">
+            <p className="pie">
+              <b className="mono">{plural(resultados.length, "movimiento")}</b>
+              {gastado > 0 && ` · ${eur(gastado)} gastados en total`}
+            </p>
+          </section>
+        )}
+
+        <section className="tarjeta">
+          {resultados.length === 0 ? (
+            <div className="vacio">
+              <div className="vacioIcono"><Search size={26} strokeWidth={1.7} /></div>
+              <p>{hayFiltro ? "Nada coincide con eso." : "Escribe para buscar en todo tu historial."}</p>
+            </div>
+          ) : (
+            <ul className="listaGastos">
+              {resultados.slice(0, 120).map((m) => {
+                const c = catPorId[m.categoria];
+                const esIngreso = m.tipo === "ingreso";
+                const color = esIngreso ? "#1FB47A" : c?.color || "#7C93A8";
+                return (
+                  <li key={`${m.tipo}:${m.id}`}>
+                    <button className="itemGasto" onClick={() => !esIngreso && onAbrir(m)}>
+                      <span className="insignia" style={{ background: `${color}1F`, color }}>
+                        <Icono nombre={esIngreso ? origenDe(m.origen).icono : c?.icono} size={17} />
+                      </span>
+                      <span className="itemTexto">
+                        <span className="itemCat">{m.nota || (esIngreso ? origenDe(m.origen).label : c?.nombre)}</span>
+                        <span className="itemNota">{esIngreso ? "Ingreso" : c?.nombre || "Sin categoría"}</span>
+                      </span>
+                      <span className="itemDerecha">
+                        <span className="itemImporte mono" style={esIngreso ? { color: "#1FB47A" } : undefined}>
+                          {esIngreso ? "+" : ""}{eur(m.importe)}
+                        </span>
+                        <span className="itemFecha mono">{m.fecha.slice(8, 10)}/{m.fecha.slice(5, 7)}/{m.fecha.slice(2, 4)}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────  OBJETIVOS  ───────────────────────────── */
+
+/**
+ * Objetivos de ahorro. Viven dentro de `ajustes`, no en su propia colección:
+ * son dos o tres, se editan de uno en uno y no merecen la complicación.
+ */
+function PantallaObjetivos({ objetivos, onGuardar, onCerrar }) {
+  const [lista, setLista] = useState(() => objetivos.map((o) => ({ ...o })));
+
+  useEffect(() => {
+    const alPulsar = (e) => e.key === "Escape" && onCerrar();
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  const cambiar = (i, campo, valor) =>
+    setLista((l) => l.map((o, j) => (j === i ? { ...o, [campo]: valor } : o)));
+
+  const guardar = () => {
+    const limpia = lista
+      .filter((o) => String(o.nombre || "").trim() && Number(o.meta) > 0)
+      .map((o) => ({
+        id: o.id || uid(),
+        nombre: String(o.nombre).trim().slice(0, 40),
+        meta: Math.round(Number(o.meta) * 100) / 100,
+        ahorrado: Math.round((Number(o.ahorrado) || 0) * 100) / 100,
+      }));
+    onGuardar(limpia);
+    onCerrar();
+  };
+
+  return (
+    <div className="pantallaCompleta">
+      <div className="pantallaCaja">
+        <div className="hojaCabecera">
+          <h2><Target size={16} className="hIcono" /> Objetivos de ahorro</h2>
+          <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
+        </div>
+
+        <p className="pie sup">
+          Un objetivo concreto —«3.000 € para el coche»— convierte «ahorrar» en algo que se puede
+          medir. Ve subiendo lo ahorrado a mano cuando apartes dinero.
+        </p>
+
+        {lista.map((o, i) => {
+          const p = progresoObjetivo(o);
+          return (
+            <section key={i} className="tarjeta">
+              <div className="bloque">
+                <span className="etiquetaCampo">Para qué</span>
+                <input className="campoAncho" placeholder="Un coche" maxLength={40}
+                  value={o.nombre || ""} onChange={(e) => cambiar(i, "nombre", e.target.value)} />
+              </div>
+              <div className="bloque dosColumnas">
+                <label>
+                  <span>Objetivo (€)</span>
+                  <input type="number" inputMode="decimal" placeholder="3000"
+                    value={o.meta ?? ""} onChange={(e) => cambiar(i, "meta", e.target.value)} />
+                </label>
+                <label>
+                  <span>Ya ahorrado (€)</span>
+                  <input type="number" inputMode="decimal" placeholder="0"
+                    value={o.ahorrado ?? ""} onChange={(e) => cambiar(i, "ahorrado", e.target.value)} />
+                </label>
+              </div>
+              {p && (
+                <>
+                  <div className="barraObj"><div style={{ width: `${p.porcentaje}%` }} /></div>
+                  <p className="pie">
+                    {p.conseguido ? "¡Conseguido!" : `${p.porcentaje}% · faltan ${eur(p.restante, false)}`}
+                  </p>
+                </>
+              )}
+              <button className="botonPeligro" onClick={() => setLista((l) => l.filter((_, j) => j !== i))}>
+                <Trash2 size={16} /> Quitar
+              </button>
+            </section>
+          );
+        })}
+
+        <button className="botonSecundario" onClick={() => setLista((l) => [...l, { id: uid(), nombre: "", meta: "", ahorrado: "" }])}>
+          <Plus size={16} /> Añadir objetivo
+        </button>
+        <button className="botonPrincipal ancho espaciado" onClick={guardar}>Guardar</button>
       </div>
     </div>
   );
@@ -1131,10 +1458,19 @@ function Ajustes({
 
 /* ─────────────────────────────  HOJA: GASTO PUNTUAL  ───────────────────────────── */
 
-function HojaGasto({ modo, gasto, categorias, onGuardar, onBorrar, onCerrar }) {
-  const [importe, setImporte] = useState(gasto ? String(gasto.importe) : "");
+/**
+ * La misma hoja sirve para lo que sale y para lo que entra.
+ *
+ * Cambian tres cosas: el color, si se elige categoría o procedencia, y el
+ * verbo. Todo lo demás —importe, concepto, fecha— es idéntico, y tener dos
+ * hojas casi iguales solo garantizaba que una se quedaría atrás.
+ */
+function HojaGasto({ modo, gasto, tipo = "gasto", categorias, onGuardar, onBorrar, onCerrar }) {
+  const esIngreso = tipo === "ingreso";
+  const [importe, setImporte] = useState(gasto && gasto.importe != null ? String(gasto.importe) : "");
   const [categoria, setCategoria] = useState(gasto ? gasto.categoria : categorias[0]?.id || "");
-  const [fecha, setFecha] = useState(gasto ? gasto.fecha : hoyISO());
+  const [origen, setOrigen] = useState((gasto && gasto.origen) || "nomina");
+  const [fecha, setFecha] = useState(gasto && gasto.fecha ? gasto.fecha : hoyISO());
   const [nota, setNota] = useState(gasto?.nota || "");
   const refImporte = useRef(null);
 
@@ -1143,15 +1479,17 @@ function HojaGasto({ modo, gasto, categorias, onGuardar, onBorrar, onCerrar }) {
     return () => clearTimeout(t);
   }, []);
 
-  const valido = Number(importe) > 0 && categoria;
+  const valido = Number(importe) > 0 && (esIngreso || categoria);
 
   const enviar = () => {
     if (!valido) return;
-    onGuardar({
+    const base = {
       id: gasto?.id,
       importe: Math.round(Number(importe) * 100) / 100,
-      categoria, fecha, nota: nota.trim(),
-    });
+      fecha,
+      nota: nota.trim(),
+    };
+    onGuardar(esIngreso ? { ...base, origen } : { ...base, categoria });
   };
 
   return (
@@ -1159,7 +1497,9 @@ function HojaGasto({ modo, gasto, categorias, onGuardar, onBorrar, onCerrar }) {
       <div className="hoja" onClick={(e) => e.stopPropagation()}>
         <div className="tirador" />
         <div className="hojaCabecera">
-          <h2>{modo === "editar" ? "Editar gasto" : "Nuevo gasto"}</h2>
+          <h2>{esIngreso
+            ? (modo === "editar" ? "Editar ingreso" : "Nuevo ingreso")
+            : (modo === "editar" ? "Editar gasto" : "Nuevo gasto")}</h2>
           <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
         </div>
 
@@ -1172,9 +1512,16 @@ function HojaGasto({ modo, gasto, categorias, onGuardar, onBorrar, onCerrar }) {
         </div>
 
         <div className="bloque">
-          <span className="etiquetaCampo">Categoría</span>
+          <span className="etiquetaCampo">{esIngreso ? "De dónde viene" : "Categoría"}</span>
           <div className="chips">
-            {categorias.map((c) => (
+            {esIngreso && ORIGENES.map((o) => (
+              <button key={o.id} className={`chipCat ${origen === o.id ? "sel" : ""}`}
+                style={origen === o.id ? { background: "#1FB47A", borderColor: "#1FB47A", color: "#fff" } : undefined}
+                onClick={() => setOrigen(o.id)}>
+                <Icono nombre={o.icono} size={15} /> {o.label}
+              </button>
+            ))}
+            {!esIngreso && categorias.map((c) => (
               <button key={c.id} className={`chipCat ${categoria === c.id ? "sel" : ""}`}
                 style={categoria === c.id
                   ? { background: c.color, borderColor: c.color }
@@ -1192,8 +1539,8 @@ function HojaGasto({ modo, gasto, categorias, onGuardar, onBorrar, onCerrar }) {
             <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
           </label>
           <label className="campo">
-            <span>Nota</span>
-            <input placeholder="Opcional" value={nota} onChange={(e) => setNota(e.target.value)} maxLength={60} />
+            <span>Concepto</span>
+            <input placeholder={esIngreso ? "Nómina de agosto" : "Mercadona"} value={nota} onChange={(e) => setNota(e.target.value)} maxLength={60} />
           </label>
         </div>
 
@@ -1263,9 +1610,16 @@ function HojaFijo({ modo, fijo, mesVisto, categorias, onGuardar, onEliminar, onC
         </div>
 
         <div className="bloque">
-          <span className="etiquetaCampo">Categoría</span>
+          <span className="etiquetaCampo">{esIngreso ? "De dónde viene" : "Categoría"}</span>
           <div className="chips">
-            {categorias.map((c) => (
+            {esIngreso && ORIGENES.map((o) => (
+              <button key={o.id} className={`chipCat ${origen === o.id ? "sel" : ""}`}
+                style={origen === o.id ? { background: "#1FB47A", borderColor: "#1FB47A", color: "#fff" } : undefined}
+                onClick={() => setOrigen(o.id)}>
+                <Icono nombre={o.icono} size={15} /> {o.label}
+              </button>
+            ))}
+            {!esIngreso && categorias.map((c) => (
               <button key={c.id} className={`chipCat ${categoria === c.id ? "sel" : ""}`}
                 style={categoria === c.id
                   ? { background: c.color, borderColor: c.color }
