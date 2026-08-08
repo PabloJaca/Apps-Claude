@@ -123,9 +123,13 @@ This typically indicates that your device does not have a healthy Internet conne
   -webkit-font-smoothing:antialiased; position:relative; overflow:hidden;
 }
 .gx *, .gx *::before, .gx *::after { box-sizing:border-box; }
-.gx button { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit;
+/* El reset va en :where() para que tenga especificidad cero. Escrito como
+   \xAB.gx button\xBB pesaba m\xE1s que \xAB.fab\xBB o \xAB.tarjetaRevision\xBB \u2014una clase y un
+   elemento contra una clase\u2014 y les borraba el fondo y el color: el bot\xF3n
+   principal, el flotante y la tarjeta de revisi\xF3n sal\xEDan todos en blanco. */
+:where(.gx button) { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit;
   display:inline-flex; align-items:center; justify-content:center; gap:7px; }
-.gx input { font-family:inherit; color:inherit; }
+:where(.gx input) { font-family:inherit; color:inherit; }
 .gx ul { list-style:none; margin:0; padding:0; }
 .gx h2 { font-family:'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
   font-size:15px; font-weight:700; letter-spacing:-.015em; margin:0;

@@ -709,6 +709,42 @@ const saltarBienvenida = async (pag) => {
   const cats2 = Object.keys(tras.docs).filter((r) => /\/categorias\//.test(r));
   check("gastos: recargar no duplica las categorías", cats2.length === cats.length, `${cats.length} → ${cats2.length}`);
 
+  /* Los botones con identidad propia tienen que conservarla. El reset
+     `.gx button` llegó a pesar más que `.fab` o `.tarjetaRevision` y les
+     borraba el fondo: la app entera salía en blanco y el subtítulo de la
+     tarjeta de revisión quedaba en blanco sobre blanco, ilegible. */
+  const pintura = await pag.evaluate(() => {
+    const luz = (c) => {
+      const [r, g, b] = c.match(/\d+/g).map(Number).map((v) => {
+        v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const fondoReal = (el) => {
+      let n = el, bg = "rgba(0, 0, 0, 0)";
+      while (n && (bg === "rgba(0, 0, 0, 0)" || bg === "transparent")) { bg = getComputedStyle(n).backgroundColor; n = n.parentElement; }
+      return bg;
+    };
+    const salida = {};
+    for (const sel of [".fab", ".tarjetaRevision", ".revisionPie"]) {
+      const el = document.querySelector(sel);
+      if (!el) { salida[sel] = null; continue; }
+      const fg = getComputedStyle(el).color;
+      const bg = fondoReal(el);
+      const [a, b] = [luz(fg), luz(bg)];
+      salida[sel] = { fondo: getComputedStyle(el).backgroundColor, contraste: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10 };
+    }
+    return salida;
+  });
+
+  const transparente = (c) => !c || c === "rgba(0, 0, 0, 0)" || c === "transparent";
+  check("gastos: el botón de añadir conserva su color",
+    pintura[".fab"] && !transparente(pintura[".fab"].fondo), JSON.stringify(pintura[".fab"]));
+  check("gastos: la tarjeta de revisión sigue siendo la oscura",
+    pintura[".tarjetaRevision"] && !transparente(pintura[".tarjetaRevision"].fondo), JSON.stringify(pintura[".tarjetaRevision"]));
+  check("gastos: y su subtítulo se lee (contraste ≥ 4,5)",
+    pintura[".revisionPie"] && pintura[".revisionPie"].contraste >= 4.5, JSON.stringify(pintura[".revisionPie"]));
+
   check("gastos: ningún error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
