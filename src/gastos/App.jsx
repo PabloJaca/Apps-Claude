@@ -9,13 +9,15 @@ import {
   GraduationCap, Gift, Dog, Baby, Wrench, CreditCard, PiggyBank, Package, Sparkles,
   ChevronLeft, ChevronRight, X, Plus, Trash2, Copy, Check, Wallet, Settings,
   PieChart as IcAnalisis, Repeat, ArrowUpRight, ArrowDownRight, Target, CalendarDays,
-  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp, Search, Undo2,
+  Download, Upload, TrendingUp, Lightbulb, AlertTriangle, ThumbsUp, Search, Undo2, Mic,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
 import { Puerta } from "../comun/sesion.jsx";
 import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
+import { CSS_VOZ, HojaDictado, hayDictado } from "../comun/voz.jsx";
 import { analizarMes } from "./analisis.js";
+import { EJEMPLOS_GASTOS, interpretarGasto } from "./dictado.js";
 import { CSS } from "./estilos.js";
 import {
   AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
@@ -285,6 +287,25 @@ function Aplicacion({ sesion }) {
   const repetirGasto = (g) =>
     setHoja({ modo: "nuevo", gasto: { importe: g.importe, categoria: g.categoria, nota: g.nota, fecha: hoyISO() } });
 
+  /* Lo dictado abre la hoja rellenada; guardar sigue siendo cosa tuya. Que el
+     intérprete se equivoque tiene que costar un toque, no un dato malo. */
+  const usarDictado = (frase) => {
+    const r = interpretarGasto(frase, datos);
+    setPantalla(null);
+    if (!r) return setHoja({ modo: "nuevo" });
+    setHoja({
+      modo: "nuevo",
+      tipo: r.tipo,
+      gasto: {
+        importe: r.importe ?? undefined,
+        categoria: r.categoria || undefined,
+        origen: r.origen || undefined,
+        nota: r.nota,
+        fecha: r.fecha,
+      },
+    });
+  };
+
   const guardarObjetivos = (lista) =>
     guardarUsuario({ ajustes: { ...datos.ajustes, objetivos: lista } });
 
@@ -359,7 +380,7 @@ function Aplicacion({ sesion }) {
 
   return (
     <div className="gx">
-      <style>{CSS}</style>
+      <style>{CSS + CSS_VOZ}</style>
 
       <header className="cabecera">
         <button className="flecha" onClick={() => moverMes(-1)} aria-label="Mes anterior">
@@ -440,6 +461,9 @@ function Aplicacion({ sesion }) {
             <span>{txt}</span>
           </button>
         ))}
+        <button className="fabVoz" onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando" title="Apuntar hablando">
+          <Mic size={20} strokeWidth={2.4} />
+        </button>
         <button className="fab" onClick={() => setHoja({ modo: "nuevo" })} aria-label="Añadir gasto" title="Añadir gasto (N)">
           <Plus size={24} strokeWidth={2.6} />
         </button>
@@ -481,6 +505,16 @@ function Aplicacion({ sesion }) {
 
       {pantalla === "buscar" && (
         <PantallaBuscar datos={datos} catPorId={catPorId} onAbrir={abrirMovimiento} onCerrar={() => setPantalla(null)} />
+      )}
+
+      {pantalla === "dictado" && (
+        <HojaDictado
+          paleta={PALETA_CUENTA}
+          titulo="Apunta hablando"
+          ejemplos={EJEMPLOS_GASTOS}
+          onTexto={usarDictado}
+          onCerrar={() => setPantalla(null)}
+        />
       )}
 
       {pantalla === "objetivos" && (

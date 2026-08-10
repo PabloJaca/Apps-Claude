@@ -8,7 +8,8 @@
  * puede llegar rota a producción, y así pasó: la del gasto fijo llamaba a
  * variables que no existían en su ámbito y nadie se enteró hasta usarla.
  * `aislamiento.mjs` compara esta lista con los componentes que hay en las dos
- * apps y falla si aparece uno nuevo sin abrir.
+ * apps —y en los compartidos, que cuentan para las dos— y falla si aparece
+ * uno nuevo sin abrir.
  *
  * Es un inventario a mano, no una medición: promete que la pantalla se abre,
  * no que se pruebe a fondo. Pero obliga a pasar por ella.
@@ -17,9 +18,11 @@ export const PANTALLAS_ABIERTAS = {
   gastos: [
     "Bienvenida", "HojaGasto", "HojaFijo",
     "PantallaFijos", "PantallaBuscar", "PantallaObjetivos",
+    "PantallaCuenta", "HojaDictado",
   ],
   salud: [
     "Bienvenida", "HojaFecha", "HojaEjercicio",
     "PantallaEjercicio", "PantallaOtrosDias", "PantallaValoracion", "PantallaPerfil",
+    "PantallaCuenta", "HojaDictado",
   ],
 };

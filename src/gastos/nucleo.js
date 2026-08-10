@@ -139,7 +139,7 @@ export const adivinarIcono = (nombre = "") => {
 /* ── repetir, buscar y objetivos ─────────────────────────────────────────── */
 
 /** Dos conceptos son el mismo si se escriben igual salvo tildes y mayúsculas. */
-const huella = (t) =>
+export const huella = (t) =>
   String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 

@@ -188,9 +188,12 @@ check(
    inventario de lo que abre; aquí solo se comprueba que no falte ninguna. */
 {
   const { PANTALLAS_ABIERTAS } = await import("./extremo-inventario.mjs");
+  /* Las compartidas cuentan para las dos apps: cada una las abre por su lado
+     y en cada una se pintan con su paleta, así que en las dos hay que verlas. */
+  const compartidas = ["src/comun/cuenta.jsx", "src/comun/voz.jsx"].map(leer).join("\n");
   for (const app of ["gastos", "salud"]) {
-    const texto = leer(`src/${app}/App.jsx`);
-    const definidas = [...texto.matchAll(/^function (Hoja\w+|Pantalla\w+|Bienvenida)\(/gm)].map((m) => m[1]);
+    const texto = leer(`src/${app}/App.jsx`) + "\n" + compartidas;
+    const definidas = [...texto.matchAll(/^(?:export )?function (Hoja\w+|Pantalla\w+|Bienvenida)\(/gm)].map((m) => m[1]);
     const abiertas = PANTALLAS_ABIERTAS[app] || [];
     check(
       `${app}: la prueba de navegador abre todas las pantallas y hojas`,

@@ -339,6 +339,12 @@ export const CSS = `
   flex-shrink:0; margin-left:4px; box-shadow:0 4px 14px rgba(15,158,142,.4); transition:transform .12s; }
 .fab:hover { transform:translateY(-2px); }
 .fab:active { transform:scale(.93); }
+/* El micrófono va junto al botón de añadir, no dentro: son dos formas de
+   hacer lo mismo y ninguna esconde a la otra. */
+.fabVoz { width:44px; height:44px; border-radius:14px; background:#E7F6F4; color:var(--accent);
+  flex-shrink:0; margin-left:4px; transition:transform .12s; }
+.fabVoz:hover { transform:translateY(-2px); }
+.fabVoz:active { transform:scale(.93); }
 
 .velo { position:absolute; inset:0; background:rgba(21,41,60,.4); backdrop-filter:blur(2px);
   display:flex; align-items:flex-end; justify-content:center; z-index:80; animation:aparecer .18s ease; }

@@ -104,6 +104,39 @@ const saltarBienvenida = async (pag) => {
   }
 };
 
+/**
+ * Un reconocedor de voz de mentira.
+ *
+ * No hay forma de meterle audio de verdad a un navegador sin micrófono, y
+ * tampoco haría falta: lo que hay que probar es que la frase reconocida llega
+ * al intérprete y de ahí al formulario. Este falso dice lo que se le mande y
+ * copia el comportamiento del de verdad: parciales primero, definitivo
+ * después, y el `onend` al final.
+ */
+const conVozDeMentira = (pag, frase) =>
+  pag.addInitScript((dicho) => {
+    class Falso {
+      start() {
+        setTimeout(() => {
+          const parcial = { results: [[{ transcript: dicho.slice(0, 6) }]], resultIndex: 0 };
+          parcial.results[0].isFinal = false;
+          parcial.results.length = 1;
+          this.onresult && this.onresult(parcial);
+        }, 30);
+        setTimeout(() => {
+          const fin = { results: [[{ transcript: dicho }]], resultIndex: 0 };
+          fin.results[0].isFinal = true;
+          this.onresult && this.onresult(fin);
+          this.onend && this.onend();
+        }, 90);
+      }
+      stop() { this.onend && this.onend(); }
+      abort() {}
+    }
+    window.SpeechRecognition = Falso;
+    window.webkitSpeechRecognition = Falso;
+  }, frase);
+
 /* Apuntar un gasto en la app de Gastos, como se hace a mano: botón flotante,
    importe, concepto y guardar. */
 const apuntarGasto = async (pag, importe, concepto) => {
@@ -468,6 +501,11 @@ const apuntarGasto = async (pag, importe, concepto) => {
     if (localStorage.getItem("__servidor_de_mentira__")) return;
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const dd = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return iso(d); };
+    /* El historial de la pestaña enseña la semana en curso y manda el resto a
+       «Otros días», así que la sesión reciente tiene que caer sí o sí dentro
+       de esta semana. Restar días fijos fallaba los lunes, cuando «hace tres
+       días» ya es la semana pasada. */
+    const enEstaSemana = (n) => { const d = new Date(); const lunes = (d.getDay() + 6) % 7; return dd(Math.min(n, lunes)); };
     const uid = "usuarios/uid_leo";
     localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
       usuarios: { "leo@ejemplo.com": { clave: "secreta10", uid: "uid_leo" } },
@@ -477,7 +515,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
         // Dos sesiones anteriores de press banca, subiendo.
         [`${uid}/entrenos/e1`]: { fecha: dd(7), tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1,
           ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 70 }, { reps: 8, kg: 70 }] }] },
-        [`${uid}/entrenos/e2`]: { fecha: dd(3), tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1,
+        [`${uid}/entrenos/e2`]: { fecha: enEstaSemana(3), tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1,
           ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 75 }, { reps: 6, kg: 77.5 }] }] },
       },
     }));
@@ -932,7 +970,131 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.click('.pantallaCaja button[aria-label="Cerrar"]');
   await pag.waitForTimeout(350);
 
+  /* ── la pantalla de cuenta ─────────────────────────────────────────────── */
+
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(600);
+  check("gastos: la pantalla de cuenta se abre", /carla@ejemplo.com/.test(await texto(pag)));
+  await pag.click('.pantallaCompleta button[aria-label="Cerrar"], [aria-label="Cerrar"] >> nth=0');
+  await pag.waitForTimeout(400);
+
   check("gastos: ningún error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5bis. Gastos: apuntar hablando ──────────────────────────────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/eva@ejemplo.com": { nombre: "Eva" } },
+    }));
+  });
+  await conVozDeMentira(pag, "cuarenta y dos con treinta en el Mercadona");
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(400);
+  await acceder(pag, "eva@ejemplo.com", "secreta5", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  await pag.click(".fabVoz");
+  await pag.waitForTimeout(700);
+
+  const oido = await pag.inputValue("textarea");
+  check("voz: lo dictado llega al campo", /Mercadona/.test(oido), oido);
+
+  await pag.click('button:has-text("Usar esto")');
+  await pag.waitForTimeout(700);
+
+  check("voz: se abre la hoja del gasto, no se guarda a la brava",
+    (await pag.locator(".hoja").count()) === 1);
+  check("voz: con el importe puesto",
+    (await pag.inputValue(".hoja .importeInput")) === "42.3", await pag.inputValue(".hoja .importeInput"));
+  check("voz: y con el concepto",
+    (await pag.inputValue('.hoja .dosColumnas input:not([type="date"])')) === "Mercadona",
+    await pag.inputValue('.hoja .dosColumnas input:not([type="date"])'));
+
+  /* Hasta que no se confirma, en la cuenta no hay nada. */
+  const antes = await pag.evaluate(() => window.__espia.verServidor());
+  check("voz: dictar no ha escrito nada todavía",
+    !Object.keys(antes.docs).some((r) => /\/gastos\//.test(r)), Object.keys(antes.docs).join(" "));
+
+  await pag.click('.hoja button:has-text("Añadir gasto")');
+  await pag.waitForTimeout(700);
+  const despues = await pag.evaluate(() => window.__espia.verServidor());
+  const guardado = Object.entries(despues.docs).find(([r]) => /\/gastos\//.test(r));
+  check("voz: al confirmar sí se guarda", Boolean(guardado), Object.keys(despues.docs).join(" "));
+  check("voz: y guarda lo que se dijo",
+    guardado && guardado[1].importe === 42.3 && guardado[1].nota === "Mercadona", JSON.stringify(guardado && guardado[1]));
+
+  /* Sin micrófono la hoja tiene que seguir sirviendo: es el mismo intérprete. */
+  await pag.evaluate(() => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition; });
+  await pag.click(".fabVoz");
+  await pag.waitForTimeout(500);
+  check("voz: sin micrófono se ofrece escribirlo", /no sabe escuchar/i.test(await texto(pag)),
+    (await texto(pag)).slice(0, 300));
+  await pag.fill("textarea", "me han ingresado la nómina, 2.100");
+  await pag.click('button:has-text("Usar esto")');
+  await pag.waitForTimeout(700);
+  check("voz: escrito a mano funciona igual, y sabe que es un ingreso",
+    /Nuevo ingreso/i.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  check("voz: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5ter. Salud: apuntar hablando ───────────────────────────────────────── */
+
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/gala@ejemplo.com": { nombre: "Gala" } },
+    }));
+  });
+  await conVozDeMentira(pag, "press banca 80 por 8 y 80 por 6");
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(400);
+  await acceder(pag, "gala@ejemplo.com", "secreta6", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  await pag.click('button[aria-label="Apuntar hablando"]');
+  await pag.waitForTimeout(700);
+  check("voz salud: lo dictado llega al campo", /press banca/i.test(await pag.inputValue("textarea")),
+    await pag.inputValue("textarea"));
+
+  await pag.click('button:has-text("Usar esto")');
+  await pag.waitForTimeout(800);
+
+  const enHoja = await pag.innerText(".rise");
+  check("voz salud: abre la hoja en Entreno", /Entreno/i.test(enHoja), enHoja.slice(0, 200));
+  check("voz salud: enseña lo que ha entendido antes de guardar",
+    /Press banca/i.test(enHoja) && /80×8/.test(enHoja), enHoja.slice(0, 400));
+
+  await pag.click('.rise button:has-text("Guardar")');
+  await pag.waitForTimeout(800);
+  const srv = await pag.evaluate(() => window.__espia.verServidor());
+  const entreno = Object.entries(srv.docs).find(([r]) => /\/entrenos\//.test(r));
+  check("voz salud: se guarda el entreno", Boolean(entreno), Object.keys(srv.docs).join(" "));
+  check("voz salud: con sus ejercicios y series",
+    entreno && entreno[1].ejercicios && entreno[1].ejercicios[0].series.length === 2,
+    JSON.stringify(entreno && entreno[1].ejercicios));
+
+  check("voz salud: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
 

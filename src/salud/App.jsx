@@ -3,12 +3,14 @@ import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, 
 import {
   Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Pencil, CalendarDays,
   RotateCcw, Sparkles, Users, Activity, Bike, TrendingUp, TrendingDown, Minus,
-  User, Check, ChevronRight, Flame, Coffee, Moon, Apple, Download, Upload, Info,
+  User, Check, ChevronRight, Flame, Coffee, Moon, Apple, Download, Upload, Info, Mic,
 } from "lucide-react";
 
 import { useDatos } from "../comun/datos.js";
 import { Puerta } from "../comun/sesion.jsx";
 import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
+import { CSS_VOZ, HojaDictado } from "../comun/voz.jsx";
+import { EJEMPLOS_SALUD, interpretarSalud } from "./dictado.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 import { valorarPeriodo } from "./valoracion.js";
 import {
@@ -1576,7 +1578,7 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
  *
  * `editando` es `{ coleccion, registro }` cuando se viene de un lápiz.
  */
-function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
+function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGuardar }) {
   const [sec, setSec] = useState(seccion);
   const [fecha, setFecha] = useState(hoy());
   const [kg, setKg] = useState("");
@@ -1616,7 +1618,23 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
 
     setSec(seccion); setFecha(hoy()); setKg(""); setNota(""); setMomento(momentoPorHora());
     setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setVolumen(3); setSaciedad(null);
-  }, [abierta, seccion, editando]);
+
+    /* Lo dictado entra por aquí: se rellena la hoja y se confirma a mano. Solo
+       se pisa lo que la frase dijo de verdad; el resto se queda como estaba. */
+    if (borrador) {
+      setSec(borrador.seccion);
+      setFecha(borrador.fecha || hoy());
+      if (borrador.kg != null) setKg(String(borrador.kg));
+      if (borrador.nota) setNota(borrador.nota);
+      if (borrador.tipo) setTipo(borrador.tipo);
+      if (borrador.minutos != null) setMinutos(String(borrador.minutos));
+      if (borrador.intensidad) setInten(borrador.intensidad);
+      if (borrador.texto) setTexto(borrador.texto);
+      if (borrador.volumen != null) setVolumen(borrador.volumen);
+      if (borrador.saciedad != null) setSaciedad(borrador.saciedad);
+      if (borrador.momento) setMomento(borrador.momento);
+    }
+  }, [abierta, seccion, editando, borrador]);
 
   if (!abierta) return null;
 
@@ -1631,7 +1649,13 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
      los kilómetros de una tirada— se arrastran tal cual: guardar desde aquí
      no puede llevarse por delante lo que no se está editando. */
   const conIdentidad = (campos) => {
-    if (!editando) return campos;
+    /* Los ejercicios dictados no se editan en esta hoja, pero se ven ahí abajo
+       y se guardan con el entreno: lo que se confirma es lo que se apunta. */
+    if (!editando) {
+      return borrador && borrador.ejercicios && borrador.ejercicios.length
+        ? { ...campos, ejercicios: borrador.ejercicios }
+        : campos;
+    }
     const r = editando.registro;
     const salida = { ...campos, id: r.id, ts: r.ts ?? campos.ts };
     if (r.ejercicios) salida.ejercicios = r.ejercicios;
@@ -1675,7 +1699,7 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "88vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <h3 style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: C.ink, margin: 0 }}>
-            {editando ? `Corregir ${QUE[sec]}` : "Añadir en otra fecha"}
+            {editando ? `Corregir ${QUE[sec]}` : borrador ? "Confirma y guarda" : "Añadir en otra fecha"}
           </h3>
           <button onClick={onCerrar} style={{ ...btnBorrar, background: C.soft }} aria-label="Cerrar"><X size={18} color={C.mid} /></button>
         </div>
@@ -1710,6 +1734,28 @@ function HojaFecha({ abierta, seccion, editando, pesos, onCerrar, onGuardar }) {
             <input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="En ayunas"
               style={{ ...inputBase, marginTop: 6, marginBottom: 14 }} />
           </>
+        )}
+
+        {sec === "entrenos" && borrador && borrador.ejercicios && borrador.ejercicios.length > 0 && (
+          <div style={{ background: C.tealSoft, borderRadius: 16, padding: "12px 14px", marginBottom: 16 }}>
+            <Rotulo>Lo que he entendido</Rotulo>
+            <div style={{ marginTop: 7, display: "grid", gap: 4 }}>
+              {borrador.ejercicios.map((ej, i) => (
+                <p key={i} style={{ fontFamily: body, fontSize: 13.5, color: C.ink, margin: 0 }}>
+                  <strong>{ej.nombre}</strong>
+                  {ej.series.some((s) => s.reps) && (
+                    <span style={{ fontFamily: mono, color: C.mid }}>
+                      {"  "}
+                      {ej.series.filter((s) => s.reps).map((s) => `${s.kg != null ? s.kg : "—"}×${s.reps}`).join(", ")}
+                    </span>
+                  )}
+                </p>
+              ))}
+            </div>
+            <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: "8px 0 0", lineHeight: 1.5 }}>
+              Se guardan con el entreno. Si algo no cuadra, guarda y corrígelo desde la pestaña.
+            </p>
+          </div>
         )}
 
         {sec === "entrenos" && (
@@ -2116,7 +2162,7 @@ function Bienvenida({ onTerminar, onSaltar }) {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: body }}>
-      <style>{CSS}</style>
+      <style>{CSS + CSS_VOZ}</style>
       <div className="contenedor" style={{ padding: "26px 16px 40px", maxWidth: 520 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 22 }}>
           <Rotulo>{actual.rotulo}</Rotulo>
@@ -2277,6 +2323,7 @@ function Aplicacion({ sesion }) {
   const [tab, setTab] = useState("peso");
   const [hoja, setHoja] = useState(false);
   const [editando, setEditando] = useState(null); // { coleccion, registro }
+  const [dictado, setDictado] = useState(null);   // borrador salido de una frase
   const [pantalla, setPantalla] = useState(null);
 
   const ultimoPeso = useMemo(() => {
@@ -2309,7 +2356,7 @@ function Aplicacion({ sesion }) {
     setHoja(true);
   }, []);
 
-  const cerrarHoja = useCallback(() => { setHoja(false); setEditando(null); }, []);
+  const cerrarHoja = useCallback(() => { setHoja(false); setEditando(null); setDictado(null); }, []);
 
   const restaurar = useCallback(
     (archivo) => importar(archivo).then(({ porColeccion, campos }) => importarDatos(porColeccion, campos)),
@@ -2364,7 +2411,7 @@ function Aplicacion({ sesion }) {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: body }}>
-      <style>{CSS}</style>
+      <style>{CSS + CSS_VOZ}</style>
 
       <header className="contenedor" style={{ padding: "20px 16px 6px" }}>
         <div className="flex items-center justify-between">
@@ -2446,13 +2493,24 @@ function Aplicacion({ sesion }) {
         )}
       </main>
 
-      <button onClick={() => { setEditando(null); setHoja(true); }} aria-label="Añadir en otra fecha" className="botonFlotante"
+      <button onClick={() => { setEditando(null); setDictado(null); setHoja(true); }} aria-label="Añadir en otra fecha" className="botonFlotante"
         style={{
           position: "fixed", right: 20, bottom: 94, zIndex: 50, width: 56, height: 56, borderRadius: 20,
           border: "none", background: C.teal, color: "#fff", cursor: "pointer",
           boxShadow: "0 10px 24px rgba(16,179,163,.45)", display: "flex", alignItems: "center", justifyContent: "center",
         }}>
         <Plus size={25} strokeWidth={2.7} />
+      </button>
+
+      {/* El micrófono, encima del botón de añadir: apuntar hablando es la vía
+          rápida, y la de siempre sigue justo debajo. */}
+      <button onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando" className="botonFlotante"
+        style={{
+          position: "fixed", right: 20, bottom: 158, zIndex: 50, width: 48, height: 48, borderRadius: 17,
+          border: "none", background: C.card, color: C.teal, cursor: "pointer",
+          boxShadow: sh, display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+        <Mic size={21} strokeWidth={2.4} />
       </button>
 
       <nav className="barraInferior"
@@ -2476,9 +2534,25 @@ function Aplicacion({ sesion }) {
         })}
       </nav>
 
-      <HojaFecha abierta={hoja} seccion={tab} editando={editando} pesos={datos.pesos}
+      <HojaFecha abierta={hoja} seccion={tab} editando={editando} borrador={dictado} pesos={datos.pesos}
         onCerrar={cerrarHoja} onGuardar={anadir} />
 
+
+      {pantalla === "dictado" && (
+        <HojaDictado
+          paleta={PALETA_CUENTA}
+          titulo="Apunta hablando"
+          ejemplos={EJEMPLOS_SALUD}
+          onTexto={(frase) => {
+            const r = interpretarSalud(frase, datos);
+            setPantalla(null);
+            setEditando(null);
+            setDictado(r);
+            setHoja(true);
+          }}
+          onCerrar={() => setPantalla(null)}
+        />
+      )}
 
       {pantalla === "valoracion" && (
         <PantallaValoracion datos={datos} energia={energia} onCerrar={() => setPantalla(null)} />
