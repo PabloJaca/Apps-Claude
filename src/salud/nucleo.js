@@ -324,7 +324,9 @@ export function resumenFuerza(entreno) {
 export function ejerciciosUsados(entrenos) {
   const mapa = new Map();
   for (const e of entrenos || []) {
+    if (!e || typeof e !== "object") continue;
     for (const ej of e.ejercicios || []) {
+      if (!ej || typeof ej !== "object") continue;
       const clave = huellaEjercicio(ej.nombre);
       if (!clave) continue;
       const previo = mapa.get(clave);
@@ -436,20 +438,36 @@ export function pendienteSemanal(serie) {
  */
 export function mediaMovil(pesos, ventana = 7) {
   const serie = conFecha(pesos).sort(porFecha);
-  return serie.map((p) => {
-    const hasta = desdeIso(p.fecha).getTime();
-    const desde = hasta - (ventana - 1) * 86400000;
-    const dentro = serie.filter((q) => {
-      const t = desdeIso(q.fecha).getTime();
-      return t >= desde && t <= hasta;
-    });
-    return {
-      ...p,
-      media: dentro.length >= 3
-        ? Number((dentro.reduce((s, q) => s + q.kg, 0) / dentro.length).toFixed(2))
-        : null,
-    };
-  });
+
+  /* Ventana deslizante con la suma acumulada.
+     Antes, cada punto recorría la serie entera y construía una fecha por cada
+     comparación: con tres años de pesajes eran nueve millones de `new Date` y
+     la gráfica tardaba casi un segundo en aparecer. Ahora las fechas se
+     calculan una vez y el índice de la izquierda solo avanza, así que el coste
+     crece con los pesajes y no con su cuadrado. */
+  const t = serie.map((p) => desdeIso(p.fecha).getTime());
+  const ancho = (ventana - 1) * 86400000;
+
+  const salida = [];
+  let ini = 0;
+  let suma = 0;
+  let dentro = 0;
+
+  for (let i = 0; i < serie.length; i++) {
+    const kg = Number(serie[i].kg);
+    if (Number.isFinite(kg)) { suma += kg; dentro++; }
+
+    while (t[ini] < t[i] - ancho) {
+      const viejo = Number(serie[ini].kg);
+      if (Number.isFinite(viejo)) { suma -= viejo; dentro--; }
+      ini++;
+    }
+
+    // Con menos de tres pesajes dentro la media no dice nada y se deja en nulo.
+    salida.push({ ...serie[i], media: dentro >= 3 ? Number((suma / dentro).toFixed(2)) : null });
+  }
+
+  return salida;
 }
 
 /**

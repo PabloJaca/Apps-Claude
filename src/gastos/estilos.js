@@ -4,7 +4,10 @@
 
 export const CSS = `
 .gx {
-  --paper:#F1F6FA; --card:#FFFFFF; --ink:#15293C; --soft:#7C93A8;
+  /* «soft» estaba en #7C93A8: sobre blanco son 3,2 de contraste y sobre el
+     papel 2,9, por debajo del mínimo para texto pequeño. Con #5C7488 pasa a
+     4,9 y 4,5 sin dejar de ser el gris de lo secundario. */
+  --paper:#F1F6FA; --card:#FFFFFF; --ink:#15293C; --soft:#5C7488;
   --line:#E6EDF3; --accent:#0F9E8E; --mint:#1FB47A; --amber:#F5A524; --coral:#F4614E;
   --sombra:0 1px 2px rgba(21,41,60,.04), 0 6px 20px rgba(21,41,60,.055);
   min-height:100dvh; height:100dvh; display:flex; flex-direction:column;

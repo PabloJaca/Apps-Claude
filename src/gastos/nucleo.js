@@ -152,8 +152,8 @@ export const huella = (t) =>
  */
 export function gastosFrecuentes(gastos, limite = 3, hoy = hoyISO()) {
   const grupos = new Map();
-  for (const g of gastos || []) {
-    if (!g || !g.nota || !g.fecha) continue;
+  for (const g of conFecha(gastos)) {
+    if (!g.nota) continue;
     const clave = huella(g.nota);
     if (!clave) continue;
     const dias = Math.max(0, Math.round((new Date(hoy) - new Date(g.fecha)) / 86400000));
@@ -193,8 +193,8 @@ export function buscarMovimientos(datos, { texto = "", categoria = null, desde =
     (!desde || m.fecha >= desde) &&
     (!hasta || m.fecha <= hasta);
 
-  const gastos = (datos.gastos || []).filter(dentro).map((g) => ({ ...g, tipo: "gasto" }));
-  const ingresos = (datos.ingresos || [])
+  const gastos = conFecha(datos && datos.gastos).filter(dentro).map((g) => ({ ...g, tipo: "gasto" }));
+  const ingresos = conFecha(datos && datos.ingresos)
     .filter((i) => (!clave || huella(i.nota).includes(clave)) && (!desde || i.fecha >= desde) && (!hasta || i.fecha <= hasta))
     .filter(() => !categoria)          // los ingresos no tienen categoría de gasto
     .map((i) => ({ ...i, tipo: "ingreso" }));
@@ -400,22 +400,64 @@ export function olvidarLegado(almacen) {
   }
 }
 
+/* ── la frontera de los datos ────────────────────────────────────────────── */
+
+/**
+ * Lo que llega de fuera puede venir a medias.
+ *
+ * Un apunte sin fecha, un hueco en la lista o un importe que es texto no
+ * aparecen porque alguien los escriba a mano: aparecen por una sincronización
+ * cortada, un guardado a medias o una copia vieja restaurada. Y sin filtrarlos
+ * aquí, un solo documento roto tumba la pantalla entera.
+ *
+ * Se descarta en la frontera y no dentro de cada cuenta: así hay un único
+ * sitio donde mirar cuando algo no cuadra.
+ */
+export const esFechaISO = (f) => typeof f === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f);
+
+export const conFecha = (lista) =>
+  (Array.isArray(lista) ? lista : []).filter(
+    (r) => r && typeof r === "object" && esFechaISO(r.fecha) && Number.isFinite(Number(r.importe))
+  );
+
+/** Un fijo necesita nombre, importe y desde cuándo; el resto se recorta. */
+export const fijosSanos = (lista) =>
+  (Array.isArray(lista) ? lista : [])
+    .filter((f) => f && typeof f === "object")
+    .filter((f) => /^\d{4}-\d{2}$/.test(String(f.desde)) && Number.isFinite(Number(f.importe)))
+    .filter((f) => !f.hasta || String(f.hasta) >= String(f.desde))   // ni al revés
+    .map((f) => ({ ...f, nombre: String(f.nombre || "Sin nombre") }));
+
+/**
+ * Un tope solo vale si es un número positivo.
+ *
+ * `"mil" || null` es `"mil"`, así que un presupuesto guardado como texto
+ * pasaba por bueno y dividir por él daba porcentajes NaN en la revisión.
+ */
+export const presupuestoValido = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+export const categoriasSanas = (lista) =>
+  (Array.isArray(lista) ? lista : []).filter((c) => c && typeof c === "object" && c.id);
+
 /* ── cálculo de movimientos ──────────────────────────────────────────────── */
 
 /** Convierte los fijos activos en movimientos concretos de un mes. */
 export function expandirFijos(fijos, mesKey, tipo = "gasto") {
   const { y, m } = desdeClaveMes(mesKey);
   const nDias = diasDelMes(y, m);
-  return (fijos || [])
+  return fijosSanos(fijos)
     .filter((f) => f.desde <= mesKey && (!f.hasta || mesKey <= f.hasta))
     .filter((f) => (tipo === "ingreso" ? f.tipo === "ingreso" : f.tipo !== "ingreso"))
     .map((f) => {
-      const dia = Math.min(Math.max(1, f.dia || 1), nDias);
+      const dia = Math.min(Math.max(1, Math.round(Number(f.dia)) || 1), nDias);
       return {
         id: `fijo:${f.id}:${mesKey}`,
         fijoId: f.id,
         esFijo: true,
-        importe: f.importe,
+        importe: Number(f.importe),
         categoria: f.categoria,
         fecha: `${mesKey}-${String(dia).padStart(2, "0")}`,
         nota: f.nombre,
@@ -424,14 +466,14 @@ export function expandirFijos(fijos, mesKey, tipo = "gasto") {
 }
 
 export function movimientosDeMes(datos, mesKey) {
-  const reales = (datos.gastos || []).filter((g) => mesDeISO(g.fecha) === mesKey);
-  return [...reales, ...expandirFijos(datos.fijos, mesKey)];
+  const reales = conFecha(datos && datos.gastos).filter((g) => mesDeISO(g.fecha) === mesKey);
+  return [...reales, ...expandirFijos(datos && datos.fijos, mesKey)];
 }
 
 /** Lo que entra en el mes: lo apuntado a mano más la nómina y demás fijos. */
 export function ingresosDeMes(datos, mesKey) {
-  const reales = (datos.ingresos || []).filter((g) => mesDeISO(g.fecha) === mesKey);
-  return [...reales, ...expandirFijos(datos.fijos, mesKey, "ingreso")];
+  const reales = conFecha(datos && datos.ingresos).filter((g) => mesDeISO(g.fecha) === mesKey);
+  return [...reales, ...expandirFijos(datos && datos.fijos, mesKey, "ingreso")];
 }
 
 /**
@@ -454,13 +496,13 @@ export function balanceDeMes(datos, mesKey) {
   };
 }
 
-export const suma = (lista) => lista.reduce((s, g) => s + (Number(g.importe) || 0), 0);
+export const suma = (lista) =>
+  (Array.isArray(lista) ? lista : []).reduce((s, g) => s + ((g && Number(g.importe)) || 0), 0);
 
 /** Meses (clave) que tienen algún movimiento, del más antiguo al más reciente. */
 export function mesesConDatos(datos) {
-  const claves = new Set((datos.gastos || []).map((g) => mesDeISO(g.fecha)));
-  for (const f of datos.fijos || []) {
-    if (!f.desde) continue;
+  const claves = new Set(conFecha(datos && datos.gastos).map((g) => mesDeISO(g.fecha)));
+  for (const f of fijosSanos(datos && datos.fijos)) {
     let { y, m } = desdeClaveMes(f.desde);
     const fin = f.hasta || mesActualClave();
     for (let i = 0; i < 120; i++) {

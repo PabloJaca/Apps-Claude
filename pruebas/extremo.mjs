@@ -1072,7 +1072,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(900);
   await saltarBienvenida(pag);
 
-  await pag.click('button[aria-label="Apuntar hablando"]');
+  await pag.click('header button[aria-label="Apuntar hablando"]');
   await pag.waitForTimeout(700);
   check("voz salud: lo dictado llega al campo", /press banca/i.test(await pag.inputValue("textarea")),
     await pag.inputValue("textarea"));
@@ -1095,6 +1095,87 @@ const apuntarGasto = async (pag, importe, concepto) => {
     JSON.stringify(entreno && entreno[1].ejercicios));
 
   check("voz salud: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5quater. Gastos: un documento roto no puede dejar la pantalla en blanco ── */
+
+/* No hace falta que nadie escriba basura a mano: basta una sincronización
+   cortada, un guardado a medias o una copia vieja restaurada. Lo que no puede
+   pasar es que un solo documento se lleve la aplicación por delante. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const mes = hoy.slice(0, 7);
+    const uid = "usuarios/uid_hugo";
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "hugo@ejemplo.com": { clave: "x", uid: "uid_hugo" } },
+      docs: {
+        "permitidos/hugo@ejemplo.com": { nombre: "Hugo" },
+        [uid]: { email: "hugo@ejemplo.com", sembrado: true, bienvenida: 1,
+                 ajustes: { presupuestoGlobal: "mil", objetivos: [null, { meta: "x" }] } },
+        [`${uid}/categorias/comida`]: { nombre: "Comida", color: "#F4614E", icono: "utensils", orden: 0 },
+        [`${uid}/categorias/rota`]: {},
+        [`${uid}/gastos/bueno`]: { importe: 42.3, categoria: "comida", fecha: hoy, nota: "Mercadona" },
+        [`${uid}/gastos/sinfecha`]: { importe: 20, categoria: "comida" },
+        [`${uid}/gastos/importeraro`]: { importe: "treinta", categoria: "comida", fecha: hoy },
+        [`${uid}/gastos/sincategoria`]: { importe: 15, fecha: hoy },
+        [`${uid}/ingresos/roto`]: { importe: 900 },
+        [`${uid}/fijos/sinDesde`]: { nombre: "Roto", importe: 10, categoria: "comida", dia: 1 },
+        [`${uid}/fijos/alreves`]: { nombre: "Alrevés", importe: 10, categoria: "comida", dia: 99, desde: "2027-12", hasta: "2026-01" },
+        [`${uid}/fijos/bueno`]: { nombre: "Alquiler", importe: 750, categoria: "comida", dia: 1, desde: mes, tipo: "gasto" },
+      },
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_hugo", email: "hugo@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(1800);
+
+  const hayApp = async () => (await pag.locator(".barra .pestana").count()) === 3;
+  check("gastos rotos: la app arranca igual", await hayApp(), (await texto(pag)).slice(0, 200));
+  check("gastos rotos: se ve el gasto bueno", /Mercadona/.test(await texto(pag)), (await texto(pag)).slice(0, 300));
+
+  for (const t of ["Resumen", "Análisis", "Ajustes"]) {
+    await pag.click(`.pestana:has-text("${t}")`);
+    await pag.waitForTimeout(600);
+    const v = await pag.innerText("main");
+    check(`gastos rotos: la pestaña de ${t} se pinta`, await hayApp(), v.slice(0, 160));
+    check(`gastos rotos: ${t} no enseña «undefined» ni «NaN»`, !/undefined|NaN/.test(v), v.replace(/\n+/g, " | ").slice(0, 260));
+    check(`gastos rotos: ${t} no se sale de la pantalla`,
+      await pag.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  }
+
+  /* La revisión del mes es el cálculo más largo y el que menos se prueba. */
+  await pag.click(`.pestana:has-text("Resumen")`);
+  await pag.waitForTimeout(400);
+  if (await pag.locator(".tarjetaRevision").count()) {
+    await pag.click(".tarjetaRevision");
+    await pag.waitForTimeout(800);
+    const rev = await pag.innerText(".pantallaCompleta");
+    check("gastos rotos: la revisión se genera", rev.length > 60, rev.slice(0, 200));
+    check("gastos rotos: y no enseña cuentas rotas", !/undefined|NaN|Infinity/.test(rev), rev.replace(/\n+/g, " | ").slice(0, 280));
+    await pag.click('.pantallaCaja button[aria-label="Cerrar"]');
+    await pag.waitForTimeout(300);
+  }
+
+  /* Y los fijos rotos no pueden tumbar su pantalla. */
+  await pag.click(`.pestana:has-text("Ajustes")`);
+  await pag.waitForTimeout(400);
+  await pag.click(".filaAjuste");
+  await pag.waitForTimeout(600);
+  check("gastos rotos: la pantalla de fijos aguanta", /Lo que sale/.test(await texto(pag)), (await texto(pag)).slice(0, 300));
+  check("gastos rotos: el fijo con las fechas al revés no aparece",
+    !/Alrevés/.test(await pag.innerText(".pantallaCompleta")),
+    (await pag.innerText(".pantallaCompleta")).slice(0, 300));
+
+  check("gastos rotos: ni un solo error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
 

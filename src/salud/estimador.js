@@ -15,7 +15,8 @@ import { ALIMENTOS, INDICE, RACION_GENERICA } from "./alimentos.js";
 const LETRA = /[a-z0-9ñ]/;
 
 export function normalizar(texto = "") {
-  return texto
+  // Lo que llega de una copia restaurada puede no ser ni siquiera texto.
+  return String(texto == null ? "" : texto)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -115,7 +116,9 @@ function saciedadEsperada(kcal, grupos, momento) {
  * y cómo te dejó (1-4). Cuando las tres apuntan a lo mismo, el margen se
  * cierra bastante; cuando se contradicen, se abre y se dice por qué.
  */
-export function estimarComida(comida) {
+export function estimarComida(comidaCruda) {
+  // Un hueco en la lista no puede tumbar la estimación del día entero.
+  const comida = comidaCruda && typeof comidaCruda === "object" ? comidaCruda : {};
   const analisis = analizarTexto(comida.texto || "");
   const volumen = acotar(Number(comida.volumen) || 3, 1, 5);
   const factor = [0.5, 0.75, 1, 1.35, 1.75][volumen - 1];

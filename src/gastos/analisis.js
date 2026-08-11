@@ -12,7 +12,8 @@
 
 import {
   DIAS_SEMANA, MESES, claveMes, desdeClaveMes, diaDeISO, diaSemanaISO,
-  diasDelMes, eur, mesActualClave, mesDeISO, mesesConDatos, movimientosDeMes,
+  diasDelMes, eur, fijosSanos, mesActualClave, mesDeISO, mesesConDatos, movimientosDeMes,
+  presupuestoValido,
   restarMeses, suma,
 } from "./nucleo.js";
 
@@ -160,6 +161,12 @@ function analisisPorDia(variables, nDias, diasTranscurridos) {
 /* ── informe ─────────────────────────────────────────────────────────────── */
 
 export function analizarMes(datos, mesKey, catPorId) {
+  /* Una clave de mes que no lo es dejaba `MESES[NaN]` undefined y reventaba al
+     escribir el título. No pasa desde la app, pero una copia restaurada a mano
+     sí puede traerla. */
+  if (!/^\d{4}-\d{2}$/.test(String(mesKey))) {
+    return { hayDatos: false, mesKey, titulo: "Mes desconocido", motivo: "No reconozco ese mes." };
+  }
   const { y, m } = desdeClaveMes(mesKey);
   const nDias = diasDelMes(y, m);
   const esActual = mesKey === mesActualClave();
@@ -206,7 +213,7 @@ export function analizarMes(datos, mesKey, catPorId) {
   const proyeccion = esActual ? totalFijos + ritmoVariable * nDias : total;
 
   /* presupuesto */
-  const presupuesto = datos.ajustes?.presupuestoGlobal || null;
+  const presupuesto = presupuestoValido(datos.ajustes && datos.ajustes.presupuestoGlobal);
   const usado = presupuesto ? total / presupuesto : null;
   const proyectadoSobrePresupuesto = presupuesto ? proyeccion / presupuesto : null;
 
@@ -263,7 +270,7 @@ export function analizarMes(datos, mesKey, catPorId) {
   const mayores = [...variables].sort((a, b) => b.importe - a.importe).slice(0, 3);
 
   /* fijos */
-  const fijosActivos = (datos.fijos || []).filter((f) => f.desde <= mesKey && (!f.hasta || mesKey <= f.hasta));
+  const fijosActivos = fijosSanos(datos.fijos).filter((f) => f.desde <= mesKey && (!f.hasta || mesKey <= f.hasta));
   const fijoCaro = [...fijosActivos].sort((a, b) => b.importe - a.importe)[0] || null;
   const costeAnualFijos = totalFijos * 12;
 
@@ -272,7 +279,7 @@ export function analizarMes(datos, mesKey, catPorId) {
     const p = restarMeses(y, m, -1);
     const k = claveMes(p.y, p.m);
     const fijosSig = suma(
-      (datos.fijos || []).filter((f) => f.desde <= k && (!f.hasta || k <= f.hasta))
+      fijosSanos(datos.fijos).filter((f) => f.desde <= k && (!f.hasta || k <= f.hasta))
     );
     const variablesPrevias = previos.map((c) => suma(movimientosDeMes(datos, c).filter((g) => !g.esFijo)));
     const mediaVar = variablesPrevias.length

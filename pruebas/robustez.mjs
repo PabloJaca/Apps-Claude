@@ -252,5 +252,37 @@ check("balance con rango invertido no revienta", (() => {
   return b === null || Number.isFinite(b.medio);
 })());
 
+/* ── el estimador de comidas y el dictado, que comen texto de fuera ──────── */
+
+const { analizarTexto } = await import("../src/salud/estimador.js");
+const { interpretarSalud } = await import("../src/salud/dictado.js");
+
+for (const c of [
+  null, undefined, {}, { texto: "" }, { texto: null }, { texto: 123 },
+  { texto: "arroz", volumen: 0 }, { texto: "arroz", volumen: 99 },
+  { texto: "arroz", volumen: "tres" }, { texto: "arroz", saciedad: -5 },
+  { texto: "x".repeat(4000), volumen: 3 }, { texto: "🍕🍕🍕", volumen: 3 },
+]) {
+  aguanta(`estimarComida aguanta ${String(JSON.stringify(c)).slice(0, 40)}`, () => estimarComida(c));
+}
+
+aguanta("analizarTexto de nada", () => analizarTexto(undefined));
+aguanta("analizarTexto de un número", () => analizarTexto(42));
+
+for (const frase of [
+  "", "   ", "?????", "peso", "80 por", "x".repeat(3000), "🍕",
+  "peso 999999 kilos", "he comido -5 platos", "3 series de",
+  "press banca por 8", "he corrido kilómetros en minutos",
+]) {
+  aguanta(`interpretarSalud aguanta «${frase.slice(0, 24)}»`, () => interpretarSalud(frase, cojos));
+}
+aguanta("interpretarSalud sin datos", () => interpretarSalud("peso 82", undefined));
+aguanta("interpretarSalud con datos rotos", () => interpretarSalud("press banca 80 por 8", { entrenos: [null, {}] }));
+
+/* Un peso imposible no puede colarse como pesaje bueno. */
+const gordo = interpretarSalud("peso 999999 kilos", cojos);
+check("un peso imposible no se toma por bueno", !gordo || gordo.seccion !== "peso" || gordo.kg <= 400,
+  JSON.stringify(gordo));
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

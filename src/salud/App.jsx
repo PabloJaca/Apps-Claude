@@ -28,10 +28,20 @@ import {
 /* ---------------------------------------------------------------- tokens */
 
 const C = {
-  bg: "#EDF3F8", soft: "#F6FAFC", card: "#FFFFFF", ink: "#15303D", mid: "#5C7B8C",
-  faint: "#9BB2BF", line: "#E3EDF3", teal: "#10B3A3", tealSoft: "#DCF5F1",
-  mint: "#3FD69A", mintSoft: "#E0F9ED", coral: "#FF7A6B", coralSoft: "#FFE8E4",
-  amber: "#FFB13B", amberSoft: "#FFF2DE", indigo: "#7B8DF9", indigoSoft: "#E8EBFE",
+  /* Los dos grises se bajaron un escalón: «faint» estaba en #9BB2BF, que sobre
+     blanco da un contraste de 2,2 y deja los rótulos («HOY», «MOMENTO») casi
+     invisibles al sol. Ahora los dos pasan el mínimo legible y siguen siendo
+     dos pasos distintos por debajo del negro. */
+  bg: "#EDF3F8", soft: "#F6FAFC", card: "#FFFFFF", ink: "#15303D", mid: "#4C6675",
+  faint: "#5F7C8A", line: "#E3EDF3",
+  /* Los cinco acentos venían de una paleta pastel y estaban entre 1,8 y 3,0 de
+     contraste. Eso no fallaba solo cuando el color era el texto («−0,2 kg» en
+     menta sobre gris daba 1,7): también el texto BLANCO encima de los botones
+     verdes se quedaba en 2,6. Bajados de tono, los dos usos pasan el mínimo y
+     los fondos suaves siguen igual, que son los que dan el color a la app. */
+  teal: "#0A7F74", tealSoft: "#DCF5F1",
+  mint: "#0E8A5F", mintSoft: "#E0F9ED", coral: "#C4392B", coralSoft: "#FFE8E4",
+  amber: "#A66A00", amberSoft: "#FFF2DE", indigo: "#6060CE", indigoSoft: "#E8EBFE",
 };
 
 const sh = "0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06)";
@@ -284,10 +294,20 @@ const etiquetaLarga = (f) => {
  * Van en su propio grupo para que se peguen entre sí y no hereden la
  * separación de la fila, que en el móvil obligaba al texto a partirse.
  */
+/**
+ * Editar y borrar, uno al lado del otro.
+ *
+ * Medían 23 píxeles de lado. Con el dedo eso es fallar el tiro, y aquí fallarlo
+ * significa borrar lo que querías corregir. El icono se queda igual de discreto
+ * pero la zona que responde al toque llega a 40, que es lo mínimo razonable.
+ */
 function Acciones({ onEditar, onBorrar, size = 15, que = "el registro" }) {
-  const boton = { ...btnBorrar, padding: 5 };
+  const boton = {
+    ...btnBorrar, padding: 0, width: 40, height: 40,
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+  };
   return (
-    <span className="flex items-center" style={{ gap: 1, marginRight: -3, flexShrink: 0 }}>
+    <span className="flex items-center" style={{ gap: 0, marginRight: -8, flexShrink: 0 }}>
       <button onClick={onEditar} style={boton} aria-label={`Editar ${que}`} title="Editar">
         <Pencil size={size} color={C.faint} />
       </button>
@@ -2438,6 +2458,13 @@ function Aplicacion({ sesion }) {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {/* El micrófono vive aquí y no flotando abajo: como botón flotante
+                se montaba encima del formulario y tapaba el «+» del peso y
+                media palabra de «Guardar». */}
+            <button onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando"
+              style={{ border: "none", background: C.card, borderRadius: 16, padding: 11, cursor: "pointer", boxShadow: sh }}>
+              <Mic size={19} color={C.teal} strokeWidth={2.3} />
+            </button>
             <PastillaSync estado={estado} paleta={PALETA_CUENTA} onAbrir={() => setPantalla("cuenta")} />
             <button onClick={() => setPantalla("perfil")} aria-label="Perfil"
               style={{ border: "none", background: C.card, borderRadius: 16, padding: 11, cursor: "pointer", boxShadow: sh }}>
@@ -2447,7 +2474,10 @@ function Aplicacion({ sesion }) {
         </div>
       </header>
 
-      <main className="contenedor" style={{ padding: "10px 16px 128px" }}>
+      {/* El hueco de abajo tiene que dejar pasar el botón flotante: con 128 px la
+          última fila de botones se quedaba debajo de él y no había forma de
+          tocarla sin seguir bajando. */}
+      <main className="contenedor" style={{ padding: "10px 16px 176px" }}>
         {!listo && !error && <Vacio texto="Cargando tus datos…" />}
 
         {error && (
@@ -2500,17 +2530,6 @@ function Aplicacion({ sesion }) {
           boxShadow: "0 10px 24px rgba(16,179,163,.45)", display: "flex", alignItems: "center", justifyContent: "center",
         }}>
         <Plus size={25} strokeWidth={2.7} />
-      </button>
-
-      {/* El micrófono, encima del botón de añadir: apuntar hablando es la vía
-          rápida, y la de siempre sigue justo debajo. */}
-      <button onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando" className="botonFlotante"
-        style={{
-          position: "fixed", right: 20, bottom: 158, zIndex: 50, width: 48, height: 48, borderRadius: 17,
-          border: "none", background: C.card, color: C.teal, cursor: "pointer",
-          boxShadow: sh, display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-        <Mic size={21} strokeWidth={2.4} />
       </button>
 
       <nav className="barraInferior"

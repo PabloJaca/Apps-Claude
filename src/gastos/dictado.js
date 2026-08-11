@@ -17,7 +17,7 @@
 import {
   buscarNumeros, capitalizar, leerFecha, restar, sinTildes, trocear,
 } from "../comun/lengua.js";
-import { adivinarIcono, hoyISO, huella, ORIGENES } from "./nucleo.js";
+import { adivinarIcono, categoriasSanas, conFecha, hoyISO, huella, ORIGENES } from "./nucleo.js";
 
 /* Palabras que no dicen nada del apunte y solo estorban en el concepto. */
 const RELLENO = new Set([
@@ -60,15 +60,15 @@ const ORIGEN_POR_SENA = [
  * categorías propias en vez de imponer unas fijas.
  */
 export function adivinarCategoria(texto, datos) {
-  const cats = (datos && datos.categorias) || [];
+  const cats = categoriasSanas(datos && datos.categorias);
   if (!cats.length) return null;
   const clave = huella(texto);
   if (!clave) return null;
 
   // 1. Tu historial: gana el concepto que más veces hayas apuntado igual.
   const votos = new Map();
-  for (const g of (datos && datos.gastos) || []) {
-    if (!g || !g.nota || !g.categoria) continue;
+  for (const g of conFecha(datos && datos.gastos)) {
+    if (!g.nota || !g.categoria) continue;
     const h = huella(g.nota);
     if (!h) continue;
     if (h === clave || clave.includes(h) || h.includes(clave)) {

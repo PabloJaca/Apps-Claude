@@ -21,10 +21,10 @@ import { EJEMPLOS_GASTOS, interpretarGasto } from "./dictado.js";
 import { CSS } from "./estilos.js";
 import {
   AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
-  adivinarIcono, categoriasIniciales, claveMes, diaDeISO, diasDelMes,
+  adivinarIcono, categoriasIniciales, categoriasSanas, claveMes, conFecha, diaDeISO, diasDelMes, fijosSanos,
   ORIGENES, balanceDeMes, buscarMovimientos, eur, exportar, gastosFrecuentes, plural,
   hoyISO, importar, ingresosDeMes, leerLegado, mesActualClave, movimientosDeMes,
-  nombreMesClave, olvidarLegado, origenDe, porOrden, progresoObjetivo,
+  nombreMesClave, olvidarLegado, origenDe, porOrden, presupuestoValido, progresoObjetivo,
   restarMeses, suma, topeSugerido, uid,
 } from "./nucleo.js";
 
@@ -108,14 +108,17 @@ function Aplicacion({ sesion }) {
 
   /* La pantalla ve un único objeto `datos`, pero no es estado propio: es lo que
      hay ahora mismo en Firestore. Aquí no se escribe nunca. */
+  /* Esta es la frontera: lo que entra de Firestore puede venir a medias —una
+     sincronización cortada, una copia vieja restaurada— y un solo documento
+     roto tumbaba la pantalla entera. Se descarta aquí, en un único sitio. */
   const datos = useMemo(
     () => ({
-      gastos: registros.gastos,
-      ingresos: registros.ingresos,
+      gastos: conFecha(registros.gastos),
+      ingresos: conFecha(registros.ingresos),
       // Firestore devuelve los documentos por identificador, así que el orden
       // que ve la persona se decide aquí, no en la base de datos.
-      fijos: [...registros.fijos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es")),
-      categorias: [...registros.categorias].sort(porOrden),
+      fijos: fijosSanos(registros.fijos).sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es")),
+      categorias: categoriasSanas(registros.categorias).sort(porOrden),
       ajustes: { ...AJUSTES_VACIO, ...(usuario.ajustes || {}) },
     }),
     [registros.gastos, registros.ingresos, registros.fijos, registros.categorias, usuario.ajustes]
@@ -246,7 +249,7 @@ function Aplicacion({ sesion }) {
   const nDias = diasDelMes(cursor.y, cursor.m);
   const diasTranscurridos = esMesEnCurso ? ahora.getDate() : nDias;
   const proyeccion = diasTranscurridos > 0 ? totalFijos + (totalVariable / diasTranscurridos) * nDias : totalFijos;
-  const presupuesto = datos.ajustes?.presupuestoGlobal || null;
+  const presupuesto = presupuestoValido(datos.ajustes && datos.ajustes.presupuestoGlobal);
 
   /* Lo que queda para el día a día una vez pagados los fijos, repartido entre
      los días del mes. Es la línea de puntos del gráfico diario. */
@@ -1709,7 +1712,7 @@ function Ajustes({
   const enCurso = activos.filter((f) => f.desde <= mesKey);
   const totalFijosActivos = enCurso.filter((f) => f.tipo !== "ingreso").reduce((s, f) => s + f.importe, 0);
   const totalIngresosFijos = enCurso.filter((f) => f.tipo === "ingreso").reduce((s, f) => s + f.importe, 0);
-  const presupuesto = datos.ajustes?.presupuestoGlobal ?? null;
+  const presupuesto = presupuestoValido(datos.ajustes && datos.ajustes.presupuestoGlobal);
   const objetivos = datos.ajustes?.objetivos || [];
 
   const anadirCategoria = () => {

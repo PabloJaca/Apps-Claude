@@ -5,6 +5,7 @@
 import { estimarComida, valorarDia } from "../src/salud/estimador.js";
 import { iso, pesosFiables, rangoSemana, revisarPeso, toleranciaPeso } from "../src/salud/nucleo.js";
 import { valorarPeriodo } from "../src/salud/valoracion.js";
+import * as n from "../src/salud/nucleo.js";
 
 let fallos = 0;
 const check = (nombre, cond, extra = "") => {
@@ -461,6 +462,55 @@ check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendien
   // Sin metaDesde se usa el primer pesaje que haya.
   const sinDesde = progresoMeta(serie, { meta: 79 });
   check("meta: sin punto de partida usa el primer pesaje", sinDesde.desde === 85, String(sinDesde.desde));
+}
+
+/* ── la media móvil: que siga siendo la misma, y que siga siendo rápida ──── */
+
+{
+  /* La versión ingenua, la que había antes: para cada punto recorre la serie
+     entera. Sirve de patrón: la rápida tiene que dar exactamente lo mismo. */
+  const ingenua = (pesos, ventana = 7) => {
+    const serie = [...pesos].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const ms = (f) => new Date(f.slice(0, 4), Number(f.slice(5, 7)) - 1, f.slice(8, 10)).getTime();
+    return serie.map((p) => {
+      const hasta = ms(p.fecha);
+      const desde = hasta - (ventana - 1) * 86400000;
+      const dentro = serie.filter((q) => ms(q.fecha) >= desde && ms(q.fecha) <= hasta);
+      return dentro.length >= 3
+        ? Number((dentro.reduce((s, q) => s + q.kg, 0) / dentro.length).toFixed(2))
+        : null;
+    });
+  };
+
+  const serie = [];
+  for (let i = 0; i < 400; i++) {
+    const d = new Date(2025, 0, 1);
+    d.setDate(d.getDate() + i);
+    // Con huecos: no se pesa uno todos los días.
+    if (i % 5 === 3) continue;
+    serie.push({ id: `p${i}`, fecha: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, kg: 80 + Math.sin(i / 9) * 2 });
+  }
+
+  const rapida = n.mediaMovil(serie).map((p) => p.media);
+  const patron = ingenua(serie);
+  check("media móvil: da exactamente lo mismo que la versión ingenua",
+    JSON.stringify(rapida) === JSON.stringify(patron),
+    `${JSON.stringify(rapida.slice(0, 6))} vs ${JSON.stringify(patron.slice(0, 6))}`);
+
+  /* Y que no vuelva a ser cuadrática. Con tres años de pesajes llegó a tardar
+     casi un segundo, que en un móvil es la gráfica congelada. El margen es
+     enorme a propósito: esto vigila el orden de magnitud, no los milisegundos. */
+  const largo = [];
+  for (let i = 0; i < 1100; i++) {
+    const d = new Date(2023, 0, 1);
+    d.setDate(d.getDate() + i);
+    largo.push({ id: `q${i}`, fecha: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, kg: 80 });
+  }
+  n.mediaMovil(largo);
+  const t0 = Date.now();
+  for (let i = 0; i < 5; i++) n.mediaMovil(largo);
+  const ms = (Date.now() - t0) / 5;
+  check("media móvil: tres años de pesajes en menos de 100 ms", ms < 100, `${ms.toFixed(1)} ms`);
 }
 
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
