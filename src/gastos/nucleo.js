@@ -400,6 +400,101 @@ export function olvidarLegado(almacen) {
   }
 }
 
+/**
+ * El año entero de un vistazo.
+ *
+ * La app sabía contar meses y nada más largo. Con la nómina ya apuntada, la
+ * pregunta «¿cuánto he ahorrado este año?» tiene respuesta y no había dónde
+ * verla.
+ *
+ * Los meses que aún no han llegado se marcan y se dejan fuera de los totales:
+ * los fijos se expanden igual en diciembre, y sumarlos sería presumir de un
+ * ahorro que todavía no existe.
+ */
+export function resumenAnual(datos, ano, hoy = hoyISO()) {
+  const anoActual = Number(hoy.slice(0, 4));
+  const mesActual = Number(hoy.slice(5, 7)) - 1;
+  const ultimoMes = ano === anoActual ? mesActual : ano < anoActual ? 11 : -1;
+
+  const meses = [];
+  for (let m = 0; m < 12; m++) {
+    const clave = claveMes(ano, m);
+    const futuro = m > ultimoMes;
+    const gastos = futuro ? 0 : suma(movimientosDeMes(datos, clave));
+    const ingresos = futuro ? 0 : suma(ingresosDeMes(datos, clave));
+    meses.push({
+      clave, mes: m, etiqueta: MESES_CORTOS[m], futuro,
+      gastos, ingresos,
+      ahorro: ingresos > 0 ? Math.round((ingresos - gastos) * 100) / 100 : null,
+      enCurso: ano === anoActual && m === mesActual,
+    });
+  }
+
+  const vividos = meses.filter((x) => !x.futuro);
+  const conDatos = vividos.filter((x) => x.gastos > 0 || x.ingresos > 0);
+
+  const gastado = Math.round(vividos.reduce((s, x) => s + x.gastos, 0) * 100) / 100;
+  const ingresado = Math.round(vividos.reduce((s, x) => s + x.ingresos, 0) * 100) / 100;
+  const ahorrado = ingresado > 0 ? Math.round((ingresado - gastado) * 100) / 100 : null;
+
+  /* La media se hace sobre los meses con algo apuntado, no sobre doce: en
+     enero, dividir el año entre 12 diría que gastas una doceava parte. */
+  const media = conDatos.length ? Math.round((gastado / conDatos.length) * 100) / 100 : 0;
+
+  /* El mes en curso no compite por «el peor»: va por la mitad. */
+  const cerrados = conDatos.filter((x) => !x.enCurso && x.gastos > 0);
+  const ordenados = [...cerrados].sort((a, b) => b.gastos - a.gastos);
+
+  const porCategoria = new Map();
+  for (const mes of vividos) {
+    for (const g of movimientosDeMes(datos, mes.clave)) {
+      const id = g.categoria || "otros";
+      porCategoria.set(id, (porCategoria.get(id) || 0) + (Number(g.importe) || 0));
+    }
+  }
+
+  return {
+    ano,
+    meses,
+    hayDatos: conDatos.length > 0,
+    mesesConDatos: conDatos.length,
+    gastado, ingresado, ahorrado,
+    tasa: ingresado > 0 ? Math.round((ahorrado / ingresado) * 100) : null,
+    media,
+    caro: ordenados[0] || null,
+    barato: ordenados.length > 1 ? ordenados[ordenados.length - 1] : null,
+    categorias: [...porCategoria.entries()]
+      .map(([id, total]) => ({ id, total: Math.round(total * 100) / 100 }))
+      .filter((c) => c.total > 0)
+      .sort((a, b) => b.total - a.total),
+  };
+}
+
+/** Los años que tienen algo apuntado, del más reciente al más antiguo. */
+export function anosConDatos(datos, hoy = hoyISO()) {
+  const anos = new Set([Number(hoy.slice(0, 4))]);
+  for (const clave of mesesConDatos(datos)) anos.add(Number(clave.slice(0, 4)));
+  return [...anos].filter((a) => a > 1900 && a < 3000).sort((a, b) => b - a);
+}
+
+/**
+ * Cuánto llevas sin apuntar un gasto.
+ *
+ * Un cuaderno de gastos con tres días de retraso ya no sirve para nada: lo que
+ * gastaste el sábado no lo recuerdas el martes. Merece un aviso al abrir, no
+ * una notificación: el sitio donde se dice es la propia pantalla.
+ *
+ * No dice nada de una cuenta recién estrenada —esa no ha dejado de apuntar,
+ * es que no ha empezado— ni de un solo día de olvido.
+ */
+export function ausenciaGastos(gastos, hoy = hoyISO(), minimo = 2) {
+  const fechas = conFecha(gastos).map((g) => g.fecha).sort();
+  if (!fechas.length) return null;
+  const ultimo = fechas[fechas.length - 1];
+  const dias = Math.round((new Date(hoy) - new Date(ultimo)) / 86400000);
+  return dias >= minimo ? { dias, ultimo } : null;
+}
+
 /* ── la frontera de los datos ────────────────────────────────────────────── */
 
 /**

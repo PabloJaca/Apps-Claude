@@ -22,7 +22,7 @@ import {
   recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
   pesoCorto, plural, progresoMeta, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe,
-  tendenciaPeso, volumenDe,
+  tendenciaPeso, volumenDe, ausencia as calcularAusencia, energiaDelDia,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -1142,6 +1142,18 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
             <Rotulo>Objetivo: {energia.objetivo.label.toLowerCase()}</Rotulo>
             <span style={{ fontFamily: mono, fontSize: 11.5, color: C.mid }}>diana ~{miles(energia.diana)} kcal</span>
           </div>
+
+          {/* De dónde sale el número. Una diana que cambia sola y no dice por
+              qué no se la cree nadie. */}
+          {energia.extraEntreno > 0 && (
+            <p style={{ fontFamily: body, fontSize: 12, color: C.mid, margin: "-4px 0 12px", display: "flex", alignItems: "center", gap: 6 }}>
+              <Dumbbell size={13} color={C.teal} />
+              <span>
+                {miles(energia.diana - energia.extraEntreno)} de tu perfil{" "}
+                <strong style={{ color: C.teal }}>+{miles(energia.extraEntreno)} por lo que has entrenado hoy</strong>
+              </span>
+            </p>
+          )}
           {(() => {
             const bal = calcularBalance(energia, ev && ev.kcalMin, ev && ev.kcalMax);
             if (!bal) {
@@ -2355,15 +2367,30 @@ function Aplicacion({ sesion }) {
 
   /* Las valoraciones ya no se guardan: se calculan al vuelo cada vez que
      cambian las comidas o el perfil. Instantáneo y siempre coherente. */
+  /* La diana de cada día lleva sumado lo que quemaste entrenando ESE día: un
+     día de pesas y un día de sofá no piden lo mismo de comer. */
+  const entrenosPorDia = useMemo(() => {
+    const m = {};
+    for (const e of datos.entrenos) (m[e.fecha] = m[e.fecha] || []).push(e);
+    return m;
+  }, [datos.entrenos]);
+
+  const energiaDe = useCallback(
+    (fecha) => energiaDelDia(energia, entrenosPorDia[fecha] || [], ultimoPeso, datos.perfil),
+    [energia, entrenosPorDia, ultimoPeso, datos.perfil]
+  );
+
+  const energiaHoy = useMemo(() => energiaDe(hoy()), [energiaDe]);
+
   const evaluaciones = useMemo(() => {
     const porDia = {};
     for (const c of datos.comidas) (porDia[c.fecha] = porDia[c.fecha] || []).push(c);
     const salida = {};
     for (const [fecha, lista] of Object.entries(porDia)) {
-      salida[fecha] = valorarDia(lista.sort((a, b) => (a.ts || 0) - (b.ts || 0)), energia);
+      salida[fecha] = valorarDia(lista.sort((a, b) => (a.ts || 0) - (b.ts || 0)), energiaDe(fecha));
     }
     return salida;
-  }, [datos.comidas, energia]);
+  }, [datos.comidas, energiaDe]);
 
   /* Apuntar algo es escribirlo en Firestore. La lista de la pantalla no se
      toca a mano: se repinta sola cuando Firestore devuelve el cambio. */
@@ -2384,6 +2411,7 @@ function Aplicacion({ sesion }) {
   );
 
   const laRacha = useMemo(() => racha(datos), [datos]);
+  const sinApuntar = useMemo(() => calcularAusencia(datos), [datos]);
 
   /* Cuenta recién estrenada: sin perfil y sin un solo registro de ningún tipo.
      No basta con mirar los pesajes: quien solo hubiera apuntado comidas se
@@ -2480,6 +2508,25 @@ function Aplicacion({ sesion }) {
       <main className="contenedor" style={{ padding: "10px 16px 176px" }}>
         {!listo && !error && <Vacio texto="Cargando tus datos…" />}
 
+        {/* Días sin apuntar. Va arriba del todo y con lo que llevabas antes de
+            dejarlo: sin eso el aviso es un reproche, y con eso es un dato. */}
+        {listo && sinApuntar && (
+          <Card style={{ marginBottom: 14, background: C.amberSoft, boxShadow: "none",
+            display: "flex", alignItems: "center", gap: 12 }}>
+            <Badge Icon={CalendarDays} color={C.amber} soft="#fff" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: display, fontWeight: 700, fontSize: 15, color: C.ink, margin: 0 }}>
+                {sinApuntar.dias} días sin apuntar nada
+              </p>
+              <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: 0 }}>
+                {sinApuntar.rachaPerdida
+                  ? `Llevabas ${sinApuntar.rachaPerdida} días seguidos. Se retoma hoy.`
+                  : "Lo de hoy todavía se puede apuntar."}
+              </p>
+            </div>
+          </Card>
+        )}
+
         {error && (
           <Card style={{ marginBottom: 14, background: C.coralSoft, boxShadow: "none" }}>
             <p style={{ fontFamily: body, fontSize: 13, color: C.ink, margin: 0 }}>{error}</p>
@@ -2501,7 +2548,7 @@ function Aplicacion({ sesion }) {
         {listo && tab === "peso" && <VistaPeso datos={datos} anadir={anadir} borrar={borrar} editar={editar} />}
         {listo && tab === "entrenos" && <VistaEntrenos datos={datos} anadir={anadir} borrar={borrar} editar={editar} />}
         {listo && tab === "comidas" && (
-          <VistaComidas datos={datos} anadir={anadir} borrar={borrar} editar={editar} energia={energia}
+          <VistaComidas datos={datos} anadir={anadir} borrar={borrar} editar={editar} energia={energiaHoy}
             evaluaciones={evaluaciones} irAPerfil={() => setPantalla("perfil")} />
         )}
 

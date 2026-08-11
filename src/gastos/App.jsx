@@ -23,8 +23,8 @@ import {
   AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
   adivinarIcono, categoriasIniciales, categoriasSanas, claveMes, conFecha, diaDeISO, diasDelMes, fijosSanos,
   ORIGENES, balanceDeMes, buscarMovimientos, eur, exportar, gastosFrecuentes, plural,
-  hoyISO, importar, ingresosDeMes, leerLegado, mesActualClave, movimientosDeMes,
-  nombreMesClave, olvidarLegado, origenDe, porOrden, presupuestoValido, progresoObjetivo,
+  anosConDatos, ausenciaGastos, hoyISO, importar, ingresosDeMes, leerLegado, mesActualClave, movimientosDeMes,
+  nombreMesClave, olvidarLegado, origenDe, porOrden, presupuestoValido, progresoObjetivo, resumenAnual,
   restarMeses, suma, topeSugerido, uid,
 } from "./nucleo.js";
 
@@ -266,6 +266,13 @@ function Aplicacion({ sesion }) {
       .sort((a, b) => b.ratio - a.ratio);
   }, [porCategoria, esMesEnCurso]);
 
+  /* Días sin apuntar nada. Solo se mira estando en el mes en curso: en un mes
+     pasado no se ha «dejado de apuntar», es que ya se cerró. */
+  const ausencia = useMemo(
+    () => (esMesEnCurso ? ausenciaGastos(datos.gastos) : null),
+    [datos.gastos, esMesEnCurso]
+  );
+
   /* Cuenta recién estrenada: ni un gasto, ni un ingreso, ni un fijo. Se
      pregunta una sola vez y queda constancia, igual que en Salud, para no dar
      la brasa a quien la saltó. */
@@ -389,10 +396,13 @@ function Aplicacion({ sesion }) {
         <button className="flecha" onClick={() => moverMes(-1)} aria-label="Mes anterior">
           <ChevronLeft size={20} />
         </button>
-        <div className="mesTitulo">
+        {/* El título abre el año: es donde uno mira cuando quiere ver más
+            allá del mes, y así no hace falta otro botón en la barra. */}
+        <button className="mesTitulo" onClick={() => setPantalla("anual")} aria-label={`Ver el año ${cursor.y}`}>
           <span className="mesNombre">{MESES[cursor.m]}</span>
           <span className="mesAno">{cursor.y}</span>
-        </div>
+          <ChevronRight size={15} className="hIcono" />
+        </button>
         <div className="cabeceraDerecha">
           <button className="flecha" onClick={() => setPantalla("buscar")} aria-label="Buscar movimientos">
             <Search size={18} />
@@ -413,7 +423,7 @@ function Aplicacion({ sesion }) {
             totalAnterior={totalMesAnterior}
             nDias={nDias} diasTranscurridos={diasTranscurridos} esMesEnCurso={esMesEnCurso}
             proyeccion={proyeccion} presupuesto={presupuesto} margenVariable={margenVariable}
-            balance={balance} avisosTope={avisosTope}
+            balance={balance} avisosTope={avisosTope} ausencia={ausencia}
             frecuentes={frecuentes} objetivos={objetivos}
             movimientos={movimientos} nFijos={fijosMes.length} catPorId={catPorId}
             onAbrir={abrirMovimiento}
@@ -508,6 +518,10 @@ function Aplicacion({ sesion }) {
 
       {pantalla === "buscar" && (
         <PantallaBuscar datos={datos} catPorId={catPorId} onAbrir={abrirMovimiento} onCerrar={() => setPantalla(null)} />
+      )}
+
+      {pantalla === "anual" && (
+        <PantallaAnual datos={datos} catPorId={catPorId} anoInicial={cursor.y} onCerrar={() => setPantalla(null)} />
       )}
 
       {pantalla === "dictado" && (
@@ -696,7 +710,7 @@ function Bienvenida({ onTerminar, onSaltar }) {
 function Resumen({
   total, totalFijos, totalVariable, totalAnterior,
   nDias, diasTranscurridos, esMesEnCurso, proyeccion, presupuesto, margenVariable,
-  balance, avisosTope, frecuentes, objetivos, movimientos, nFijos, catPorId,
+  balance, avisosTope, ausencia, frecuentes, objetivos, movimientos, nFijos, catPorId,
   onAbrir, onNuevo, onNuevoFijo, onNuevoIngreso, onRepetir, onRevisar, onObjetivos,
   onPresupuesto, onVerTopes,
 }) {
@@ -746,6 +760,21 @@ function Resumen({
           <span className="trozo"><Wallet size={13} /> <b className="mono">{eur(totalVariable, false)}</b> variable</span>
         </div>
       </section>
+
+      {/* Días sin apuntar. Va lo primero porque cuanto antes se diga, menos
+          gastos se pierden: los del sábado ya no se recuerdan el martes. */}
+      {ausencia && (
+        <button className="filaAviso" onClick={onNuevo}>
+          <span className="insignia" style={{ background: "#FFF4E2", color: "#B87400" }}>
+            <CalendarDays size={17} />
+          </span>
+          <span className="itemTexto">
+            <span className="itemCat">{plural(ausencia.dias, "día")} sin apuntar nada</span>
+            <span className="itemNota">Lo último fue el {ausencia.ultimo.slice(8, 10)}/{ausencia.ultimo.slice(5, 7)}</span>
+          </span>
+          <span className="botonTexto">Apuntar</span>
+        </button>
+      )}
 
       {/* Con el mes recién empezado no hay nada que revisar, y la tarjeta negra
           es lo más llamativo de la pantalla: prometía un informe vacío. */}
@@ -1552,6 +1581,147 @@ function PantallaObjetivos({ objetivos, onGuardar, onCerrar }) {
           <Plus size={16} /> Añadir objetivo
         </button>
         <button className="botonPrincipal ancho espaciado" onClick={guardar}>Guardar</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────  EL AÑO  ───────────────────────────── */
+
+/**
+ * Los doce meses de un año, y lo que queda al final.
+ *
+ * La app sabía contar meses y nada más largo, así que «¿cuánto he ahorrado
+ * este año?» no tenía dónde responderse. Los meses que aún no han llegado se
+ * dibujan en gris y no suman: presumir de un ahorro de diciembre en agosto
+ * sería mentir con buena letra.
+ */
+function PantallaAnual({ datos, catPorId, anoInicial, onCerrar }) {
+  const [ano, setAno] = useState(anoInicial);
+  const anos = useMemo(() => anosConDatos(datos), [datos]);
+  const a = useMemo(() => resumenAnual(datos, ano), [datos, ano]);
+
+  useEffect(() => {
+    const alPulsar = (e) => {
+      if (e.key === "Escape") onCerrar();
+      if (e.key === "ArrowLeft") setAno((x) => Math.max(Math.min(...anos), x - 1));
+      if (e.key === "ArrowRight") setAno((x) => Math.min(Math.max(...anos), x + 1));
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar, anos]);
+
+  const maxMes = Math.max(...a.meses.map((m) => Math.max(m.gastos, m.ingresos)), 1);
+  const primero = Math.min(...anos);
+  const ultimo = Math.max(...anos);
+
+  return (
+    <div className="pantallaCompleta">
+      <div className="pantallaCaja">
+        <div className="hojaCabecera">
+          <h2><CalendarDays size={16} className="hIcono" /> El año</h2>
+          <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
+        </div>
+
+        <div className="navMes">
+          <button className="flecha" onClick={() => setAno(ano - 1)} disabled={ano <= primero} aria-label="Año anterior">
+            <ChevronLeft size={19} />
+          </button>
+          <span className="navMesTitulo mono">{ano}</span>
+          <button className="flecha" onClick={() => setAno(ano + 1)} disabled={ano >= ultimo} aria-label="Año siguiente">
+            <ChevronRight size={19} />
+          </button>
+        </div>
+
+        {!a.hayDatos ? (
+          <section className="tarjeta">
+            <div className="vacio">
+              <div className="vacioIcono"><CalendarDays size={26} strokeWidth={1.7} /></div>
+              <p>En {ano} no hay nada apuntado.</p>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="hero anchoCompleto">
+              {a.ahorrado !== null ? (
+                <>
+                  <span className="etiqueta">{a.ahorrado >= 0 ? "Ahorrado en el año" : "Te has pasado en el año"}</span>
+                  <div className={`cifraGrande ${a.ahorrado < 0 ? "enRojo" : ""}`}>{eur(Math.abs(a.ahorrado))}</div>
+                  <div className="filaResumen">
+                    <span className="trozo"><ArrowDownRight size={13} /> <b className="mono">{eur(a.ingresado, false)}</b> entra</span>
+                    <span className="trozo"><ArrowUpRight size={13} /> <b className="mono">{eur(a.gastado, false)}</b> sale</span>
+                    {a.tasa !== null && (
+                      <span className={`delta ${a.tasa >= 0 ? "baja" : "sube"}`}>
+                        <span className="mono">{a.tasa}%</span> ahorrado
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="etiqueta">Gastado en el año</span>
+                  <div className="cifraGrande">{eur(a.gastado)}</div>
+                  <p className="pie">Apunta lo que entra y aquí verás lo que ahorras, no solo lo que gastas.</p>
+                </>
+              )}
+            </section>
+
+            <section className="tarjeta anchoCompleto">
+              <div className="filaCabecera">
+                <h2>Mes a mes</h2>
+                <span className="etiquetaValor mono">{eur(a.media, false)}/mes de media</span>
+              </div>
+              <div className="anoBarras">
+                {a.meses.map((m) => {
+                  const alto = m.gastos > 0 ? Math.max(3, (m.gastos / maxMes) * 100) : 2;
+                  const altoIn = m.ingresos > 0 ? Math.max(3, (m.ingresos / maxMes) * 100) : 0;
+                  return (
+                    <div key={m.clave} className="anoMes">
+                      <div className="anoColumna" title={`${m.etiqueta}: ${eur(m.gastos)}`}>
+                        {altoIn > 0 && <div className="anoIngreso" style={{ height: `${altoIn}%` }} />}
+                        <div className={`anoGasto ${m.futuro ? "futuro" : ""} ${m.enCurso ? "enCurso" : ""}`}
+                          style={{ height: `${alto}%` }} />
+                      </div>
+                      <span className={`anoEtiqueta ${m.enCurso ? "enCurso" : ""}`}>{m.etiqueta}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="pie">
+                La barra clara de detrás es lo que entró.
+                {a.caro && <> El mes más caro fue <strong>{MESES[a.caro.mes]}</strong>, con {eur(a.caro.gastos, false)}</>}
+                {a.barato && <>, y el más barato <strong>{MESES[a.barato.mes]}</strong>, con {eur(a.barato.gastos, false)}</>}
+                {a.caro && "."}
+              </p>
+            </section>
+
+            <section className="tarjeta">
+              <div className="filaCabecera">
+                <h2>Dónde se fue el año</h2>
+                <span className="etiquetaValor mono">{plural(a.categorias.length, "categoría", "categorías")}</span>
+              </div>
+              <ul className="leyenda">
+                {a.categorias.slice(0, 8).map((c) => {
+                  const cat = catPorId[c.id];
+                  const color = cat?.color || "#7C93A8";
+                  return (
+                    <li key={c.id}>
+                      <span className="insignia mini" style={{ background: `${color}1F`, color }}>
+                        <Icono nombre={cat?.icono} size={14} />
+                      </span>
+                      <span className="leyNombre">{cat?.nombre || "Sin categoría"}</span>
+                      <span className="leyBarra"><i style={{ width: `${(c.total / a.categorias[0].total) * 100}%`, background: color }} /></span>
+                      <span className="leyImporte mono">{eur(c.total, false)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="pie">
+                Son {plural(a.mesesConDatos, "mes", "meses")} con algo apuntado, no el año entero.
+              </p>
+            </section>
+          </>
+        )}
       </div>
     </div>
   );

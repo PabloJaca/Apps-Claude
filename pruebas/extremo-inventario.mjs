@@ -17,12 +17,12 @@
 export const PANTALLAS_ABIERTAS = {
   gastos: [
     "Bienvenida", "HojaGasto", "HojaFijo",
-    "PantallaFijos", "PantallaBuscar", "PantallaObjetivos",
-    "PantallaCuenta", "HojaDictado",
+    "PantallaFijos", "PantallaBuscar", "PantallaObjetivos", "PantallaAnual",
+    "PantallaCuenta", "HojaDictado", "PantallaBloqueo",
   ],
   salud: [
     "Bienvenida", "HojaFecha", "HojaEjercicio",
     "PantallaEjercicio", "PantallaOtrosDias", "PantallaValoracion", "PantallaPerfil",
-    "PantallaCuenta", "HojaDictado",
+    "PantallaCuenta", "HojaDictado", "PantallaBloqueo",
   ],
 };

@@ -45,7 +45,10 @@ export const CSS = `
 .flecha:hover:not(:disabled) { color:var(--accent); }
 .flecha:active:not(:disabled) { transform:scale(.93); }
 .flecha:disabled { opacity:.3; cursor:default; box-shadow:none; background:transparent; }
-.mesTitulo { display:flex; align-items:baseline; gap:7px; font-family:'Bricolage Grotesque', sans-serif; }
+.mesTitulo { display:flex; align-items:baseline; gap:7px; font-family:'Bricolage Grotesque', sans-serif;
+  padding:6px 8px; margin-left:-8px; border-radius:12px; transition:background .14s; }
+.mesTitulo:hover { background:#E7EEF4; }
+.mesTitulo .hIcono { align-self:center; }
 .mesNombre { font-size:18px; font-weight:700; letter-spacing:-.025em; text-transform:capitalize; }
 .mesAno { font-size:13px; color:var(--soft); font-weight:500; }
 
@@ -181,6 +184,20 @@ export const CSS = `
 .chipVerde { background:#DFF6EB; color:#0E8A5F; }
 .chipAmbar { background:#FFF4E2; color:#B87400; }
 
+/* ── el año ──────────────────────────────────────────────────────────── */
+
+.anoBarras { display:flex; align-items:flex-end; gap:5px; height:132px; }
+.anoMes { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
+.anoColumna { position:relative; flex:1; width:100%; display:flex; align-items:flex-end; justify-content:center; }
+/* Lo que entró va detrás y en claro: es el listón contra el que se lee el
+   gasto, no otra barra que competir con la primera. */
+.anoIngreso { position:absolute; bottom:0; left:0; right:0; background:#DDEBE8; border-radius:5px 5px 2px 2px; }
+.anoGasto { position:relative; width:100%; background:var(--accent); border-radius:5px 5px 2px 2px; min-height:2px; }
+.anoGasto.futuro { background:#E1E9F0; }
+.anoGasto.enCurso { background:var(--ink); }
+.anoEtiqueta { font-size:9.5px; color:var(--soft); text-transform:capitalize; }
+.anoEtiqueta.enCurso { color:var(--ink); font-weight:700; }
+
 /* ── avisos de tope ──────────────────────────────────────────────────── */
 
 .avisoTopes { border-left:4px solid var(--amber); }
@@ -190,6 +207,11 @@ export const CSS = `
 .avisoPie { font-size:11.5px; color:var(--soft); }
 
 /* ── fila que lleva a otra pantalla ──────────────────────────────────── */
+
+.filaAviso { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  justify-content:flex-start; background:#FFF9EF; border-left:4px solid var(--amber);
+  border-radius:18px; padding:14px 16px; box-shadow:var(--sombra); }
+.filaAviso .itemNota { color:#8A6212; }
 
 .filaAjuste { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
   justify-content:flex-start; background:var(--card); border-radius:18px; padding:15px 17px;
@@ -406,7 +428,7 @@ export const CSS = `
     max-width:1000px; display:grid; align-content:start;
     grid-template-columns:1fr 1fr; gap:16px; padding:8px 24px 120px;
   }
-  .hero, .anchoCompleto, .tarjetaRevision, .filaAjuste { grid-column:1 / -1; }
+  .hero, .anchoCompleto, .tarjetaRevision, .filaAjuste, .filaAviso { grid-column:1 / -1; }
   /* La bienvenida es una columna de preguntas: en dos columnas se leería en zigzag. */
   .lienzo.bienvenida { display:flex; max-width:520px; padding-bottom:48px; }
   .cabecera { max-width:1000px; padding:18px 24px 14px; }

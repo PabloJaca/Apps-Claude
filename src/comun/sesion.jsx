@@ -16,6 +16,8 @@ import {
   ERROR_SIN_INVITACION, alCambiarSesion, entrar, estaInvitado, hayNube,
   recuperar, registrar, salir,
 } from "./nube.js";
+import { MINUTOS_GRACIA, debeBloquear, marcarVisto } from "./bloqueo.js";
+import { PantallaBloqueo } from "./bloqueo.jsx";
 
 const CSS_PUERTA = `
 @keyframes puertaEntra { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
@@ -31,8 +33,32 @@ const CSS_PUERTA = `
 export function Puerta({ paleta, titulo, descripcion, children }) {
   const [sesion, setSesion] = useState(undefined); // undefined = comprobando
   const [invitado, setInvitado] = useState(undefined);
+  const [abierto, setAbierto] = useState(false);
 
   useEffect(() => alCambiarSesion(setSesion), []);
+
+  /* El candado, si esta cuenta lo tiene puesto en este aparato. Al arrancar
+     siempre; al volver de segundo plano, solo si se ha estado fuera un rato:
+     pedirlo cada vez que sales a mirar el banco es la mejor forma de que
+     acabes quitándolo. */
+  useEffect(() => {
+    if (!sesion) return setAbierto(false);
+    setAbierto(!debeBloquear(sesion.uid, { arranque: true }));
+  }, [sesion && sesion.uid]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!sesion) return undefined;
+    const alCambiar = () => {
+      if (document.visibilityState === "hidden") {
+        // Al irse se apunta la hora, que es contra la que se mide al volver.
+        setAbierto((a) => { if (a) marcarVisto(sesion.uid); return a; });
+        return;
+      }
+      if (debeBloquear(sesion.uid, { arranque: false, minutos: MINUTOS_GRACIA })) setAbierto(false);
+    };
+    document.addEventListener("visibilitychange", alCambiar);
+    return () => document.removeEventListener("visibilitychange", alCambiar);
+  }, [sesion]);
 
   /* Comprobación de cortesía: quien decide de verdad son las reglas. Sirve
      para enseñar «esto es privado» en vez de un error de permisos. */
@@ -48,6 +74,16 @@ export function Puerta({ paleta, titulo, descripcion, children }) {
   if (!sesion) return <Acceso paleta={paleta} titulo={titulo} descripcion={descripcion} />;
   if (invitado === undefined) return <Esperando paleta={paleta} texto="Comprobando tu acceso…" />;
   if (!invitado) return <SinInvitacion paleta={paleta} email={sesion.email} />;
+  if (!abierto) {
+    return (
+      <PantallaBloqueo
+        paleta={paleta}
+        uid={sesion.uid}
+        email={sesion.email}
+        onAbrir={() => setAbierto(true)}
+      />
+    );
+  }
 
   /* La `key` es lo que garantiza que no queda ni un resto del usuario anterior:
      al cambiar el UID, React desmonta todo y lo monta limpio. */

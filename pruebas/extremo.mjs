@@ -959,6 +959,25 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("gastos: el objetivo aparece en el Resumen con su avance",
     /Un coche/.test(conObjetivo) && /20%/.test(conObjetivo), conObjetivo.slice(0, 400));
 
+  /* ── el año ────────────────────────────────────────────────────────────── */
+
+  await pag.click(".mesTitulo");
+  await pag.waitForTimeout(700);
+  const anual = await pag.innerText(".pantallaCompleta");
+  check("año: se abre tocando el mes de la cabecera", /Mes a mes/.test(anual), anual.slice(0, 200));
+  check("año: enseña los doce meses",
+    (await pag.locator(".anoMes").count()) === 12, String(await pag.locator(".anoMes").count()));
+  check("año: y dónde se fue", /Dónde se fue el año/.test(anual), anual.slice(0, 300));
+  check("año: sin cuentas rotas", !/undefined|NaN|Infinity/.test(anual), anual.replace(/\n+/g, " | ").slice(0, 300));
+
+  /* Los meses que aún no han llegado se dibujan, pero en gris y sin sumar. */
+  check("año: los meses futuros van marcados",
+    (await pag.locator(".anoGasto.futuro").count()) > 0,
+    String(await pag.locator(".anoGasto.futuro").count()));
+
+  await pag.click('.pantallaCaja button[aria-label="Cerrar"]');
+  await pag.waitForTimeout(350);
+
   /* ── la revisión del mes ───────────────────────────────────────────────── */
 
   await pag.click(".tarjetaRevision");
@@ -1176,6 +1195,154 @@ const apuntarGasto = async (pag, importe, concepto) => {
     (await pag.innerText(".pantallaCompleta")).slice(0, 300));
 
   check("gastos rotos: ni un solo error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5quinquies. El bloqueo con PIN ──────────────────────────────────────── */
+
+/* Lo que hay que comprobar no es que el PIN «funcione»: es que mientras esté
+   echado NO haya aplicación detrás. Un candado dibujado encima de la app deja
+   la app montada, con sus datos en el DOM. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const uid = "usuarios/uid_iris";
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "iris@ejemplo.com": { clave: "secreta7", uid: "uid_iris" } },
+      docs: {
+        "permitidos/iris@ejemplo.com": { nombre: "Iris" },
+        [uid]: { email: "iris@ejemplo.com", sembrado: true, bienvenida: 1 },
+        [`${uid}/categorias/comida`]: { nombre: "Comida", color: "#F4614E", icono: "utensils", orden: 0 },
+        [`${uid}/gastos/g1`]: { importe: 42.3, categoria: "comida", fecha: hoy, nota: "Mercadona" },
+      },
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_iris", email: "iris@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(1600);
+
+  /* Se pone el PIN desde la pantalla de cuenta, como se haría a mano. */
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(600);
+  check("bloqueo: el ajuste está en la pantalla de cuenta", /Bloqueo con PIN/.test(await texto(pag)));
+
+  await pag.click('button[aria-label="Poner un PIN"]');
+  await pag.waitForTimeout(400);
+  await pag.fill('input[placeholder="PIN"]', "4721");
+  await pag.fill('input[placeholder="Otra vez"]', "4721");
+  await pag.click('button[aria-label="Guardar el PIN"]');
+  await pag.waitForTimeout(700);
+  check("bloqueo: queda puesto", /Puesto/.test(await texto(pag)), (await texto(pag)).slice(0, 300));
+
+  const enAlmacen = await pag.evaluate(() => localStorage.getItem("misapps_bloqueo_uid_iris"));
+  check("bloqueo: se guarda en este aparato", Boolean(enAlmacen), String(enAlmacen));
+  check("bloqueo: y NO se guarda el número", !String(enAlmacen).includes("4721"), String(enAlmacen));
+
+  /* Y ahora lo que importa: al recargar tiene que aparecer el candado. */
+  await pag.reload();
+  await pag.waitForTimeout(1800);
+
+  const bloqueado = await texto(pag);
+  check("bloqueo: al abrir pide el PIN", /Tu PIN/.test(bloqueado), bloqueado.slice(0, 200));
+  check("bloqueo: y detrás NO hay aplicación", !/Mercadona/.test(bloqueado), bloqueado.slice(0, 300));
+  check("bloqueo: ni las pestañas", (await pag.locator(".barra .pestana").count()) === 0);
+
+  /* Un PIN que no es no abre, y encima cuesta. */
+  for (const d of "1111") await pag.click(`button[aria-label="${d}"]`);
+  await pag.waitForTimeout(600);
+  check("bloqueo: el PIN que no es, no abre", /Tu PIN/.test(await texto(pag)));
+  check("bloqueo: y lo dice", /Ese no es|Demasiados/.test(await texto(pag)), (await texto(pag)).slice(0, 300));
+
+  for (const d of "4721") await pag.click(`button[aria-label="${d}"]`);
+  await pag.waitForTimeout(1200);
+  const abierto = await texto(pag);
+  check("bloqueo: con el bueno se abre", /Mercadona/.test(abierto), abierto.slice(0, 300));
+  check("bloqueo: y ya se ve la aplicación entera", (await pag.locator(".barra .pestana").count()) === 3);
+
+  /* Quitarlo tiene que quitarlo de verdad. */
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(600);
+  await pag.click('button[aria-label="Quitar el PIN"]');
+  await pag.waitForTimeout(500);
+  check("bloqueo: quitarlo lo borra del aparato",
+    (await pag.evaluate(() => localStorage.getItem("misapps_bloqueo_uid_iris"))) === null);
+
+  await pag.reload();
+  await pag.waitForTimeout(1800);
+  check("bloqueo: y al abrir ya no pide nada", !/Tu PIN/.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  check("bloqueo: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 5sexies. El entreno del día sube la diana de calorías ───────────────── */
+
+/* Un día de pesas y un día de sofá no piden lo mismo de comer. Y el número
+   tiene que decir de dónde sale: una diana que cambia sola no se la cree
+   nadie. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const uid = "usuarios/uid_nora";
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: { "nora@ejemplo.com": { clave: "x", uid: "uid_nora" } },
+      docs: {
+        "permitidos/nora@ejemplo.com": { nombre: "Nora" },
+        [uid]: { email: "nora@ejemplo.com", bienvenida: 1,
+          perfil: { altura: "170", edad: "30", sexo: "mujer", actividad: "ligera", objetivo: "bajar" } },
+        [`${uid}/pesos/p1`]: { fecha: hoy, kg: 68, nota: "" },
+        [`${uid}/comidas/c1`]: { fecha: hoy, texto: "Pollo con arroz", volumen: 3, saciedad: 2, momento: "comida", ts: 1 },
+      },
+    }));
+    sessionStorage.setItem("__sesion_de_mentira__", JSON.stringify({ uid: "uid_nora", email: "nora@ejemplo.com" }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(1800);
+  await pag.click("nav >> text=Comidas");
+  await pag.waitForTimeout(900);
+
+  const sinEntrenar = await texto(pag);
+  const dianaSinEntrenar = Number((sinEntrenar.match(/diana ~([\d.]+)/) || [])[1].replace(".", ""));
+  check("diana: un día sin entrenar no dice nada de entrenos",
+    !/por lo que has entrenado/.test(sinEntrenar) && dianaSinEntrenar > 1000, String(dianaSinEntrenar));
+
+  /* Se apunta un entreno de hoy y se vuelve a mirar. */
+  await pag.evaluate((f) => {
+    const s = JSON.parse(localStorage.getItem("__servidor_de_mentira__"));
+    s.docs["usuarios/uid_nora/entrenos/e1"] =
+      { fecha: f, tipo: "cardio", minutos: 60, intensidad: "fuerte", ts: 2 };
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify(s));
+  }, new Date().toISOString().slice(0, 10));
+  await pag.reload();
+  await pag.waitForTimeout(1800);
+  await pag.click("nav >> text=Comidas");
+  await pag.waitForTimeout(900);
+
+  const entrenado = await texto(pag);
+  check("diana: con el entreno de hoy se dice que ha subido",
+    /por lo que has entrenado hoy/.test(entrenado), entrenado.slice(0, 500));
+  check("diana: y se ve la parte que viene del perfil",
+    /de tu perfil/.test(entrenado), entrenado.slice(0, 500));
+
+  const dianaEntrenado = Number((entrenado.match(/diana ~([\d.]+)/) || [])[1].replace(".", ""));
+  check("diana: el número de verdad es mayor que sin entrenar",
+    dianaEntrenado > dianaSinEntrenar, `${dianaSinEntrenar} → ${dianaEntrenado}`);
+
+  check("diana: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
 

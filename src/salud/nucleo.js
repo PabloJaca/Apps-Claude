@@ -246,6 +246,76 @@ export function calcularEnergia(perfil, pesoKg) {
   };
 }
 
+/* ── lo que se come el entreno ───────────────────────────────────────────── */
+
+/**
+ * Lo que quema una sesión, en METs.
+ *
+ * Un MET es lo que gastas parado. Correr a ritmo medio son unos 8,5: gastas
+ * ocho veces y media más que sentado. La cuenta es MET × kg × horas, y para
+ * saber lo que el entreno SUMA hay que restarle ese uno, porque esa hora ibas
+ * a estar vivo de todas formas y ya la cuenta el gasto diario.
+ */
+const METS = {
+  fuerza: { suave: 3.5, media: 5, fuerte: 6 },
+  cardio: { suave: 6, media: 8.5, fuerte: 11 },
+  equipo: { suave: 5, media: 7, fuerte: 9 },
+  otro: { suave: 3, media: 4.5, fuerte: 6 },
+};
+
+/**
+ * Cuánto de lo que quema el entreno hay que sumar de verdad.
+ *
+ * Aquí está el detalle que casi todas las apps se saltan: el nivel de
+ * actividad del perfil YA incluye entrenos —«Activa» dice literalmente «3-5
+ * entrenos por semana»—, así que sumar la sesión entera es contarla dos veces
+ * y acabas comiendo de más creyendo que lo compensas.
+ *
+ * Se suma solo la parte que el multiplicador no había contado ya: casi toda si
+ * te declaraste sedentario, y bastante poca si te declaraste muy activo.
+ */
+const DESCUENTO = { sedentaria: 1, ligera: 0.8, activa: 0.45, muy_activa: 0.25 };
+
+export function kcalEntreno(entreno, pesoKg) {
+  const kg = Number(pesoKg);
+  const minutos = Number(entreno && entreno.minutos);
+  if (!(kg > 0) || !(minutos > 0)) return 0;
+
+  const porTipo = METS[(entreno && entreno.tipo) || "otro"] || METS.otro;
+  const met = porTipo[(entreno && entreno.intensidad) || "media"] || porTipo.media;
+
+  // El −1 es lo de estar vivo, que ya está contado en el gasto del día.
+  return Math.round((met - 1) * kg * (minutos / 60));
+}
+
+/** Lo que suman todos los entrenos de un día, ya descontado el doble conteo. */
+export function extraPorEntrenos(entrenos, pesoKg, actividad) {
+  const bruto = (entrenos || []).reduce((s, e) => s + kcalEntreno(e, pesoKg), 0);
+  if (!bruto) return { bruto: 0, extra: 0, descuento: 1 };
+  const descuento = DESCUENTO[actividad] != null ? DESCUENTO[actividad] : 0.45;
+  return { bruto, extra: Math.round(bruto * descuento), descuento };
+}
+
+/**
+ * La diana del día, con el entreno de ese día ya sumado.
+ *
+ * Se devuelve por separado lo que viene del perfil y lo que viene de haber
+ * entrenado, para poder enseñarlo: «2.288 + 310 por el entreno». Un número que
+ * cambia solo y no dice por qué no se lo cree nadie.
+ */
+export function energiaDelDia(energia, entrenosDelDia, pesoKg, perfil) {
+  if (!energia) return null;
+  const { bruto, extra, descuento } = extraPorEntrenos(entrenosDelDia, pesoKg, perfil && perfil.actividad);
+  return {
+    ...energia,
+    diana: energia.diana + extra,
+    gasto: energia.gasto + extra,
+    extraEntreno: extra,
+    brutoEntreno: bruto,
+    descuentoEntreno: descuento,
+  };
+}
+
 /* ── entrenos de fuerza: ejercicios y series ─────────────────────────────── */
 
 /* Sugerencias para no tener que escribir a pelo la primera vez. Viven en el
@@ -585,6 +655,33 @@ export function racha(datos, hoyIso = hoy()) {
     cursor.setDate(cursor.getDate() - 1);
   }
   return { dias: cuenta, hoy: hayHoy };
+}
+
+/**
+ * Cuánto llevas sin apuntar nada, y si eso rompió una racha.
+ *
+ * La idea no es dar la brasa: es que si dejas de apuntar tres días, la app se
+ * entera y te lo dice al abrir en vez de seguir enseñando datos viejos como si
+ * fueran de hoy. Por eso no devuelve nada si nunca has apuntado nada —a una
+ * cuenta recién estrenada no se le reprocha— ni si apuntaste ayer, que eso no
+ * es abandonar, es un martes.
+ */
+export function ausencia(datos, hoyIso = hoy(), minimo = 2) {
+  const dias = new Set();
+  for (const lista of [datos && datos.pesos, datos && datos.entrenos, datos && datos.comidas]) {
+    for (const r of lista || []) if (r && typeof r.fecha === "string") dias.add(r.fecha);
+  }
+  if (!dias.size) return null;
+
+  const ultimo = [...dias].sort().pop();
+  const sinApuntar = Math.round((desdeIso(hoyIso) - desdeIso(ultimo)) / 86400000);
+  if (!(sinApuntar >= minimo)) return null;
+
+  /* Lo que llevabas antes de dejarlo: sin esto el aviso es un reproche, y con
+     esto es «llevabas 12 días seguidos», que es otra cosa. */
+  const previa = racha(datos, ultimo);
+
+  return { dias: sinApuntar, ultimo, rachaPerdida: previa.dias >= 3 ? previa.dias : 0 };
 }
 
 /* ── comidas de siempre ──────────────────────────────────────────────────── */

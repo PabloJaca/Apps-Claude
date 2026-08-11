@@ -8,6 +8,7 @@ import {
   Check, Cloud, CloudOff, Download, LogOut, RefreshCw, Smartphone, Trash2, Upload, X,
 } from "lucide-react";
 import { nombreDispositivo, salir } from "./nube.js";
+import { AjustePin } from "./bloqueo.jsx";
 
 export const TEXTO_ESTADO = {
   "sin-sesion": "Sin sesión",
@@ -218,6 +219,8 @@ export function PantallaCuenta({
             <p style={{ ...parrafo, color: aviso.ok ? p.acento : p.coral, marginTop: 12 }}>{aviso.texto}</p>
           )}
         </div>
+
+        <AjustePin paleta={p} uid={sesion.uid} />
 
         {/* salir y borrar */}
         <div style={tarjeta}>

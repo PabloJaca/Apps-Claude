@@ -513,5 +513,82 @@ check("el ritmo semanal nunca sale disparatado", informeRoto.cifras.peso.pendien
   check("media móvil: tres años de pesajes en menos de 100 ms", ms < 100, `${ms.toFixed(1)} ms`);
 }
 
+/* ── días sin apuntar ────────────────────────────────────────────────────── */
+
+{
+  const HOY = "2026-08-12";
+  const con = (fechas) => ({ pesos: fechas.map((f, i) => ({ id: `p${i}`, fecha: f, kg: 80 })), entrenos: [], comidas: [] });
+
+  check("ausencia: una cuenta sin nada no recibe reproches",
+    n.ausencia({ pesos: [], entrenos: [], comidas: [] }, HOY) === null);
+  check("ausencia: habiendo apuntado hoy, no hay aviso", n.ausencia(con([HOY]), HOY) === null);
+  check("ausencia: un día suelto tampoco es abandonar", n.ausencia(con(["2026-08-11"]), HOY) === null);
+
+  const tres = n.ausencia(con(["2026-08-09"]), HOY);
+  check("ausencia: tres días sí avisan", tres && tres.dias === 3, JSON.stringify(tres));
+  check("ausencia: y dice cuándo fue lo último", tres && tres.ultimo === "2026-08-09", JSON.stringify(tres));
+  check("ausencia: sin racha previa no se inventa una", tres && tres.rachaPerdida === 0, JSON.stringify(tres));
+
+  const conRacha = n.ausencia(con(["2026-08-01","2026-08-02","2026-08-03","2026-08-04","2026-08-05"]), HOY);
+  check("ausencia: cuenta la racha que se dejó atrás", conRacha && conRacha.rachaPerdida === 5, JSON.stringify(conRacha));
+  check("ausencia: y los días que llevas fuera", conRacha && conRacha.dias === 7, JSON.stringify(conRacha));
+
+  check("ausencia: mira las tres colecciones, no solo los pesos",
+    n.ausencia({ pesos: [], entrenos: [], comidas: [{ id: "c", fecha: "2026-08-11" }] }, HOY) === null);
+  check("ausencia: aguanta registros rotos",
+    n.ausencia({ pesos: [null, {}, { fecha: "2026-08-05" }], entrenos: null, comidas: undefined }, HOY).dias === 7);
+}
+
+/* ── lo que se come el entreno ───────────────────────────────────────────── */
+
+{
+  const perfil = { altura: "178", edad: "34", sexo: "hombre", actividad: "sedentaria", objetivo: "bajar" };
+  const base = n.calcularEnergia(perfil, 80);
+
+  /* Una hora de fuerza a media son 5 METs. Restado el MET de estar vivo:
+     4 × 80 kg × 1 h = 320 kcal. */
+  check("entreno: una hora de fuerza a 80 kg son 320 kcal",
+    n.kcalEntreno({ tipo: "fuerza", minutos: 60, intensidad: "media" }, 80) === 320,
+    String(n.kcalEntreno({ tipo: "fuerza", minutos: 60, intensidad: "media" }, 80)));
+  check("entreno: media hora es la mitad",
+    n.kcalEntreno({ tipo: "fuerza", minutos: 30, intensidad: "media" }, 80) === 160);
+  check("entreno: correr quema más que las pesas",
+    n.kcalEntreno({ tipo: "cardio", minutos: 60, intensidad: "media" }, 80) >
+    n.kcalEntreno({ tipo: "fuerza", minutos: 60, intensidad: "media" }, 80));
+  check("entreno: a tope quema más que suave",
+    n.kcalEntreno({ tipo: "cardio", minutos: 60, intensidad: "fuerte" }, 80) >
+    n.kcalEntreno({ tipo: "cardio", minutos: 60, intensidad: "suave" }, 80));
+  check("entreno: pesar más quema más",
+    n.kcalEntreno({ tipo: "fuerza", minutos: 60, intensidad: "media" }, 100) >
+    n.kcalEntreno({ tipo: "fuerza", minutos: 60, intensidad: "media" }, 70));
+  check("entreno: sin minutos no suma nada", n.kcalEntreno({ tipo: "fuerza" }, 80) === 0);
+  check("entreno: sin peso no suma nada", n.kcalEntreno({ tipo: "fuerza", minutos: 60 }, 0) === 0);
+  check("entreno: un tipo raro no revienta", n.kcalEntreno({ tipo: "zzz", minutos: 60 }, 80) > 0);
+  check("entreno: un registro nulo no revienta", n.kcalEntreno(null, 80) === 0);
+
+  /* Y esto es lo importante: quien ya se declaró muy activo no puede sumarse
+     el entreno entero, porque su multiplicador ya lo contaba. */
+  const sedentario = n.extraPorEntrenos([{ tipo: "fuerza", minutos: 60, intensidad: "media" }], 80, "sedentaria");
+  const muyActivo = n.extraPorEntrenos([{ tipo: "fuerza", minutos: 60, intensidad: "media" }], 80, "muy_activa");
+  check("doble conteo: el sedentario se suma el entreno entero", sedentario.extra === 320, JSON.stringify(sedentario));
+  check("doble conteo: el muy activo se suma bastante menos", muyActivo.extra < sedentario.extra / 3,
+    `${muyActivo.extra} vs ${sedentario.extra}`);
+  check("doble conteo: el bruto es el mismo en los dos", sedentario.bruto === muyActivo.bruto);
+  check("doble conteo: sin entrenos no hay extra", n.extraPorEntrenos([], 80, "activa").extra === 0);
+
+  const conEntreno = n.energiaDelDia(base, [{ tipo: "fuerza", minutos: 60, intensidad: "media" }], 80, perfil);
+  check("diana: sube con el entreno del día", conEntreno.diana === base.diana + 320,
+    `${conEntreno.diana} vs ${base.diana}`);
+  check("diana: dice cuánto viene del entreno", conEntreno.extraEntreno === 320, String(conEntreno.extraEntreno));
+  check("diana: un día sin entrenar se queda igual",
+    n.energiaDelDia(base, [], 80, perfil).diana === base.diana);
+  check("diana: dos sesiones el mismo día suman las dos",
+    n.energiaDelDia(base, [
+      { tipo: "fuerza", minutos: 60, intensidad: "media" },
+      { tipo: "cardio", minutos: 30, intensidad: "media" },
+    ], 80, perfil).extraEntreno > 320);
+  check("diana: sin perfil no se inventa nada", n.energiaDelDia(null, [], 80, perfil) === null);
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

@@ -108,5 +108,72 @@ check("objetivo: sin meta no devuelve nada", g.progresoObjetivo({ nombre: "x" })
 check("objetivo: meta cero no divide por cero", g.progresoObjetivo({ meta: 0, ahorrado: 10 }) === null);
 check("objetivo: sin nada ahorrado va a cero", g.progresoObjetivo({ meta: 500 }).porcentaje === 0);
 
+/* ── días sin apuntar ────────────────────────────────────────────────────── */
+
+{
+  const HOY = "2026-08-12";
+  const con = (fechas) => fechas.map((f, i) => ({ id: `g${i}`, importe: 10, categoria: "comida", fecha: f, nota: "X" }));
+
+  check("ausencia: sin gastos nunca no hay reproche", g.ausenciaGastos([], HOY) === null);
+  check("ausencia: habiendo apuntado hoy, nada", g.ausenciaGastos(con([HOY]), HOY) === null);
+  check("ausencia: ayer tampoco", g.ausenciaGastos(con(["2026-08-11"]), HOY) === null);
+
+  const a = g.ausenciaGastos(con(["2026-08-08", "2026-08-01"]), HOY);
+  check("ausencia: cuatro días sí", a && a.dias === 4, JSON.stringify(a));
+  check("ausencia: se mide desde el más reciente", a && a.ultimo === "2026-08-08", JSON.stringify(a));
+  check("ausencia: aguanta huecos y basura",
+    g.ausenciaGastos([null, {}, { importe: 5 }, { id: "x", importe: 5, fecha: "2026-08-05" }], HOY).dias === 7);
+}
+
+/* ── el año entero ───────────────────────────────────────────────────────── */
+
+{
+  const HOY = "2026-08-12";          // agosto: el año va por la mitad
+  const anual = g.resumenAnual(datos, 2026, HOY);
+
+  check("año: doce meses siempre", anual.meses.length === 12);
+  check("año: lo que aún no ha llegado se marca",
+    anual.meses.filter((m) => m.futuro).map((m) => m.etiqueta).join(",") === "sep,oct,nov,dic",
+    anual.meses.filter((m) => m.futuro).map((m) => m.etiqueta).join(","));
+  check("año: y no suma en los totales",
+    anual.meses.filter((m) => m.futuro).every((m) => m.gastos === 0 && m.ingresos === 0));
+  check("año: agosto es el mes en curso", anual.meses[7].enCurso === true);
+
+  check("año: suma lo gastado de los meses vividos", anual.gastado > 0);
+  check("año: suma lo ingresado", anual.ingresado > 0);
+  check("año: el ahorro es la resta", anual.ahorrado === Math.round((anual.ingresado - anual.gastado) * 100) / 100,
+    JSON.stringify({ i: anual.ingresado, g: anual.gastado, a: anual.ahorrado }));
+  check("año: la tasa es un porcentaje entero", Number.isInteger(anual.tasa), String(anual.tasa));
+
+  /* La media se hace sobre los meses con datos: dividir entre doce en agosto
+     diría que gastas la mitad de lo que gastas. */
+  check("año: la media va sobre los meses con algo apuntado",
+    anual.media === Math.round((anual.gastado / anual.mesesConDatos) * 100) / 100,
+    `${anual.media} · ${anual.mesesConDatos} meses`);
+
+  check("año: sale el mes más caro", anual.caro && anual.caro.gastos > 0, JSON.stringify(anual.caro));
+  check("año: el mes en curso no compite por el título",
+    !anual.caro || !anual.caro.enCurso, JSON.stringify(anual.caro));
+  check("año: las categorías vienen ordenadas de más a menos",
+    anual.categorias.every((c, i) => i === 0 || anual.categorias[i - 1].total >= c.total),
+    JSON.stringify(anual.categorias));
+
+  const vacio = g.resumenAnual(datos, 2019, HOY);
+  check("año: un año sin nada lo dice", vacio.hayDatos === false, JSON.stringify(vacio.gastado));
+  check("año: y no divide por cero", vacio.media === 0 && vacio.tasa === null, JSON.stringify(vacio));
+
+  const futuro = g.resumenAnual(datos, 2030, HOY);
+  check("año: un año que no ha llegado está entero en el futuro",
+    futuro.meses.every((m) => m.futuro) && futuro.gastado === 0);
+
+  check("año: aguanta datos rotos",
+    g.resumenAnual({ gastos: [null, {}], ingresos: null, fijos: [null], categorias: [] }, 2026, HOY).gastado === 0);
+
+  const anos = g.anosConDatos(datos, HOY);
+  check("años: sale el año en curso aunque no tenga nada", anos.includes(2026), JSON.stringify(anos));
+  check("años: del más reciente al más antiguo",
+    anos.every((a, i) => i === 0 || anos[i - 1] >= a), JSON.stringify(anos));
+}
+
 console.log(fallos ? `\n${fallos} fallos` : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

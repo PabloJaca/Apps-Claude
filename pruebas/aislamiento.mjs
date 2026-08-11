@@ -124,14 +124,43 @@ check(
 
 /* ── 2. Nada de datos del usuario en el propio dispositivo ──────────────── */
 
-/* localStorage solo puede aparecer para rescatar lo de la versión anterior,
-   nunca para guardar nada nuevo. */
+/* localStorage solo puede aparecer en dos sitios: los núcleos, para rescatar
+   lo de la versión anterior, y el bloqueo, que es de este aparato a propósito
+   —un PIN es un cierre de pantalla, no una credencial de la cuenta—. Ningún
+   dato tuyo puede acabar ahí. */
 const usanAlmacenLocal = fuentes.filter(([, t]) => /localStorage|sessionStorage/.test(t)).map(([f]) => f);
 check(
-  "solo los núcleos tocan el almacén del navegador, y solo para el rescate",
-  usanAlmacenLocal.every((f) => /nucleo\.js$/.test(f)),
+  "al almacén del navegador solo llegan el rescate y el bloqueo de pantalla",
+  usanAlmacenLocal.every((f) => /nucleo\.js$|comun\/bloqueo\.js$/.test(f)),
   usanAlmacenLocal.join(", ")
 );
+
+/* ── el PIN, que es un secreto por pequeño que sea ──────────────────────── */
+
+{
+  const bloqueo = leer("src/comun/bloqueo.js");
+  check("el PIN se guarda con su resumen, no en claro",
+    /crypto\.subtle\.digest\("SHA-256"/.test(bloqueo) && !/setItem\([^)]*\bpin\b/.test(bloqueo));
+  check("y con sal, para que dos PIN iguales no den el mismo resumen",
+    /getRandomValues/.test(bloqueo) && /sal/.test(bloqueo));
+  check("comprobarlo no se hace con un igual a secas",
+    !/hash === g\.hash/.test(bloqueo) && /diferencia \|=/.test(bloqueo),
+    "la comparación tiene que ser de tiempo constante");
+  /* Se mira lo que hace, no lo que cuenta: la palabra «Firestore» sale en el
+     comentario de arriba explicando justamente que el PIN no va allí. */
+  check("el bloqueo no toca la nube: ni la importa ni la llama",
+    !/^\s*import .*nube\.js/m.test(bloqueo) && !/\b(setDoc|getDoc|collection|doc)\s*\(/.test(bloqueo));
+  check("y no se puede quedar a medias si el navegador no deja guardar",
+    /catch \(e\)/.test(bloqueo) && /return false/.test(bloqueo));
+
+  /* Que el candado esté DENTRO de la puerta y no colgado por fuera: si se
+     dibujase junto a la app, la app ya estaría montada detrás. */
+  const puerta = leer("src/comun/sesion.jsx");
+  check("el candado se dibuja en vez de la aplicación, no encima",
+    /if \(!abierto\) \{[\s\S]{0,200}?<PantallaBloqueo/.test(puerta));
+  check("y va después de comprobar la invitación",
+    puerta.indexOf("SinInvitacion paleta") < puerta.indexOf("<PantallaBloqueo"));
+}
 
 for (const [nombre, texto] of fuentes.filter(([f]) => /nucleo\.js$/.test(f))) {
   const escrituras = [...texto.matchAll(/ls\.setItem\(([^,]+),/g)].map((m) => m[1].trim());
@@ -190,7 +219,7 @@ check(
   const { PANTALLAS_ABIERTAS } = await import("./extremo-inventario.mjs");
   /* Las compartidas cuentan para las dos apps: cada una las abre por su lado
      y en cada una se pintan con su paleta, así que en las dos hay que verlas. */
-  const compartidas = ["src/comun/cuenta.jsx", "src/comun/voz.jsx"].map(leer).join("\n");
+  const compartidas = ["src/comun/cuenta.jsx", "src/comun/voz.jsx", "src/comun/bloqueo.jsx"].map(leer).join("\n");
   for (const app of ["gastos", "salud"]) {
     const texto = leer(`src/${app}/App.jsx`) + "\n" + compartidas;
     const definidas = [...texto.matchAll(/^(?:export )?function (Hoja\w+|Pantalla\w+|Bienvenida)\(/gm)].map((m) => m[1]);
