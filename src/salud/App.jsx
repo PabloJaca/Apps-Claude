@@ -22,7 +22,7 @@ import {
   recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
   pesoCorto, plural, progresoMeta, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe,
-  tendenciaPeso, volumenDe, ausencia as calcularAusencia, energiaDelDia,
+  tendenciaPeso, volumenDe, ausencia as calcularAusencia, energiaDelDia, pesosSanos,
 } from "./nucleo.js";
 
 /* ---------------------------------------------------------------- tokens */
@@ -2345,7 +2345,7 @@ function Aplicacion({ sesion }) {
   const datos = useMemo(
     () => ({
       perfil: { ...PERFIL_VACIO, ...(usuario.perfil || {}) },
-      pesos: conFecha(registros.pesos),
+      pesos: pesosSanos(registros.pesos),
       entrenos: saneaEntrenos(registros.entrenos),
       comidas: conFecha(registros.comidas),
     }),

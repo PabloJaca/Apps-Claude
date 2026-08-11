@@ -248,7 +248,13 @@ export function leerFecha(limpios, hoyIso) {
           mes -= 1;
           if (mes < 0) { mes = 11; ano -= 1; }
         }
-        return { fecha: aIso(new Date(ano, mes, n.valor)), desde: i, fin };
+        /* Un día que no existe en ese mes NO puede desbordar al siguiente.
+           `new Date(2026, 3, 31)` es el 1 de mayo, así que «el 31» dicho un
+           1 de mayo devolvía… el 1 de mayo. Se recorta al último día del mes,
+           que es lo más cerca que se puede estar de lo que se quiso decir. */
+        const ultimo = new Date(ano, mes + 1, 0).getDate();
+        const dia = Math.min(n.valor, ultimo);
+        return { fecha: aIso(new Date(ano, mes, dia)), desde: i, fin };
       }
     }
   }

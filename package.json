@@ -9,7 +9,7 @@
     "dev": "node build.mjs --watch",
     "zip": "node build.mjs --zip",
     "servir": "node build.mjs --zip && node servidor.mjs",
-    "probar": "node pruebas/aislamiento.mjs && node pruebas/bloqueo.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs && node pruebas/robustez.mjs && node pruebas/gastos.mjs && node pruebas/robustez-gastos.mjs && node pruebas/lengua.mjs && node pruebas/dictado-gastos.mjs && node pruebas/dictado-salud.mjs",
+    "probar": "node pruebas/aislamiento.mjs && node pruebas/bloqueo.mjs && node pruebas/migracion.mjs && node pruebas/salud.mjs && node pruebas/robustez.mjs && node pruebas/gastos.mjs && node pruebas/robustez-gastos.mjs && node pruebas/lengua.mjs && node pruebas/dictado-gastos.mjs && node pruebas/dictado-salud.mjs && node pruebas/calendario.mjs && node pruebas/fuzz.mjs",
     "probar-navegador": "node pruebas/extremo.mjs",
     "probar-reglas": "firebase emulators:exec --only firestore --project reglas-de-prueba \"node pruebas/reglas.mjs\""
   },

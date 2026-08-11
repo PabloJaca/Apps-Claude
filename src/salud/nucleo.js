@@ -178,6 +178,18 @@ export const conFecha = (lista) =>
   (lista || []).filter((r) => r && typeof r.fecha === "string" && r.fecha.length === 10);
 
 /**
+ * Pesajes con un peso de verdad.
+ *
+ * `conFecha` vale para comidas y entrenos, pero a un pesaje le falta lo
+ * principal: que `kg` sea un número. Un «80» guardado como texto atravesaba la
+ * frontera y llegaba hasta la tendencia, donde `.toFixed` de una cadena tumba
+ * la pestaña entera. Lo mismo que hace Gastos con el importe.
+ */
+export const pesosSanos = (lista) =>
+  conFecha(lista).filter((p) => Number.isFinite(Number(p.kg)) && Number(p.kg) > 0)
+    .map((p) => (typeof p.kg === "number" ? p : { ...p, kg: Number(p.kg) }));
+
+/**
  * Entrenos con la forma que la pantalla espera.
  *
  * Un ejercicio sin `series` no daba un hueco: rompía el `map` y tumbaba la

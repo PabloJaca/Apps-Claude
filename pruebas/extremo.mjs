@@ -1282,6 +1282,80 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await ctx.close();
 }
 
+/* ── 5quinquies-bis. El PIN es de cada cuenta, no del aparato ────────────── */
+
+/* El pecado original de este proyecto fue que dos cuentas compartieran lo
+   guardado en el navegador. El PIN vive justo ahí, así que hay que
+   comprobarlo: el candado de una cuenta no puede pedirse a la otra, ni
+   abrirse con el de la otra. */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {},
+      docs: { "permitidos/uno@ejemplo.com": { nombre: "Uno" }, "permitidos/dos@ejemplo.com": { nombre: "Dos" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(400);
+  await acceder(pag, "uno@ejemplo.com", "secreta8", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(600);
+  await pag.click('button[aria-label="Poner un PIN"]');
+  await pag.waitForTimeout(300);
+  await pag.fill('input[placeholder="PIN"]', "1357");
+  await pag.fill('input[placeholder="Otra vez"]', "1357");
+  await pag.click('button[aria-label="Guardar el PIN"]');
+  await pag.waitForTimeout(700);
+
+  /* Se cierra sesión y entra la otra persona en el mismo navegador. */
+  await pag.click("text=Cerrar sesión");
+  await pag.waitForTimeout(1400);
+  await acceder(pag, "dos@ejemplo.com", "secreta9", { registrar: true });
+  await pag.waitForTimeout(1200);
+
+  const conDos = await texto(pag);
+  check("PIN: a la segunda cuenta NO se le pide el PIN de la primera",
+    !/Tu PIN/.test(conDos), conDos.slice(0, 200));
+  check("PIN: y entra en su aplicación", /Resumen|Análisis|Ajustes|1 de 3/i.test(conDos), conDos.slice(0, 200));
+
+  await saltarBienvenida(pag);
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(600);
+  check("PIN: la segunda cuenta ve su bloqueo sin poner",
+    !/Puesto/.test(await pag.innerText(".pantallaCompleta, body")),
+    (await texto(pag)).slice(0, 300));
+
+  /* Y al volver la primera, su candado sigue en pie. */
+  await pag.click("text=Cerrar sesión");
+  await pag.waitForTimeout(1400);
+  await acceder(pag, "uno@ejemplo.com", "secreta8");
+  await pag.waitForTimeout(1400);
+  check("PIN: al volver la primera cuenta, su candado sigue puesto",
+    /Tu PIN/.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  /* El de la otra no abre. */
+  for (const d of "2468") await pag.click(`button[aria-label="${d}"]`);
+  await pag.waitForTimeout(600);
+  check("PIN: un PIN que no es el suyo no abre", /Tu PIN/.test(await texto(pag)));
+
+  for (const d of "1357") await pag.click(`button[aria-label="${d}"]`);
+  await pag.waitForTimeout(1200);
+  check("PIN: y el suyo sí", !/Tu PIN/.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  check("PIN entre cuentas: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 /* ── 5sexies. El entreno del día sube la diana de calorías ───────────────── */
 
 /* Un día de pesas y un día de sofá no piden lo mismo de comer. Y el número

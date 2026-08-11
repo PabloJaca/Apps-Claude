@@ -378,7 +378,8 @@ export const CSS = `
   max-height:94%; overflow-y:auto; animation:subir .24s cubic-bezier(.2,.8,.3,1); }
 .tirador { width:38px; height:4px; background:#D3DFE9; border-radius:99px; margin:0 auto 14px; }
 .hojaCabecera { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.cerrar { width:34px; height:34px; border-radius:50%; color:var(--soft); background:#fff; box-shadow:var(--sombra); flex-shrink:0; }
+/* 40 y no 34: es el botón de cerrar de todas las hojas y se toca a menudo. */
+.cerrar { width:40px; height:40px; border-radius:50%; color:var(--soft); background:#fff; box-shadow:var(--sombra); flex-shrink:0; }
 .cerrar:hover { color:var(--ink); }
 
 .importeZona { display:flex; align-items:baseline; justify-content:center; gap:5px; padding:18px 0 22px; }

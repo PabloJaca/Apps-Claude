@@ -64,7 +64,8 @@ export const eur = (n, decimales = true) => {
 /** «1 categoría», no «1 categorías». */
 export const plural = (n, singular, muchos) => `${n} ${n === 1 ? singular : muchos || `${singular}s`}`;
 
-export const pct = (n, dec = 0) => `${(Number(n) || 0).toFixed(dec).replace(".", ",")}%`;
+export const pct = (n, dec = 0) =>
+  `${(Number(n) || 0).toFixed(Math.min(20, Math.max(0, Math.round(Number(dec)) || 0))).replace(".", ",")}%`;
 
 /* ── fechas ──────────────────────────────────────────────────────────────── */
 
@@ -255,7 +256,12 @@ const ICONO_POR_ID = {
    orden en que se crearon. Las categorías tienen un orden pensado (las que más
    se usan primero, "Otros" al final), así que se guarda a mano y se ordena por
    él en todas partes. */
-export const porOrden = (a, b) => (a.orden ?? 999) - (b.orden ?? 999) || a.nombre.localeCompare(b.nombre, "es");
+/* Una categoría puede llegar sin nombre —basta un guardado a medias— y
+   entonces `a.nombre.localeCompare` rompía el `sort`, y con él la lista de
+   categorías entera. Ordenar mal es un defecto; no pintar nada es un fallo. */
+export const porOrden = (a, b) =>
+  ((a && a.orden) ?? 999) - ((b && b.orden) ?? 999) ||
+  String((a && a.nombre) || "").localeCompare(String((b && b.nombre) || ""), "es");
 
 /** Las categorías con las que arranca una cuenta nueva. IDs fijos a propósito. */
 export function categoriasIniciales() {

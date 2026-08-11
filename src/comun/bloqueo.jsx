@@ -184,7 +184,8 @@ export function PantallaBloqueo({ paleta, uid, email, onAbrir }) {
           style={{
             marginTop: 26, border: "none", background: "none", cursor: "pointer",
             color: p.mid, fontFamily: p.body, fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", gap: 7, padding: 10,
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "13px 16px", minHeight: 44,     // el dedo necesita sitio
           }}
         >
           <LogOut size={15} /> Se me ha olvidado
