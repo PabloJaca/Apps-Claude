@@ -404,6 +404,12 @@ function Aplicacion({ sesion }) {
           <ChevronRight size={15} className="hIcono" />
         </button>
         <div className="cabeceraDerecha">
+          {/* Arriba y no en la barra de abajo: metido entre las pestañas
+              parecía una pestaña más y no lo encontraba nadie. Aquí está
+              donde está el de Salud, que es donde se busca. */}
+          <button className="flecha voz" onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando" title="Apuntar hablando">
+            <Mic size={19} strokeWidth={2.3} />
+          </button>
           <button className="flecha" onClick={() => setPantalla("buscar")} aria-label="Buscar movimientos">
             <Search size={18} />
           </button>
@@ -474,9 +480,6 @@ function Aplicacion({ sesion }) {
             <span>{txt}</span>
           </button>
         ))}
-        <button className="fabVoz" onClick={() => setPantalla("dictado")} aria-label="Apuntar hablando" title="Apuntar hablando">
-          <Mic size={20} strokeWidth={2.4} />
-        </button>
         <button className="fab" onClick={() => setHoja({ modo: "nuevo" })} aria-label="Añadir gasto" title="Añadir gasto (N)">
           <Plus size={24} strokeWidth={2.6} />
         </button>

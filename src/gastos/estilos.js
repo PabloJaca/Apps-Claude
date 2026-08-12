@@ -38,8 +38,21 @@ export const CSS = `
 .cabeceraDerecha { display:flex; align-items:center; gap:8px; min-width:0; }
 .mesTitulo { min-width:0; overflow:hidden; }
 .mesNombre { white-space:nowrap; }
-/* En pantallas estrechas la pastilla se queda solo con el icono. */
-@media (max-width:400px) { .etiquetaSync { display:none; } }
+/* La pastilla se queda solo con el icono en todo lo que sea un móvil.
+   Estaba en 400 px, que valía con tres botones arriba; con el micrófono son
+   cuatro y a partir de 401 reaparecía la palabra «Guardado» y la cabecera se
+   salía justo en los anchos más comunes de Android (412, 414, 430). El texto
+   sobra al lado de una nube que ya lo dice. */
+@media (max-width:520px) { .etiquetaSync { display:none; } }
+/* Y en las muy estrechas —hay Android de 360 y de 320— sobra la flechita del
+   título: el mes se sigue pudiendo tocar igual, y con ella la cabecera se
+   salía por la derecha sin avisar, porque el marco recorta en silencio. */
+@media (max-width:380px) {
+  .cabecera { gap:4px; padding-left:10px; padding-right:10px; }
+  .cabeceraDerecha { gap:5px; }
+  .mesTitulo .hIcono { display:none; }
+  .mesTitulo { padding-left:4px; padding-right:4px; margin-left:-4px; }
+}
 .flecha { width:40px; height:40px; border-radius:50%; color:var(--soft);
   background:#fff; box-shadow:var(--sombra); transition:color .15s, transform .1s; flex-shrink:0; }
 .flecha:hover:not(:disabled) { color:var(--accent); }
@@ -364,12 +377,10 @@ export const CSS = `
   flex-shrink:0; margin-left:4px; box-shadow:0 4px 14px rgba(15,158,142,.4); transition:transform .12s; }
 .fab:hover { transform:translateY(-2px); }
 .fab:active { transform:scale(.93); }
-/* El micrófono va junto al botón de añadir, no dentro: son dos formas de
-   hacer lo mismo y ninguna esconde a la otra. */
-.fabVoz { width:44px; height:44px; border-radius:14px; background:#E7F6F4; color:var(--accent);
-  flex-shrink:0; margin-left:4px; transition:transform .12s; }
-.fabVoz:hover { transform:translateY(-2px); }
-.fabVoz:active { transform:scale(.93); }
+/* El micrófono comparte forma con las flechas del mes y la lupa, pero con el
+   color del acento: es una acción, no una navegación. */
+.flecha.voz { color:var(--accent); }
+.flecha.voz:hover { color:var(--accent); }
 
 .velo { position:absolute; inset:0; background:rgba(21,41,60,.4); backdrop-filter:blur(2px);
   display:flex; align-items:flex-end; justify-content:center; z-index:80; animation:aparecer .18s ease; }

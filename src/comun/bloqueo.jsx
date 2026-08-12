@@ -235,7 +235,10 @@ export function AjustePin({ paleta, uid }) {
   };
 
   return (
-    <section style={{ background: p.card, borderRadius: 18, padding: 17, boxShadow: p.sombra }}>
+    /* El mismo hueco y el mismo redondeo que el resto de tarjetas de esta
+       pantalla: sin el margen de abajo quedaba pegada a «Cerrar sesión» y las
+       dos parecían la misma caja. */
+    <section style={{ background: p.card, borderRadius: 24, padding: 20, boxShadow: p.sombra, marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <ShieldCheck size={16} color={p.mid} />
         <h3 style={{ fontFamily: p.display, fontWeight: 700, fontSize: 15, margin: 0 }}>Bloqueo con PIN</h3>

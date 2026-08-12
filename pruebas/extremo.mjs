@@ -1023,7 +1023,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(900);
   await saltarBienvenida(pag);
 
-  await pag.click(".fabVoz");
+  await pag.click('button[aria-label="Apuntar hablando"]');
   await pag.waitForTimeout(700);
 
   const oido = await pag.inputValue("textarea");
@@ -1055,7 +1055,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
 
   /* Sin micrófono la hoja tiene que seguir sirviendo: es el mismo intérprete. */
   await pag.evaluate(() => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition; });
-  await pag.click(".fabVoz");
+  await pag.click('button[aria-label="Apuntar hablando"]');
   await pag.waitForTimeout(500);
   check("voz: sin micrófono se ofrece escribirlo", /no sabe escuchar/i.test(await texto(pag)),
     (await texto(pag)).slice(0, 300));
@@ -1064,6 +1064,28 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(700);
   check("voz: escrito a mano funciona igual, y sabe que es un ingreso",
     /Nuevo ingreso/i.test(await texto(pag)), (await texto(pag)).slice(0, 200));
+
+  /* El micrófono vivía metido en la barra de pestañas, parecía una pestaña
+     más y no lo encontraba nadie. Ahora está arriba, como el de Salud, y
+     arriba hay menos sitio: en un Android estrecho la cabecera no puede
+     salirse, y el marco recorta en silencio, así que se mide. */
+  check("voz: el micrófono está en la cabecera, no en la barra de abajo",
+    (await pag.locator('header button[aria-label="Apuntar hablando"]').count()) === 1 &&
+    (await pag.locator('nav button[aria-label="Apuntar hablando"]').count()) === 0);
+
+  /* 412 y 414 son los anchos más comunes de Android, y son justo donde se
+     salía: a partir de 401 reaparecía la palabra «Guardado» de la pastilla. */
+  for (const ancho of [320, 360, 390, 401, 412, 414, 430, 520, 521]) {
+    await pag.setViewportSize({ width: ancho, height: 844 });
+    await pag.waitForTimeout(350);
+    const cabe = await pag.evaluate(() => {
+      const c = document.querySelector(".cabecera");
+      return c ? c.scrollWidth <= window.innerWidth : false;
+    });
+    check(`voz: la cabecera cabe entera en ${ancho} px`, cabe);
+  }
+  await pag.setViewportSize({ width: 390, height: 844 });
+  await pag.waitForTimeout(300);
 
   check("voz: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
   await ctx.close();
