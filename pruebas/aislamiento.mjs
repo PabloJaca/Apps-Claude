@@ -195,6 +195,19 @@ check(
   "al cambiar de usuario lo primero es vaciar lo que hubiera en pantalla",
   /setRegistros\(vacias\(nombres\)\);\s*setUsuario\(\{\}\);/.test(datos)
 );
+/* Una colección rechazada no puede dejar la app cargando para siempre: `listo`
+   espera a que todas contesten, así que la que falla tiene que darse por
+   contestada. Pasó al añadir `plantillas`: hasta publicar las reglas nuevas,
+   Salud entera se quedaba en «Cargando tus datos…». */
+check(
+  "una colección que falla se da por contestada, para no bloquear a las demás",
+  /const fallo = \(que\) => \(e\) => \{[\s\S]*?if \(que\) yaEsta\(que\);/.test(datos)
+);
+check(
+  "y cada escucha pasa su propio nombre al manejador de fallos",
+  /fallo\("usuario"\)/.test(datos) && /fallo\(nombre\)/.test(datos)
+);
+
 check("el efecto que escucha depende del uid", /\}, \[uid, nombres\]\);/.test(datos));
 check("sin uid no se escucha nada", /if \(!uid\) return;/.test(datos));
 check(

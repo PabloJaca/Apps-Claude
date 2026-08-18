@@ -4,7 +4,8 @@ Dos aplicaciones web personales (PWA) que se instalan en el móvil y se usan igu
 ordenador, con los mismos datos en los dos sitios.
 
 - **Gastos** — gastos del día a día, gastos fijos, presupuestos y una revisión mensual.
-- **Salud** — peso, entrenos y comidas, con estimación de calorías y valoración semanal o mensual.
+- **Salud** — peso, entrenos y comidas, con plantillas para los entrenos que se repiten,
+  estimación de calorías y valoración semanal o mensual.
 
 Las dos funcionan **sin ninguna clave de API**: todos los análisis se calculan en el
 propio dispositivo. Los datos, en cambio, no viven en el dispositivo: viven en tu cuenta,
@@ -75,6 +76,7 @@ Todo cuelga del identificador de la cuenta, y **un registro es un documento**:
 usuarios/{uid}                     correo, perfil y ajustes
 usuarios/{uid}/pesos/{id}
 usuarios/{uid}/entrenos/{id}
+usuarios/{uid}/plantillas/{id}    entrenos que se repiten, sin fecha
 usuarios/{uid}/comidas/{id}
 usuarios/{uid}/gastos/{id}
 usuarios/{uid}/fijos/{id}

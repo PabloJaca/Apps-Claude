@@ -85,12 +85,28 @@ service cloud.firestore {
        treinta y pico cosas. Lo de dentro lo valida la aplicación. El tope de
        campos y el de elementos acotan el tamaño, que es lo que aquí importa. */
     function entrenoOk() {
-      return fechaOk() && campos(10)
+      return fechaOk() && campos(11)
              && cadena(d().tipo, 20)
+             && opcional('plantilla', 40)
              && (!('minutos' in d()) || entre(d().minutos, 1, 1440))
              && (!('km' in d()) || d().km == null || entre(d().km, 0, 1000))
              && (!('ejercicios' in d())
                  || (d().ejercicios is list && d().ejercicios.size() <= 30))
+             && opcional('intensidad', 20);
+    }
+
+    /* Una plantilla es un entreno sin fecha: no se hizo ningún día, se repite.
+       De `ejercicios` vale lo mismo que arriba: la lista se acota, lo de dentro
+       lo valida la aplicación. */
+    function plantillaOk() {
+      return campos(10)
+             && cadena(d().nombre, 60)
+             && cadena(d().tipo, 20)
+             && (!('minutos' in d()) || d().minutos == null || entre(d().minutos, 1, 1440))
+             && (!('km' in d()) || d().km == null || entre(d().km, 0, 1000))
+             && (!('ejercicios' in d())
+                 || (d().ejercicios is list && d().ejercicios.size() <= 30))
+             && (!('orden' in d()) || d().orden == null || entre(d().orden, 0, 999))
              && opcional('intensidad', 20);
     }
 
@@ -176,6 +192,11 @@ service cloud.firestore {
     match /usuarios/{uid}/entrenos/{id} {
       allow read, delete: if puede(uid);
       allow create, update: if puede(uid) && entrenoOk();
+    }
+
+    match /usuarios/{uid}/plantillas/{id} {
+      allow read, delete: if puede(uid);
+      allow create, update: if puede(uid) && plantillaOk();
     }
 
     match /usuarios/{uid}/comidas/{id} {

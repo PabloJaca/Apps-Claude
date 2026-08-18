@@ -23,6 +23,7 @@ export const PANTALLAS_ABIERTAS = {
   salud: [
     "Bienvenida", "HojaFecha", "HojaEjercicio",
     "PantallaEjercicio", "PantallaOtrosDias", "PantallaValoracion", "PantallaPerfil",
+    "PantallaPlantillas", "HojaPlantilla", "HojaPlantillaEditar", "HojaPegarPlantillas",
     "PantallaCuenta", "HojaDictado", "PantallaBloqueo",
   ],
 };

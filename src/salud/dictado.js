@@ -17,6 +17,7 @@ import {
   buscarNumeros, capitalizar, leerFecha, restar, sinTildes, trocear,
 } from "../comun/lengua.js";
 import { EJERCICIOS_SUGERIDOS, ejerciciosUsados, hoy as hoyISO, mismoEjercicio } from "./nucleo.js";
+import { buscarPlantilla, entrenoDesdePlantilla, ultimaDePlantilla } from "./plantillas.js";
 
 /* ── a qué pestaña va ────────────────────────────────────────────────────── */
 
@@ -172,7 +173,7 @@ export function reconocerEjercicio(texto, entrenos) {
   return null;
 }
 
-function interpretarEntreno(brutos, limpios, plano, fecha, datos) {
+function interpretarEntreno(brutos, limpios, plano, fecha, datos, plantilla) {
   let tipo = "fuerza";
   for (const [re, id] of TIPO_POR_SENA) if (re.test(plano)) { tipo = id; break; }
 
@@ -211,6 +212,19 @@ function interpretarEntreno(brutos, limpios, plano, fecha, datos) {
   if (!salida.minutos) {
     const horas = numeros.find((n) => unidadDe(n) === "hora");
     if (horas) salida.minutos = Math.round(horas.valor * 60);
+  }
+
+  /* Si la frase nombra una plantilla, ella pone el entreno entero y la frase
+     solo manda en lo que haya dicho de verdad: «he hecho empuje 45 minutos
+     suave» son los ejercicios de siempre con esos dos cambios. */
+  if (plantilla) {
+    const base = entrenoDesdePlantilla(
+      plantilla, fecha, ultimaDePlantilla(datos && datos.entrenos, plantilla.id)
+    );
+    if (salida.minutos) base.minutos = salida.minutos;
+    if (intensidad) base.intensidad = intensidad;
+    if (salida.km) base.km = salida.km;
+    return base;
   }
 
   if (tipo === "fuerza") {
@@ -299,8 +313,13 @@ export function interpretarSalud(frase, datos, opciones = {}) {
     : { brutos, limpios };
   const plano2 = sinCuando.limpios.join(" ");
 
+  /* El nombre de una plantilla es una seña de entreno tan buena como
+     «gimnasio»: quien tiene una plantilla llamada «Empuje» dice «he hecho
+     empuje», sin más pistas. */
+  const plantilla = buscarPlantilla(datos && datos.plantillas, plano2);
+
   const esPeso = SENAS_PESO.some((re) => re.test(plano2));
-  const esEntreno = SENAS_ENTRENO.some((re) => re.test(plano2));
+  const esEntreno = Boolean(plantilla) || SENAS_ENTRENO.some((re) => re.test(plano2));
   const esComida = SENAS_COMIDA.some((re) => re.test(plano2));
 
   /* El peso gana al resto cuando lo dice explícitamente: «peso 82 después de
@@ -321,7 +340,12 @@ export function interpretarSalud(frase, datos, opciones = {}) {
     }
   }
 
-  if (esEntreno) return { ...interpretarEntreno(sinCuando.brutos, sinCuando.limpios, plano2, fecha, datos), dijoFecha: Boolean(conFecha) };
+  if (esEntreno) {
+    return {
+      ...interpretarEntreno(sinCuando.brutos, sinCuando.limpios, plano2, fecha, datos, plantilla),
+      dijoFecha: Boolean(conFecha),
+    };
+  }
 
   return { ...interpretarComida(sinCuando.brutos, sinCuando.limpios, plano2, fecha, ahora), dijoFecha: Boolean(conFecha) };
 }

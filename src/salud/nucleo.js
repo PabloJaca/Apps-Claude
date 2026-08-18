@@ -5,12 +5,12 @@
 import { nuevoId } from "../comun/id.js";
 
 /** Colecciones de Firestore que usa esta app: usuarios/{uid}/<nombre>/{id}. */
-export const COLECCIONES = ["pesos", "entrenos", "comidas"];
+export const COLECCIONES = ["pesos", "entrenos", "comidas", "plantillas"];
 
 export const PERFIL_VACIO = { altura: "", edad: "", sexo: "", actividad: "", objetivo: "" };
 
 /** Lo que la app espera tener en pantalla mientras Firestore aún no ha hablado. */
-export const VACIO = { perfil: PERFIL_VACIO, pesos: [], entrenos: [], comidas: [] };
+export const VACIO = { perfil: PERFIL_VACIO, pesos: [], entrenos: [], comidas: [], plantillas: [] };
 
 /* ── catálogos ───────────────────────────────────────────────────────────── */
 
@@ -363,7 +363,9 @@ export const EJERCICIOS_SUGERIDOS = [
    que distingue de verdad —barra, mancuernas, polea, inclinado— se queda. */
 const RELLENO = new Set(["de", "del", "la", "el", "los", "las", "con", "en", "a", "al", "y"]);
 
-const huellaEjercicio = (nombre) =>
+/* Exportada porque las plantillas cruzan sus ejercicios con los del
+   historial por este mismo nombre normalizado. */
+export const huellaEjercicio = (nombre) =>
   huella(nombre).split(" ").filter((p) => p && !RELLENO.has(p)).join(" ");
 
 /** Si dos nombres se refieren al mismo ejercicio. */
@@ -863,6 +865,7 @@ export function repartir(d) {
       pesos: normalizar(d.pesos),
       entrenos: normalizar(d.entrenos),
       comidas: normalizar(d.comidas, arreglarComida),
+      plantillas: normalizar(d.plantillas),
     },
     campos: { perfil: { ...PERFIL_VACIO, ...(d.perfil || {}) } },
   };

@@ -26,6 +26,7 @@ import * as salud from "../src/salud/nucleo.js";
 import * as estimador from "../src/salud/estimador.js";
 import * as valoracion from "../src/salud/valoracion.js";
 import * as dictadoS from "../src/salud/dictado.js";
+import * as plantillasS from "../src/salud/plantillas.js";
 import * as lengua from "../src/comun/lengua.js";
 
 let fallos = 0;
@@ -141,6 +142,8 @@ const T = {
   registroEntreno: () => salud.saneaEntrenos([registro(), registro()])[0] || { fecha: "2026-08-12", ejercicios: [] },
   rangos: () => lista(() => ({ desde: entre(0, 3), fin: entre(3, 6) }), 3),
   sobras: () => new Set(["he", "de", "en"]),
+  listaPlantillas: () => lista(registro, 4),
+  registroPlantilla: () => plantillasS.plantillasSanas([registro()])[0] || { nombre: "X", ejercicios: [] },
 };
 
 /* Cada función exportada, con la forma de sus argumentos.
@@ -175,7 +178,7 @@ const FORMA = {
     ejerciciosUsados: ["listaEntrenos"], energiaDelDia: ["energia", "listaEntrenos", "numero", "perfil"],
     enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], etiquetaFecha: ["fecha"],
     etiquetaTramo: ["periodo", "offset"], extraPorEntrenos: ["listaEntrenos", "numero", "texto"],
-    fechaCorta: ["fecha"], hoy: [], inicioSemana: ["fecha"], iso: ["fecha"],
+    fechaCorta: ["fecha"], hoy: [], huellaEjercicio: ["texto"], inicioSemana: ["fecha"], iso: ["fecha"],
     kcalEntreno: ["registro", "numero"], mediaMovil: ["listaPesos", "numero"], mejorSerie: ["lista"],
     miles: ["numero"], mismoEjercicio: ["texto", "texto"], num: ["numero"], objetivoDe: ["texto"],
     pendienteSemanal: ["listaPesos"], pesoCorto: ["numero"], pesosFiables: ["listaPesos"], plural: ["numero", "texto", "texto"],
@@ -194,6 +197,12 @@ const FORMA = {
   },
   "salud/valoracion": { valorarPeriodo: ["datosS", "energia", "periodo", "offset"] },
   "salud/dictado": { interpretarSalud: ["texto", "datosS", "opcionesSalud"], reconocerEjercicio: ["texto", "listaEntrenos"] },
+  "salud/plantillas": {
+    buscarPlantilla: ["listaPlantillas", "texto"], entrenoDesdePlantilla: ["registroPlantilla", "fecha", "registroEntreno"],
+    interpretarPlantillas: ["texto"], plantillaDesdeEntreno: ["registroEntreno", "texto"],
+    plantillasSanas: ["listaPlantillas"], porOrdenPlantilla: ["registro", "registro"],
+    resumenPlantilla: ["registroPlantilla"], ultimaDePlantilla: ["listaEntrenos", "texto"],
+  },
   "comun/lengua": {
     aNumero: ["texto"], buscarNumeros: ["lista"], capitalizar: ["texto"], leerFecha: ["lista", "fecha"],
     leerNumero: ["lista", "numero"], restar: ["lista", "rangos", "sobras"], sinTildes: ["texto"],
@@ -268,7 +277,7 @@ const TRAS_FRONTERA = {
 const MODULOS = [
   ["gastos/nucleo", gastos], ["gastos/analisis", analisis], ["gastos/dictado", dictadoG],
   ["salud/nucleo", salud], ["salud/estimador", estimador], ["salud/valoracion", valoracion],
-  ["salud/dictado", dictadoS], ["comun/lengua", lengua],
+  ["salud/dictado", dictadoS], ["salud/plantillas", plantillasS], ["comun/lengua", lengua],
 ];
 
 const VUELTAS = 400;

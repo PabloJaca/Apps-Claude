@@ -67,7 +67,19 @@ export function useDatos({ uid, colecciones }) {
       setEstado((e) => (e === "error" || e === "guardando" ? e : "al-dia"));
     };
 
-    const fallo = (e) => {
+    /*
+     * Una colección que falla no puede llevarse por delante a las demás.
+     *
+     * `listo` esperaba a que TODAS contestaran, así que si una sola era
+     * rechazada —una colección nueva cuyas reglas aún no se han publicado, por
+     * ejemplo— la aplicación entera se quedaba en «Cargando tus datos…» para
+     * siempre, con el peso y las comidas ya descargados y sin poder verlos.
+     *
+     * Ahora la que falla se da por contestada con la lista vacía: se pierde
+     * esa colección, no la aplicación. El error se sigue enseñando arriba, que
+     * para eso está, y en cuanto se arregle lo de fuera vuelve sola.
+     */
+    const fallo = (que) => (e) => {
       if (!vivo) return;
       setError(
         e && e.code === "permission-denied"
@@ -75,6 +87,7 @@ export function useDatos({ uid, colecciones }) {
           : "No se ha podido conectar con la base de datos."
       );
       setEstado("error");
+      if (que) yaEsta(que);
     };
 
     const paradas = [
@@ -86,7 +99,7 @@ export function useDatos({ uid, colecciones }) {
           llegoDelServidor(meta.deCache);
           yaEsta("usuario");
         },
-        fallo
+        fallo("usuario")
       ),
       ...nombres.map((nombre) =>
         escucharColeccion(
@@ -98,7 +111,7 @@ export function useDatos({ uid, colecciones }) {
             llegoDelServidor(meta.deCache);
             yaEsta(nombre);
           },
-          fallo
+          fallo(nombre)
         )
       ),
     ];

@@ -1487,6 +1487,142 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await ctx.close();
 }
 
+/* ── 9. Salud: plantillas de entreno ──────────────────────────────────────
+   El recorrido entero tal y como se usa: montar una plantilla a mano, pegar
+   otras copiadas de un documento, usar una, y comprobar lo que de verdad
+   importa —que la segunda vez llega con los pesos de la primera—. Sin esto
+   último la plantilla es un atajo bonito que no ahorra nada.               */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/hugo@ejemplo.com": { nombre: "Hugo" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(400);
+  await acceder(pag, "hugo@ejemplo.com", "secreta7", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  await pag.click("nav >> text=Entrenos");
+  await pag.waitForTimeout(600);
+  const sinNinguna = await texto(pag);
+  check("plantillas: sin ninguna, se explica para qué sirven",
+    /Guarda los entrenos que repites/.test(sinNinguna), sinNinguna.slice(0, 300));
+
+  // --- la pantalla de gestión y la hoja de creación ---
+  await pag.locator('button:has-text("Guarda los entrenos que repites")').first().click();
+  await pag.waitForTimeout(700);
+  check("plantillas: se abre la pantalla de gestión",
+    /Mis plantillas/.test(await texto(pag)), (await texto(pag)).slice(0, 250));
+
+  await pag.locator('button:has-text("Nueva plantilla")').first().click();
+  await pag.waitForTimeout(600);
+  check("plantillas: la hoja se abre como nueva, no como corrección",
+    /Nueva plantilla/.test(await pag.innerText(".rise")), (await pag.innerText(".rise")).slice(0, 200));
+
+  await pag.fill('.rise input[placeholder*="Empuje"]', "Empuje");
+  await pag.click('.rise button:has-text("Añadir ejercicio")');
+  await pag.waitForTimeout(500);
+  const hojas = pag.locator(".rise");
+  await hojas.last().locator('input').first().fill("Press banca");
+  await hojas.last().locator('input[aria-label="Repeticiones de la serie 1"]').fill("8");
+  await hojas.last().locator('input[aria-label="Kilos de la serie 1"]').fill("70");
+  await hojas.last().locator('button:has-text("Añadir al entreno")').click();
+  await pag.waitForTimeout(500);
+  await pag.click('.rise button:has-text("Crear plantilla")');
+  await pag.waitForTimeout(800);
+
+  const trasCrear = await texto(pag);
+  check("plantillas: la nueva sale en la lista", /Empuje/.test(trasCrear), trasCrear.slice(0, 300));
+  check("plantillas: con su resumen de ejercicios", /1 ejercicio/.test(trasCrear), trasCrear.slice(0, 300));
+
+  // --- el pegado masivo ---
+  await pag.locator('button:has-text("Pegar varias")').first().click();
+  await pag.waitForTimeout(600);
+  await pag.click('.rise button:has-text("Rellenar con el ejemplo")');
+  await pag.waitForTimeout(600);
+  const previa = await pag.innerText(".rise");
+  check("plantillas: el pegado enseña lo entendido antes de guardar",
+    /Lo que he entendido/i.test(previa), previa.slice(0, 300));
+  check("plantillas: y reparte bien kilos y series",
+    /80×8/.test(previa) && /40×10/.test(previa), previa.replace(/\n+/g, " | ").slice(0, 600));
+
+  await pag.locator('.rise button:has-text("Guardar 3 plantillas")').first().click();
+  await pag.waitForTimeout(900);
+  const trasPegar = await texto(pag);
+  check("plantillas: se crean las tres de golpe",
+    /Pádel/.test(trasPegar) && /Pliometría/.test(trasPegar), trasPegar.slice(0, 400));
+
+  const srv1 = await pag.evaluate(() => window.__espia.verServidor());
+  const guardadas = Object.entries(srv1.docs).filter(([r]) => /\/plantillas\//.test(r));
+  check("plantillas: se escriben en su propia colección", guardadas.length === 4,
+    Object.keys(srv1.docs).join(" "));
+  check("plantillas: la de pádel no se guarda como si fuera pesas",
+    guardadas.some(([, v]) => v.nombre === "Pádel" && v.tipo === "equipo"),
+    JSON.stringify(guardadas.map(([, v]) => [v.nombre, v.tipo])));
+
+  // --- usarla ---
+  await pag.locator('[aria-label="Cerrar"]').first().click();
+  await pag.waitForTimeout(700);
+  const enPestana = await texto(pag);
+  check("plantillas: aparecen como botones en la pestaña",
+    /Mis entrenos/i.test(enPestana) && /Empuje/.test(enPestana), enPestana.slice(0, 400));
+
+  await pag.locator('button:has-text("Empuje")').first().click();
+  await pag.waitForTimeout(700);
+  const hoja1 = await pag.innerText(".rise");
+  check("plantillas: al tocarla se abre el entreno ya montado",
+    /Press banca/.test(hoja1), hoja1.slice(0, 300));
+  check("plantillas: y avisa de que es la primera vez",
+    /Primera vez/.test(hoja1), hoja1.slice(0, 300));
+
+  /* Se sube el peso, que es lo único que se toca de verdad en el gimnasio. */
+  await pag.locator('.rise button[aria-label="Editar el ejercicio"]').first().click();
+  await pag.waitForTimeout(500);
+  await pag.locator('.rise').last().locator('input[aria-label="Kilos de la serie 1"]').fill("75");
+  await pag.locator('.rise').last().locator('button:has-text("Guardar los cambios")').click();
+  await pag.waitForTimeout(500);
+  await pag.click('.rise button:has-text("Guardar entreno")');
+  await pag.waitForTimeout(900);
+
+  const srv2 = await pag.evaluate(() => window.__espia.verServidor());
+  const entrenos = Object.entries(srv2.docs).filter(([r]) => /\/entrenos\//.test(r));
+  check("plantillas: el entreno se guarda", entrenos.length === 1, Object.keys(srv2.docs).join(" "));
+  check("plantillas: y queda apuntado de qué plantilla salió",
+    entrenos[0] && Boolean(entrenos[0][1].plantilla), JSON.stringify(entrenos[0] && entrenos[0][1]));
+  check("plantillas: con el peso corregido, no con el de la plantilla",
+    entrenos[0] && entrenos[0][1].ejercicios[0].series[0].kg === 75,
+    JSON.stringify(entrenos[0] && entrenos[0][1].ejercicios));
+
+  // --- la segunda vez: los pesos vienen de la primera ---
+  await pag.locator('button:has-text("Empuje")').first().click();
+  await pag.waitForTimeout(800);
+  const hoja2 = await pag.innerText(".rise");
+  check("plantillas: la segunda vez dice cuándo fue la última",
+    /última vez fue hoy/i.test(hoja2), hoja2.slice(0, 300));
+  check("plantillas: Y TRAE LOS PESOS DE LA ÚLTIMA SESIÓN, no los de la plantilla",
+    /75/.test(hoja2) && !/70×8/.test(hoja2), hoja2.replace(/\n+/g, " | ").slice(0, 400));
+
+  await pag.click('.rise [aria-label="Cerrar"]');
+  await pag.waitForTimeout(400);
+
+  check("plantillas: nada se sale de la pantalla",
+    await pag.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1),
+    String(await pag.evaluate(() => document.body.scrollWidth)));
+  check("plantillas: no se enseña «undefined» ni «NaN»",
+    !/undefined|NaN/.test(await texto(pag)), (await texto(pag)).replace(/\n+/g, " | ").slice(0, 300));
+  check("plantillas: ningún error de JavaScript en todo el recorrido", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 await nav.close();
 srv.close();
 await rm(dir, { recursive: true, force: true });

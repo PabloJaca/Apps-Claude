@@ -160,8 +160,9 @@ check(
 );
 check(
   "salud: la caché de valoraciones de pago no viaja a Firestore",
-  Object.keys(S).sort().join(",") === "comidas,entrenos,pesos" &&
-    Object.keys(campoS).join(",") === "perfil"
+  Object.keys(S).sort().join(",") === "comidas,entrenos,pesos,plantillas" &&
+    Object.keys(campoS).join(",") === "perfil",
+  `${Object.keys(S).sort().join(",")} · ${Object.keys(campoS).join(",")}`
 );
 check(
   "salud: repartir es idempotente",

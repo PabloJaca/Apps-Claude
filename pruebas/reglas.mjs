@@ -117,6 +117,35 @@ await check("entreno: rechaza ejercicios que no son una lista", assertFails(guar
   fecha: "2026-08-07", tipo: "fuerza", ts: 1, ejercicios: "press banca",
 })));
 
+await check("entreno: acepta que venga de una plantilla", assertSucceeds(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "fuerza", minutos: 60, intensidad: "media", ts: 1, plantilla: "p1",
+  ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 80 }] }],
+})));
+await check("entreno: rechaza una plantilla que sea una parrafada", assertFails(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "fuerza", minutos: 60, plantilla: "x".repeat(400),
+})));
+
+/* Las plantillas son la única colección sin fecha: no se hicieron ningún día.
+   Por eso tienen su propia función en las reglas y no reaprovechan `entrenoOk`. */
+await check("plantilla: acepta una de fuerza", assertSucceeds(guarda("plantillas", {
+  nombre: "Empuje", tipo: "fuerza", minutos: 60, intensidad: "fuerte", km: null, orden: 0,
+  ejercicios: [{ nombre: "Press banca", series: [{ reps: 8, kg: 80 }] }],
+})));
+await check("plantilla: acepta una sin ejercicios (un partido de pádel)", assertSucceeds(guarda("plantillas", {
+  nombre: "Pádel", tipo: "equipo", minutos: 90, intensidad: "media", km: null, orden: 1, ejercicios: [],
+})));
+await check("plantilla: rechaza una sin nombre", assertFails(guarda("plantillas", { tipo: "fuerza", minutos: 60 })));
+await check("plantilla: rechaza un nombre de 500 caracteres", assertFails(guarda("plantillas", { nombre: "x".repeat(500), tipo: "fuerza" })));
+await check("plantilla: rechaza 40 horas de duración", assertFails(guarda("plantillas", { nombre: "X", tipo: "fuerza", minutos: 2400 })));
+await check("plantilla: rechaza treinta y pico ejercicios", assertFails(guarda("plantillas", {
+  nombre: "Bestia", tipo: "fuerza",
+  ejercicios: Array.from({ length: 40 }, (_, i) => ({ nombre: `E${i}`, series: [{ reps: 8, kg: 20 }] })),
+})));
+await check("plantilla: rechaza ejercicios que no son una lista", assertFails(guarda("plantillas", {
+  nombre: "X", tipo: "fuerza", ejercicios: "press banca",
+})));
+await check("plantilla: rechaza un orden absurdo", assertFails(guarda("plantillas", { nombre: "X", tipo: "fuerza", orden: 99999 })));
+
 await check("gasto: rechaza un importe desorbitado", assertFails(guarda("gastos", { fecha: "2026-08-07", importe: 99999999, categoria: "comida" })));
 await check("gasto: acepta uno normal", assertSucceeds(guarda("gastos", { fecha: "2026-08-07", importe: 23.5, categoria: "comida", nota: "cena" })));
 

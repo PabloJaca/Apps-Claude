@@ -52,7 +52,7 @@ import {
 const CLAVES = ["apiKey", "authDomain", "projectId", "appId"];
 
 /** Colecciones permitidas. Sirve de red: nadie escribe fuera de esta lista. */
-export const COLECCIONES = ["pesos", "entrenos", "comidas", "gastos", "ingresos", "fijos", "categorias"];
+export const COLECCIONES = ["pesos", "entrenos", "comidas", "plantillas", "gastos", "ingresos", "fijos", "categorias"];
 
 /** Firestore admite 500 operaciones por lote; se deja margen. */
 const TOPE_LOTE = 450;
