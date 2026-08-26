@@ -136,6 +136,30 @@ check(
   usanAlmacenLocal.join(", ")
 );
 
+/* ── que una versión nueva llegue de verdad ─────────────────────────────── */
+
+/* El service worker servía `app.js` de caché primero. Consecuencia: tras cada
+   publicación, el primer arranque daba la versión ANTERIOR y la nueva solo
+   quedaba guardada para el siguiente. Cerrar la app del todo no arreglaba nada
+   porque el problema no estaba en la pestaña, y desde fuera no había manera de
+   saberlo: parecía que el despliegue no había salido. */
+{
+  const sw = leer("src/plantillas/sw.js");
+  check(
+    "el paquete de la app se pide a la red antes que a la caché",
+    /esDocumento\(req\)[^{]*resto === "app\.js"/.test(sw),
+    sw.split("\n").find((l) => l.includes("esDocumento(req)"))
+  );
+  check(
+    "y sin conexión sigue habiendo respuesta desde lo guardado",
+    /\.catch\(\(\) => caches\.match\(req\)/.test(sw)
+  );
+  check(
+    "una versión nueva no espera a que se cierren las pestañas",
+    /self\.skipWaiting\(\)/.test(sw) && /clients\.claim\(\)/.test(sw)
+  );
+}
+
 /* ── el PIN, que es un secreto por pequeño que sea ──────────────────────── */
 
 {

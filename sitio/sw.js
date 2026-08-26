@@ -1,8 +1,9 @@
 /* Service worker generado por build.mjs. No editar a mano: se reescribe en cada compilación.
 
-   Estrategia: la red primero para el HTML y para config.js (así una versión nueva
-   o un cambio de configuración se ven enseguida) y caché primero con refresco en
-   segundo plano para lo pesado. Sin conexión, tira de lo guardado.
+   Estrategia: la red primero para lo que ES la aplicación —el HTML, `app.js` y
+   `config.js`—, para que una versión nueva se vea en el primer arranque y no en
+   el segundo. Caché primero con refresco en segundo plano para lo que no
+   cambia: iconos y manifiesto. Sin conexión, todo tira de lo guardado.
 
    Los datos NO pasan por aquí: viven en Firestore, dentro de la cuenta de cada
    persona. Este archivo solo guarda la aplicación, nunca lo que apuntas.
@@ -10,7 +11,7 @@
    El alcance se saca de `self.registration.scope`, así que el sitio funciona
    igual colgado en la raíz del dominio que en un subdirectorio. */
 
-const CACHE = "hub-bb8dfc5b";
+const CACHE = "hub-a0e32dc6";
 const PREFIJO = "hub-";
 const ARCHIVOS = ["./","./index.html","./manifest.json","./config.js","./icon-192.png","./icon-512.png","./apple-touch-icon.png"];
 const EXCLUIR = ["gastos/","salud/"];
@@ -54,7 +55,15 @@ self.addEventListener("fetch", (e) => {
   const resto = url.pathname.slice(ALCANCE.length);
   if (EXCLUIR.some((carpeta) => resto.startsWith(carpeta))) return; // eso lo lleva otro service worker
 
-  if (esDocumento(req) || resto === "config.js") {
+  /* `app.js` va por red primero, igual que el HTML.
+     Estaba en la rama de «caché primero con refresco detrás», y eso significa
+     que tras cada publicación se servía la versión ANTERIOR y la nueva solo
+     quedaba guardada para el arranque siguiente: la app iba siempre un
+     arranque por detrás y no había forma de forzarla desde fuera. Cerrarla del
+     todo no servía de nada, porque el problema no era la pestaña.
+     El coste es una petición por arranque, que con ETag suele ser un 304 de
+     unos pocos bytes; y sin conexión sigue tirando de lo guardado. */
+  if (esDocumento(req) || resto === "config.js" || resto === "app.js") {
     e.respondWith(
       fetch(req)
         .then((resp) => guardar(req, resp))

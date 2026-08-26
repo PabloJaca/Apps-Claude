@@ -118,8 +118,8 @@ const TEMAS = `
 }
 
 :root[data-tema="oscuro"] {
-  --bg: #0E1519; --soft: #1B272E; --card: #141F25;
-  --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #26363E;
+  --bg: #0B1014; --soft: #19222A; --card: #121A1F;
+  --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #232F37;
   --teal: #38CFBB; --tealSoft: #10312E;
   --mint: #4ADB94; --mintSoft: #0F3125;
   --coral: #FF8877; --coralSoft: #3B1B17;
@@ -129,9 +129,9 @@ const TEMAS = `
   --sobreAcento: #06211D;
   /* En oscuro la tarjeta «negra» no puede ser más negra que el fondo: se
      resuelve al revés, como una superficie elevada. */
-  --tarjetaOscura: #22323A; --sobreTarjetaOscura: #E9F2F6;
+  --tarjetaOscura: #1F2B33; --sobreTarjetaOscura: #E9F2F6;
   --velo: rgba(0,0,0,.6);
-  --barra: rgba(20,31,37,.94);
+  --barra: rgba(18,26,31,.95);
   --sombra: 0 1px 2px rgba(0,0,0,.3), 0 10px 26px rgba(0,0,0,.34);
   --sombraAlta: 0 12px 34px rgba(0,0,0,.5);
   --brilloAcento: 0 6px 16px rgba(56,207,187,.24);
@@ -141,17 +141,17 @@ const TEMAS = `
 /* Sin elección guardada manda el sistema. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-tema="claro"]):not([data-tema="oscuro"]) {
-    --bg: #0E1519; --soft: #1B272E; --card: #141F25;
-    --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #26363E;
+    --bg: #0B1014; --soft: #19222A; --card: #121A1F;
+    --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #232F37;
     --teal: #38CFBB; --tealSoft: #10312E;
     --mint: #4ADB94; --mintSoft: #0F3125;
     --coral: #FF8877; --coralSoft: #3B1B17;
     --amber: #F2B850; --amberSoft: #3A2A11;
     --indigo: #A0A0F2; --indigoSoft: #21214A;
     --sobreAcento: #06211D;
-    --tarjetaOscura: #22323A; --sobreTarjetaOscura: #E9F2F6;
+    --tarjetaOscura: #1F2B33; --sobreTarjetaOscura: #E9F2F6;
     --velo: rgba(0,0,0,.6);
-    --barra: rgba(20,31,37,.94);
+    --barra: rgba(18,26,31,.95);
     --sombra: 0 1px 2px rgba(0,0,0,.3), 0 10px 26px rgba(0,0,0,.34);
     --sombraAlta: 0 12px 34px rgba(0,0,0,.5);
     --brilloAcento: 0 6px 16px rgba(56,207,187,.24);

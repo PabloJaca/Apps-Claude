@@ -152,14 +152,14 @@ This typically indicates that your device does not have a healthy Internet conne
 }
 
 :root[data-tema="oscuro"] {
-  --paper:#0E1519; --card:#141F25; --ink:#E9F2F6; --soft:#A6BCC6;
-  --line:#26363E; --accent:#38CFBB; --mint:#4ADB94; --amber:#F2B850; --coral:#FF8877;
-  --suave:#1D2A32; --suave2:#18242B; --suave3:#1B2830;
-  --realce:#1F2D36; --realceFuerte:#25343D;
+  --paper:#0B1014; --card:#121A1F; --ink:#E9F2F6; --soft:#A6BCC6;
+  --line:#232F37; --accent:#38CFBB; --mint:#4ADB94; --amber:#F2B850; --coral:#FF8877;
+  --suave:#1A242C; --suave2:#161F26; --suave3:#18222A;
+  --realce:#1D2831; --realceFuerte:#222E37;
   --accentSoft:#10312E; --mintSoft:#0F3125; --amberSoft:#3A2A11; --coralSoft:#3B1B17;
   --mintTexto:#4ADB94; --amberTexto:#F2B850; --coralTexto:#FF8877;
   --sobreAcento:#06211D;
-  --tarjetaOscura:#22323A; --sobreTarjetaOscura:#E9F2F6; --sobreTarjetaOscuraSuave:#A6BCC6;
+  --tarjetaOscura:#1F2B33; --sobreTarjetaOscura:#E9F2F6; --sobreTarjetaOscuraSuave:#A6BCC6;
   --tenue:#7C93A1; --tirador:#33454F; --futuro:#24323B; --ritmo:#6E8794; --rayado:#5C7280;
   --ingreso:#14352F; --peligroSoft:#2E1512; --peligroBorde:#4A2019;
   --velo:rgba(0,0,0,.6);
@@ -171,14 +171,14 @@ This typically indicates that your device does not have a healthy Internet conne
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-tema="claro"]):not([data-tema="oscuro"]) {
-    --paper:#0E1519; --card:#141F25; --ink:#E9F2F6; --soft:#A6BCC6;
-    --line:#26363E; --accent:#38CFBB; --mint:#4ADB94; --amber:#F2B850; --coral:#FF8877;
-    --suave:#1D2A32; --suave2:#18242B; --suave3:#1B2830;
-    --realce:#1F2D36; --realceFuerte:#25343D;
+    --paper:#0B1014; --card:#121A1F; --ink:#E9F2F6; --soft:#A6BCC6;
+    --line:#232F37; --accent:#38CFBB; --mint:#4ADB94; --amber:#F2B850; --coral:#FF8877;
+    --suave:#1A242C; --suave2:#161F26; --suave3:#18222A;
+    --realce:#1D2831; --realceFuerte:#222E37;
     --accentSoft:#10312E; --mintSoft:#0F3125; --amberSoft:#3A2A11; --coralSoft:#3B1B17;
     --mintTexto:#4ADB94; --amberTexto:#F2B850; --coralTexto:#FF8877;
     --sobreAcento:#06211D;
-    --tarjetaOscura:#22323A; --sobreTarjetaOscura:#E9F2F6; --sobreTarjetaOscuraSuave:#A6BCC6;
+    --tarjetaOscura:#1F2B33; --sobreTarjetaOscura:#E9F2F6; --sobreTarjetaOscuraSuave:#A6BCC6;
     --tenue:#7C93A1; --tirador:#33454F; --futuro:#24323B; --ritmo:#6E8794; --rayado:#5C7280;
     --ingreso:#14352F; --peligroSoft:#2E1512; --peligroBorde:#4A2019;
     --velo:rgba(0,0,0,.6);
