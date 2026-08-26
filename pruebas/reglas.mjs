@@ -125,6 +125,18 @@ await check("entreno: rechaza una plantilla que sea una parrafada", assertFails(
   fecha: "2026-08-07", tipo: "fuerza", minutos: 60, plantilla: "x".repeat(400),
 })));
 
+/* Un entreno que no es de pesas también puede llevar ejercicios: un día de
+   pádel con core detrás. Las reglas no miran el tipo para decidir si acepta
+   `ejercicios`, y esta prueba fija que siga siendo así. */
+await check("entreno: acepta ejercicios sueltos en un entreno de equipo", assertSucceeds(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "equipo", minutos: 90, intensidad: "media", ts: 1, plantilla: "p2",
+  ejercicios: [{ nombre: "Plancha", series: [{ reps: 60, kg: null }] }],
+})));
+await check("entreno: y en uno de cardio con distancia", assertSucceeds(guarda("entrenos", {
+  fecha: "2026-08-07", tipo: "cardio", minutos: 45, km: 8, intensidad: "alta", ts: 1, plantilla: "p3",
+  ejercicios: [{ nombre: "Abdominales", series: [{ reps: 20, kg: null }] }],
+})));
+
 /* Las plantillas son la única colección sin fecha: no se hicieron ningún día.
    Por eso tienen su propia función en las reglas y no reaprovechan `entrenoOk`. */
 await check("plantilla: acepta una de fuerza", assertSucceeds(guarda("plantillas", {
