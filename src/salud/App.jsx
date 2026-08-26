@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar } from "recharts";
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, Cell } from "recharts";
 import {
   Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Pencil, CalendarDays,
   RotateCcw, Sparkles, Users, Activity, Bike, TrendingUp, TrendingDown, Minus,
@@ -11,6 +11,7 @@ import { useDatos } from "../comun/datos.js";
 import { Puerta } from "../comun/sesion.jsx";
 import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { CSS_VOZ, HojaDictado } from "../comun/voz.jsx";
+import { TEMAS_ELEGIBLES, aplicarTema, guardarTema, instalarTema, temaGuardado } from "../comun/tema.js";
 import { EJEMPLOS_SALUD, interpretarSalud } from "./dictado.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
 import {
@@ -25,6 +26,7 @@ import {
   EJERCICIOS_HABITUALES, EJERCICIOS_SUGERIDOS, comidasFrecuentes, conFecha, saneaEntrenos, ejerciciosUsados, enRango, etiquetaFecha,
   etiquetaTramo, exportar, fechaCorta, mismoEjercicio, progresionEjercicio,
   recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
+  diferenciasEjercicio, progresoEjercicios, progresoPlantilla, mejorSerie,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
   pesoCorto, plural, progresoMeta, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe,
   tendenciaPeso, volumenDe, ausencia as calcularAusencia, energiaDelDia, pesosSanos,
@@ -32,24 +34,39 @@ import {
 
 /* ---------------------------------------------------------------- tokens */
 
+/*
+ * La paleta ya no son colores: son nombres.
+ *
+ * Cada entrada apunta a una variable CSS y los dos temas las rellenan más
+ * abajo. Así el modo oscuro no obliga a tocar ni uno de los cientos de
+ * `color: C.ink` repartidos por el archivo — cambia la variable y cambia todo.
+ *
+ * Dos pares merecen explicación porque son los que se rompen al invertir:
+ *
+ *   `sobreAcento`  el texto que va ENCIMA de un botón del color de acento. En
+ *                  claro es blanco; en oscuro los acentos son claros, así que
+ *                  encima va tinta oscura. Escribir "#fff" a pelo dejaba los
+ *                  botones activos en blanco sobre turquesa claro.
+ *
+ *   `tarjetaOscura` / `sobreTarjetaOscura`
+ *                  las tarjetas que en claro son casi negras con letra blanca
+ *                  («Valorar mi semana»). En oscuro no pueden usar `ink`,
+ *                  porque ahí `ink` ES el blanco: quedaría blanco sobre blanco.
+ */
 const C = {
-  /* Los dos grises se bajaron un escalón: «faint» estaba en #9BB2BF, que sobre
-     blanco da un contraste de 2,2 y deja los rótulos («HOY», «MOMENTO») casi
-     invisibles al sol. Ahora los dos pasan el mínimo legible y siguen siendo
-     dos pasos distintos por debajo del negro. */
-  bg: "#EDF3F8", soft: "#F6FAFC", card: "#FFFFFF", ink: "#15303D", mid: "#4C6675",
-  faint: "#5F7C8A", line: "#E3EDF3",
-  /* Los cinco acentos venían de una paleta pastel y estaban entre 1,8 y 3,0 de
-     contraste. Eso no fallaba solo cuando el color era el texto («−0,2 kg» en
-     menta sobre gris daba 1,7): también el texto BLANCO encima de los botones
-     verdes se quedaba en 2,6. Bajados de tono, los dos usos pasan el mínimo y
-     los fondos suaves siguen igual, que son los que dan el color a la app. */
-  teal: "#0A7F74", tealSoft: "#DCF5F1",
-  mint: "#0E8A5F", mintSoft: "#E0F9ED", coral: "#C4392B", coralSoft: "#FFE8E4",
-  amber: "#A66A00", amberSoft: "#FFF2DE", indigo: "#6060CE", indigoSoft: "#E8EBFE",
+  bg: "var(--bg)", soft: "var(--soft)", card: "var(--card)", ink: "var(--ink)",
+  mid: "var(--mid)", faint: "var(--faint)", line: "var(--line)",
+  teal: "var(--teal)", tealSoft: "var(--tealSoft)",
+  mint: "var(--mint)", mintSoft: "var(--mintSoft)",
+  coral: "var(--coral)", coralSoft: "var(--coralSoft)",
+  amber: "var(--amber)", amberSoft: "var(--amberSoft)",
+  indigo: "var(--indigo)", indigoSoft: "var(--indigoSoft)",
+  sobreAcento: "var(--sobreAcento)",
+  tarjetaOscura: "var(--tarjetaOscura)", sobreTarjetaOscura: "var(--sobreTarjetaOscura)",
+  velo: "var(--velo)", barra: "var(--barra)",
 };
 
-const sh = "0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06)";
+const sh = "var(--sombra)";
 const display = "'Bricolage Grotesque', system-ui, sans-serif";
 const body = "'Instrument Sans', system-ui, sans-serif";
 const mono = "'IBM Plex Mono', ui-monospace, monospace";
@@ -59,6 +76,99 @@ const PALETA_CUENTA = {
   line: C.line, acento: C.teal, acentoSuave: C.tealSoft, coral: C.coral, mint: C.mint,
   sombra: sh, display, body, mono,
 };
+
+/*
+ * Los dos temas.
+ *
+ * El oscuro es el de casa: la app se mira de noche y en el gimnasio, y el
+ * blanco a pantalla completa molesta. El claro sigue estando para quien lo
+ * prefiera o para mirarla al sol.
+ *
+ * `data-tema` en el <html> lo pone un script minúsculo del index.html ANTES
+ * de que cargue nada, para que no haya destello blanco al abrir. Aquí solo se
+ * declaran los valores. `auto` no pinta atributo: manda el sistema.
+ *
+ * Los acentos del oscuro NO son los mismos colores del claro: un turquesa que
+ * se lee sobre blanco es ilegible sobre casi negro. Están subidos de luz hasta
+ * pasar 4,5 sobre el fondo oscuro, y los fondos «Soft» bajados hasta ser
+ * tintes, no pasteles.
+ */
+const TEMAS = `
+:root, :root[data-tema="claro"] {
+  --bg: #EDF3F8; --soft: #F6FAFC; --card: #FFFFFF;
+  /* Estos seis se bajaron un punto más al medirlos de verdad: el barrido de
+     contraste del navegador destapó ocho combinaciones por debajo de 4,5 que
+     llevaban ahí desde el principio —«faint» sobre el fondo daba 3,96, la
+     menta sobre su propio tinte 3,93, y el blanco encima del ámbar 4,48—.
+     Ahora las treinta y dos parejas del tema pasan con margen. */
+  --ink: #15303D; --mid: #4C6675; --faint: #54707E; --line: #E3EDF3;
+  --teal: #066B63; --tealSoft: #DCF5F1;
+  --mint: #0B7752; --mintSoft: #E0F9ED;
+  --coral: #BB3527; --coralSoft: #FFE8E4;
+  --amber: #945E00; --amberSoft: #FFF2DE;
+  --indigo: #5555BE; --indigoSoft: #E8EBFE;
+  --sobreAcento: #FFFFFF;
+  --tarjetaOscura: #15303D; --sobreTarjetaOscura: #FFFFFF;
+  --velo: rgba(21,48,61,.35);
+  --barra: rgba(255,255,255,.93);
+  --sombra: 0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06);
+  --sombraAlta: 0 12px 34px rgba(21,48,61,.16);
+  --brilloAcento: 0 6px 16px rgba(6,107,99,.30);
+  --tinte: 12%;
+}
+
+:root[data-tema="oscuro"] {
+  --bg: #0E1519; --soft: #1B272E; --card: #141F25;
+  --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #26363E;
+  --teal: #38CFBB; --tealSoft: #10312E;
+  --mint: #4ADB94; --mintSoft: #0F3125;
+  --coral: #FF8877; --coralSoft: #3B1B17;
+  --amber: #F2B850; --amberSoft: #3A2A11;
+  --indigo: #A0A0F2; --indigoSoft: #21214A;
+  /* Encima de un acento claro va tinta oscura, no blanco. */
+  --sobreAcento: #06211D;
+  /* En oscuro la tarjeta «negra» no puede ser más negra que el fondo: se
+     resuelve al revés, como una superficie elevada. */
+  --tarjetaOscura: #22323A; --sobreTarjetaOscura: #E9F2F6;
+  --velo: rgba(0,0,0,.6);
+  --barra: rgba(20,31,37,.94);
+  --sombra: 0 1px 2px rgba(0,0,0,.3), 0 10px 26px rgba(0,0,0,.34);
+  --sombraAlta: 0 12px 34px rgba(0,0,0,.5);
+  --brilloAcento: 0 6px 16px rgba(56,207,187,.24);
+  --tinte: 22%;
+}
+
+/* Sin elección guardada manda el sistema. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]):not([data-tema="oscuro"]) {
+    --bg: #0E1519; --soft: #1B272E; --card: #141F25;
+    --ink: #E9F2F6; --mid: #A6BCC6; --faint: #8AA3AF; --line: #26363E;
+    --teal: #38CFBB; --tealSoft: #10312E;
+    --mint: #4ADB94; --mintSoft: #0F3125;
+    --coral: #FF8877; --coralSoft: #3B1B17;
+    --amber: #F2B850; --amberSoft: #3A2A11;
+    --indigo: #A0A0F2; --indigoSoft: #21214A;
+    --sobreAcento: #06211D;
+    --tarjetaOscura: #22323A; --sobreTarjetaOscura: #E9F2F6;
+    --velo: rgba(0,0,0,.6);
+    --barra: rgba(20,31,37,.94);
+    --sombra: 0 1px 2px rgba(0,0,0,.3), 0 10px 26px rgba(0,0,0,.34);
+    --sombraAlta: 0 12px 34px rgba(0,0,0,.5);
+    --brilloAcento: 0 6px 16px rgba(56,207,187,.24);
+    --tinte: 22%;
+  }
+}
+
+html, body { background: var(--bg); }
+/* Los controles nativos —el selector de fecha, sobre todo— se pintan según
+   esto. Sin ello sale un calendario blanco cegador dentro de la hoja oscura. */
+:root[data-tema="oscuro"] { color-scheme: dark; }
+:root[data-tema="claro"] { color-scheme: light; }
+`;
+
+/* La hoja y el tema guardado se instalan al importar el módulo, antes de que
+   se dibuje la puerta de acceso, que usa esta misma paleta. */
+if (typeof document !== "undefined") instalarTema(TEMAS);
 
 const CSS = `
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
@@ -98,7 +208,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .rejilla > .ancho { grid-column: 1 / -1; }
   .barraInferior { border-radius: 22px; left: 50% !important; right: auto !important;
     transform: translateX(-50%); bottom: 18px !important; width: auto; padding: 8px 12px !important;
-    box-shadow: 0 12px 34px rgba(21,48,61,.16); border: 1px solid ${C.line}; }
+    box-shadow: var(--sombraAlta); border: 1px solid ${C.line}; }
   .barraInferior button { padding: 0 14px !important; }
   .botonFlotante { right: calc(50% - 470px) !important; }
 }
@@ -113,6 +223,17 @@ const TIPOS = [
   { id: "otro", label: "Otro", Icon: Activity, color: C.amber, soft: C.amberSoft },
 ];
 const tipoDe = (id) => TIPOS.find((t) => t.id === id) || TIPOS[3];
+
+/* Cómo se dice cada veredicto de progresión. «Estancado» es a propósito una
+   palabra incómoda: si llevas tres sesiones sin mover la marca, decir «igual»
+   sería suavizarlo, y para eso mejor no decir nada. */
+const VEREDICTO = {
+  sube: { label: "Subiendo", color: C.mint, Icon: TrendingUp },
+  igual: { label: "Igual", color: C.mid, Icon: Minus },
+  estancado: { label: "Estancado", color: C.amber, Icon: Minus },
+  baja: { label: "Bajó", color: C.coral, Icon: TrendingDown },
+  nuevo: { label: "Nuevo", color: C.indigo, Icon: Sparkles },
+};
 
 const INTENS = [
   { id: "baja", label: "Suave", color: C.mint },
@@ -163,7 +284,7 @@ function Chip({ activo, color = C.teal, children, onClick, style }) {
       style={{
         border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 14px",
         fontFamily: body, fontWeight: 600, fontSize: 13.5,
-        background: activo ? color : C.soft, color: activo ? "#fff" : C.mid,
+        background: activo ? color : C.soft, color: activo ? C.sobreAcento : C.mid,
         transition: "background .15s, color .15s", ...style,
       }}>
       {children}
@@ -230,7 +351,7 @@ function Escala({ titulo, opciones, valor, onChange, color = C.teal, opcional })
               aria-pressed={activo}
               style={{
                 flex: 1, border: "none", cursor: "pointer", borderRadius: 14, padding: "11px 0",
-                background: activo ? color : C.soft, color: activo ? "#fff" : C.mid,
+                background: activo ? color : C.soft, color: activo ? C.sobreAcento : C.mid,
                 fontFamily: mono, fontWeight: 600, fontSize: 15.5,
                 transition: "background .15s, color .15s",
               }}
@@ -275,9 +396,9 @@ function BotonGuardar({ onClick, disabled, children = "Guardar" }) {
     <button onClick={onClick} disabled={disabled}
       style={{
         width: "100%", border: "none", borderRadius: 18, padding: "14px 0",
-        background: disabled ? C.line : C.teal, color: disabled ? C.faint : "#fff",
+        background: disabled ? C.line : C.teal, color: disabled ? C.faint : C.sobreAcento,
         fontFamily: display, fontWeight: 700, fontSize: 16, cursor: disabled ? "default" : "pointer",
-        boxShadow: disabled ? "none" : "0 6px 16px rgba(16,179,163,.32)",
+        boxShadow: disabled ? "none" : "var(--brilloAcento)",
       }}>
       {children}
     </button>
@@ -562,7 +683,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
                 {num(meta.desde, 0)} → {num(meta.meta, 0)} kg
               </span>
             </div>
-            <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,.6)", overflow: "hidden" }}>
+            <div style={{ height: 8, borderRadius: 999, background: "color-mix(in srgb, var(--ink) 12%, transparent)", overflow: "hidden" }}>
               <div style={{
                 width: `${meta.porcentaje}%`, height: "100%", borderRadius: 999,
                 background: meta.alcanzada ? C.mint : C.teal, transition: "width .4s",
@@ -586,7 +707,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
                     como «83,25», que no caben en el ancho del eje y se veían
                     cortadas por delante («3,25»). */}
                 <YAxis domain={dominio} allowDecimals={false} tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={32} />
-                <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${num(v)} kg`, ""]} />
+                <Tooltip contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${num(v)} kg`, ""]} />
                 <Line type="monotone" dataKey="kg" isAnimationActive={false} stroke={C.teal} strokeWidth={2} strokeOpacity={0.35}
                   dot={{ r: 2.5, fill: C.teal, fillOpacity: 0.45, strokeWidth: 0 }} activeDot={{ r: 5 }} name="pesaje" />
                 <Line type="monotone" dataKey="media" isAnimationActive={false} stroke={C.teal} strokeWidth={3} dot={false}
@@ -645,10 +766,10 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
             </p>
             {aviso.referencia && (
               <div className="flex gap-2" style={{ marginTop: 12 }}>
-                <button onClick={() => setAviso(null)} style={{ ...botonSec, flex: 1, background: "#fff" }}>
+                <button onClick={() => setAviso(null)} style={{ ...botonSec, flex: 1, background: C.card }}>
                   Lo corrijo
                 </button>
-                <button onClick={escribir} style={{ ...botonSec, flex: 1, background: C.coral, color: "#fff" }}>
+                <button onClick={escribir} style={{ ...botonSec, flex: 1, background: C.coral, color: C.sobreAcento }}>
                   Guardar igual
                 </button>
               </div>
@@ -700,7 +821,10 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
   const [hojaEj, setHojaEj] = useState(null);   // { indice } o { indice: null } para uno nuevo
   const [verEj, setVerEj] = useState(null);    // ficha de progresión de un ejercicio
   const [usando, setUsando] = useState(null);  // plantilla abierta para confirmar
+  const [verTodoProgreso, setVerTodoProgreso] = useState(false);
   const verEjercicio = (nombre) => setVerEj(nombre);
+
+  const progreso = useMemo(() => progresoEjercicios(datos.entrenos), [datos.entrenos]);
 
   const plantillas = useMemo(() => [...(datos.plantillas || [])].sort(porOrdenPlantilla), [datos.plantillas]);
 
@@ -765,7 +889,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
             <BarChart data={barras} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
               <XAxis dataKey="x" tick={{ fontSize: 10.5, fill: C.faint, fontFamily: body }} tickLine={false} axisLine={false} />
               <YAxis hide />
-              <Tooltip cursor={{ fill: "rgba(21,48,61,.04)" }} contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} min`, ""]} />
+              <Tooltip cursor={{ fill: "var(--velo)", fillOpacity: 0.12 }} contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} min`, ""]} />
               <Bar dataKey="min" fill={C.indigo} radius={[8, 8, 8, 8]} maxBarSize={24} isAnimationActive={false} />
             </BarChart>
           </Grafica>
@@ -872,7 +996,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
               style={{
                 border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 14px",
                 fontFamily: body, fontWeight: 600, fontSize: 13.5,
-                background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? "#fff" : t.color,
+                background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? C.sobreAcento : t.color,
               }}>
               <t.Icon size={15} strokeWidth={2.4} />{t.label}
             </button>
@@ -954,6 +1078,53 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
         )}
       </Card>
 
+      {/* La respuesta a «¿estoy progresando?» sin tener que abrir los
+          ejercicios uno por uno. Arriba lo que pide atención, no lo que va
+          bien: si algo lleva tres sesiones clavado, eso es lo que hay que ver
+          al entrar, no el récord de hace dos meses. */}
+      {progreso.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+            <Rotulo>Cómo va tu fuerza</Rotulo>
+            <span style={{ fontFamily: mono, fontSize: 11, color: C.faint }}>
+              {plural(progreso.length, "ejercicio")}
+            </span>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {(verTodoProgreso ? progreso : progreso.slice(0, 5)).map((p) => {
+              const v = VEREDICTO[p.tendencia];
+              return (
+                <button key={p.nombre} onClick={() => verEjercicio(p.nombre)} className="flex items-center gap-2"
+                  style={{ border: "none", background: C.soft, borderRadius: 14, padding: "10px 12px",
+                    cursor: "pointer", textAlign: "left", width: "100%", minHeight: 44 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {p.nombre}
+                    </p>
+                    <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: 0 }}>
+                      {p.ultima.kg != null ? `${pesoCorto(p.ultima.kg)}×${p.ultima.reps}` : `${p.ultima.reps} rep`}
+                      {" · "}{plural(p.sesiones, "sesión", "sesiones")}
+                    </p>
+                  </div>
+                  <span className="flex items-center gap-1" style={{
+                    fontFamily: body, fontSize: 11, fontWeight: 700, color: v.color, flexShrink: 0,
+                    background: `color-mix(in srgb, ${v.color} var(--tinte), transparent)`,
+                    borderRadius: 999, padding: "3px 9px",
+                  }}>
+                    <v.Icon size={11} strokeWidth={2.8} />{v.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {progreso.length > 5 && (
+            <button onClick={() => setVerTodoProgreso((v) => !v)} style={{ ...btnMini, marginTop: 10 }}>
+              {verTodoProgreso ? "Ver menos" : `Ver los ${progreso.length}`}
+            </button>
+          )}
+        </Card>
+      )}
+
       {usando && (
         <HojaPlantilla plantilla={usando} entrenos={datos.entrenos}
           onGuardar={anadir} onCerrar={() => setUsando(null)} />
@@ -996,7 +1167,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
                 <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detalle}</p>
               </div>
               {i && (
-                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `${i.color}1F`, borderRadius: 999, padding: "3px 9px" }}>
+                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `color-mix(in srgb, ${i.color} var(--tinte), transparent)`, borderRadius: 999, padding: "3px 9px" }}>
                   {i.label}
                 </span>
               )}
@@ -1131,7 +1302,7 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
               style={{
                 border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 13px",
                 fontFamily: body, fontWeight: 600, fontSize: 13,
-                background: momento === m.id ? m.color : m.soft, color: momento === m.id ? "#fff" : m.color,
+                background: momento === m.id ? m.color : m.soft, color: momento === m.id ? C.sobreAcento : m.color,
               }}>
               <m.Icon size={14} strokeWidth={2.4} />{m.label}
             </button>
@@ -1196,7 +1367,7 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
               <BarChart data={notas} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
                 <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
                 <YAxis domain={[0, 10]} hide />
-                <Tooltip cursor={{ fill: "rgba(21,48,61,.04)" }} contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} / 10`, ""]} />
+                <Tooltip cursor={{ fill: "var(--velo)", fillOpacity: 0.12 }} contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} / 10`, ""]} />
                 <Bar dataKey="nota" fill={C.mint} radius={[8, 8, 8, 8]} maxBarSize={20} isAnimationActive={false} />
               </BarChart>
             </Grafica>
@@ -1423,11 +1594,11 @@ function PantallaValoracion({ datos, energia, onCerrar }) {
               );
             })}
 
-            <Card className="ancho" style={{ background: C.ink }}>
-              <p style={{ fontFamily: mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: "rgba(255,255,255,.5)", margin: "0 0 6px" }}>
+            <Card className="ancho" style={{ background: C.tarjetaOscura }}>
+              <p style={{ fontFamily: mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: C.mid, margin: "0 0 6px" }}>
                 Qué hacer
               </p>
-              <p style={{ fontFamily: body, fontSize: 15, color: "#fff", lineHeight: 1.5, margin: 0 }}>{informe.cierre}</p>
+              <p style={{ fontFamily: body, fontSize: 15, color: C.sobreTarjetaOscura, lineHeight: 1.5, margin: 0 }}>{informe.cierre}</p>
             </Card>
 
             <details className="ancho" style={{ fontFamily: body }}>
@@ -1605,7 +1776,17 @@ function PantallaPerfil({ perfil, pesoActual, datos, onGuardar, onRestaurar, onC
 
 function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
   const [aviso, setAviso] = useState(null);
+  const [tema, setTema] = useState(() => temaGuardado());
   const fileRef = useRef(null);
+
+  /* El tema es preferencia de pantalla, no dato de la cuenta: vive en este
+     dispositivo. Se guarda y se aplica a la vez para que el cambio se vea al
+     instante, sin recargar. */
+  const cambiarTema = (id) => {
+    setTema(id);
+    aplicarTema(id);
+    guardarTema(id);
+  };
 
   const alElegirArchivo = async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -1623,6 +1804,29 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
   return (
     <Card style={{ marginTop: 14, display: "grid", gap: 18 }}>
       <div>
+        <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16.5, color: C.ink, margin: "0 0 4px" }}>
+          Aspecto
+        </p>
+        <p style={{ fontFamily: body, fontSize: 13, color: C.mid, lineHeight: 1.5, margin: "0 0 12px" }}>
+          «Automático» sigue lo que tenga puesto el móvil. Se guarda en este dispositivo,
+          así que puedes tener el móvil oscuro y el ordenador claro.
+        </p>
+        <div className="flex gap-2">
+          {TEMAS_ELEGIBLES.map((t) => (
+            <button key={t.id} onClick={() => cambiarTema(t.id)}
+              aria-pressed={tema === t.id}
+              style={{
+                ...botonSec, flex: 1, minHeight: 44,
+                background: tema === t.id ? C.teal : C.soft,
+                color: tema === t.id ? C.sobreAcento : C.mid,
+              }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 16 }}>
         <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16.5, color: C.ink, margin: "0 0 4px" }}>
           Sincronización
         </p>
@@ -1799,7 +2003,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGu
   const QUE = { peso: "el peso", entrenos: "el entreno", comidas: "la comida" };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 80, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "88vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
@@ -1821,7 +2025,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGu
               <button key={s.id} onClick={() => setSec(s.id)} className="flex items-center justify-center gap-1.5"
                 style={{
                   flex: 1, border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 4px",
-                  background: sec === s.id ? C.teal : C.soft, color: sec === s.id ? "#fff" : C.mid,
+                  background: sec === s.id ? C.teal : C.soft, color: sec === s.id ? C.sobreAcento : C.mid,
                   fontFamily: body, fontWeight: 600, fontSize: 13,
                 }}>
                 <s.Icon size={15} />{s.label}
@@ -1872,7 +2076,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGu
                   style={{
                     border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 13px",
                     fontFamily: body, fontWeight: 600, fontSize: 13,
-                    background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? "#fff" : t.color,
+                    background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? C.sobreAcento : t.color,
                   }}>
                   <t.Icon size={14} />{t.label}
                 </button>
@@ -1903,7 +2107,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGu
                   style={{
                     border: "none", cursor: "pointer", borderRadius: 999, padding: "9px 13px",
                     fontFamily: body, fontWeight: 600, fontSize: 13,
-                    background: momento === m.id ? m.color : m.soft, color: momento === m.id ? "#fff" : m.color,
+                    background: momento === m.id ? m.color : m.soft, color: momento === m.id ? C.sobreAcento : m.color,
                   }}>
                   <m.Icon size={14} strokeWidth={2.4} />{m.label}
                 </button>
@@ -2020,7 +2224,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
   };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 85, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 85, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
@@ -2125,6 +2329,18 @@ function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
   const mins = parseInt(minutos, 10);
   const valido = esFuerza ? ejercicios.length > 0 || mins > 0 : mins > 0;
 
+  /* Con qué se compara cada ejercicio: lo que moviste la última vez que
+     hiciste ESTA plantilla. La hoja se abre con esos mismos números, así que
+     al principio no hay diferencia que enseñar; aparece en cuanto tocas algo,
+     que es justo el momento en que quieres saber cuánto has subido. */
+  const seriesPrevias = useCallback(
+    (nombre) => {
+      const ej = ((ultimo && ultimo.ejercicios) || []).find((x) => x && mismoEjercicio(x.nombre, nombre));
+      return ej && ej.series && ej.series.length ? ej.series : null;
+    },
+    [ultimo]
+  );
+
   const guardarEjercicio = (ej) => {
     setEjercicios((lista) => (hojaEj.indice === null ? [...lista, ej] : lista.map((x, i) => (i === hojaEj.indice ? ej : x))));
     setHojaEj(null);
@@ -2145,7 +2361,7 @@ function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
   };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 80, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
@@ -2169,7 +2385,7 @@ function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
             {ejercicios.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 8 }}>
                 {ejercicios.map((ej, i) => (
-                  <FilaEjercicio key={i} ejercicio={ej}
+                  <FilaEjercicio key={i} ejercicio={ej} anterior={seriesPrevias(ej.nombre)}
                     onEditar={() => setHojaEj({ indice: i })}
                     onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
                 ))}
@@ -2276,7 +2492,7 @@ function HojaPlantillaEditar({ plantilla, entrenos, orden, onGuardar, onCerrar }
   };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 82, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 82, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
@@ -2298,7 +2514,7 @@ function HojaPlantillaEditar({ plantilla, entrenos, orden, onGuardar, onCerrar }
               style={{
                 border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 14px",
                 fontFamily: body, fontWeight: 600, fontSize: 13.5,
-                background: tipo === x.id ? x.color : x.soft, color: tipo === x.id ? "#fff" : x.color,
+                background: tipo === x.id ? x.color : x.soft, color: tipo === x.id ? C.sobreAcento : x.color,
               }}>
               <x.Icon size={15} strokeWidth={2.4} />{x.label}
             </button>
@@ -2389,7 +2605,7 @@ function HojaPegarPlantillas({ desde, onGuardar, onCerrar }) {
   };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 82, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 82, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "92vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
@@ -2575,7 +2791,7 @@ function PantallaPlantillas({ plantillas, entrenos, onGuardar, onBorrar, onCerra
         )}
 
         <div style={{ display: "grid", gap: 8 }}>
-          <button onClick={() => setEditando({ plantilla: null })} style={{ ...botonSec, background: C.teal, color: "#fff", padding: "14px 10px" }}>
+          <button onClick={() => setEditando({ plantilla: null })} style={{ ...botonSec, background: C.teal, color: C.sobreAcento, padding: "14px 10px" }}>
             <Plus size={17} strokeWidth={2.6} /> Nueva plantilla
           </button>
           {candidatos.length > 0 && (
@@ -2589,7 +2805,7 @@ function PantallaPlantillas({ plantillas, entrenos, onGuardar, onBorrar, onCerra
         </div>
 
         {desdeEntreno && (
-          <div onClick={() => setDesdeEntreno(false)} style={{ position: "fixed", inset: 0, zIndex: 82, background: "rgba(21,48,61,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={() => setDesdeEntreno(false)} style={{ position: "fixed", inset: 0, zIndex: 82, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
             <div className="rise" onClick={(e) => e.stopPropagation()}
               style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "85vh", overflowY: "auto" }}>
               <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
@@ -2648,6 +2864,13 @@ function PantallaPlantillas({ plantillas, entrenos, onGuardar, onBorrar, onCerra
 function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
   const historia = useMemo(() => progresionEjercicio(entrenos, nombre), [entrenos, nombre]);
   const record = useMemo(() => recordEjercicio(entrenos, nombre), [entrenos, nombre]);
+  const diferencias = useMemo(() => diferenciasEjercicio(entrenos, nombre), [entrenos, nombre]);
+  /* La primera sesión no tiene diferencia: se queda fuera de la gráfica en vez
+     de pintarse como un cero, que se leería como «no progresaste». */
+  const barrasDif = useMemo(
+    () => diferencias.filter((d) => d.delta !== null).map((d) => ({ x: fechaCorta(d.fecha), dif: d.delta })),
+    [diferencias]
+  );
 
   useEffect(() => {
     const alPulsar = (e) => e.key === "Escape" && onCerrar();
@@ -2680,7 +2903,7 @@ function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
             <div className="flex items-center justify-between">
               <Rotulo>Tu mejor serie</Rotulo>
               {record.esElUltimo && (
-                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: C.mint, background: "#fff", borderRadius: 999, padding: "3px 10px" }}>
+                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: C.mint, background: C.card, borderRadius: 999, padding: "3px 10px" }}>
                   Récord reciente
                 </span>
               )}
@@ -2710,7 +2933,7 @@ function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
                         como expresión, y un «107,5» no cabe en el ancho del eje. */}
                     <YAxis domain={["dataMin - 3", "dataMax + 3"]} tickFormatter={(v) => Math.round(v)}
                       tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={38} />
-                    <Tooltip contentStyle={{ borderRadius: 14, border: "none", boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`~${num(v)} kg`, "máximo estimado"]} />
+                    <Tooltip contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`~${num(v)} kg`, "máximo estimado"]} />
                     <Line type="monotone" dataKey="kg" isAnimationActive={false} stroke={C.teal} strokeWidth={3} dot={{ r: 3, fill: C.teal, strokeWidth: 0 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </Grafica>
@@ -2727,10 +2950,38 @@ function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
           )}
         </Card>
 
+        {/* La gráfica de arriba dice DÓNDE estás; esta dice CUÁNTO has movido
+            cada día. Restar «80, 80, 82,5, 85» de cabeza para saber si progresas
+            es trabajo que puede hacer la pantalla. */}
+        {diferencias.length > 1 && (
+          <Card style={{ marginTop: 14 }}>
+            <Rotulo>Diferencia entre sesiones</Rotulo>
+            <Grafica alto={150} style={{ marginTop: 10, marginLeft: -10 }}>
+              <BarChart data={barrasDif} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}>
+                <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={26} />
+                <YAxis tickFormatter={(v) => (v > 0 ? `+${Math.round(v)}` : Math.round(v))}
+                  tick={{ fontSize: 10, fill: C.faint, fontFamily: mono }} tickLine={false} axisLine={false} width={38} />
+                <Tooltip cursor={{ fill: "var(--velo)", fillOpacity: 0.12 }}
+                  contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }}
+                  formatter={(v) => [`${v > 0 ? "+" : ""}${num(v)} kg`, "respecto a la anterior"]} />
+                <Bar dataKey="dif" radius={[6, 6, 6, 6]} maxBarSize={26} isAnimationActive={false}>
+                  {barrasDif.map((b, i) => (
+                    <Cell key={i} fill={b.dif > 0 ? C.mint : b.dif < 0 ? C.coral : C.line} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </Grafica>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: "8px 0 0", lineHeight: 1.5 }}>
+              Sobre el máximo estimado, no sobre los kilos de la barra: bajar peso subiendo
+              repeticiones cuenta como subida, que es lo que es.
+            </p>
+          </Card>
+        )}
+
         <div style={{ marginTop: 14 }}>
           <div style={{ padding: "2px 4px 8px" }}><Rotulo>Sesiones</Rotulo></div>
           <Card style={{ padding: 8 }}>
-            {[...historia].reverse().map((h) => (
+            {[...diferencias].reverse().map((h) => (
               <div key={h.fecha} className="flex items-center gap-3" style={{ padding: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>{etiquetaFecha(h.fecha)}</p>
@@ -2738,11 +2989,19 @@ function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
                     <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: 0 }}>{miles(h.volumen)} kg movidos</p>
                   )}
                 </div>
-                {h.mejor && (
-                  <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13, color: C.ink }}>
-                    {pesoCorto(h.mejor.kg)}×{h.mejor.reps}
+                {h.delta !== null && h.delta !== 0 && (
+                  <span style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    color: h.delta > 0 ? C.mint : C.coral,
+                    background: `color-mix(in srgb, ${h.delta > 0 ? C.mint : C.coral} var(--tinte), transparent)`,
+                    borderRadius: 999, padding: "2px 7px",
+                  }}>
+                    {h.delta > 0 ? "+" : "−"}{num(Math.abs(h.delta))}
                   </span>
                 )}
+                <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13, color: C.ink }}>
+                  {h.kg != null ? `${pesoCorto(h.kg)}×${h.reps}` : `${h.reps} rep`}
+                </span>
               </div>
             ))}
           </Card>
@@ -2753,7 +3012,42 @@ function PantallaEjercicio({ nombre, entrenos, onCerrar }) {
 }
 
 /** Una línea por ejercicio dentro del entreno que se está montando. */
-function FilaEjercicio({ ejercicio, onEditar, onBorrar }) {
+/**
+ * Cuánto ha cambiado esto respecto a la última vez.
+ *
+ * Se compara por 1RM estimado, no por los kilos de la barra: bajar el peso
+ * subiendo repeticiones es progreso y pintarlo en rojo sería mentir.
+ */
+function Delta({ actual, anterior }) {
+  const a = mejorSerie(actual);
+  const b = mejorSerie(anterior);
+  if (!a || !b) return null;
+
+  const dif = Number((a.estimado - b.estimado).toFixed(1));
+  const kg = a.kg != null && b.kg != null ? Number((a.kg - b.kg).toFixed(1)) : null;
+  if (dif === 0) {
+    return (
+      <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: C.faint, flexShrink: 0 }}>
+        =
+      </span>
+    );
+  }
+  const color = dif > 0 ? C.mint : C.coral;
+  return (
+    <span title={`Antes: ${b.kg != null ? `${pesoCorto(b.kg)}×${b.reps}` : `${b.reps} rep`}`}
+      className="flex items-center gap-1"
+      style={{
+        fontFamily: mono, fontSize: 11, fontWeight: 700, color, flexShrink: 0,
+        background: `color-mix(in srgb, ${color} var(--tinte), transparent)`,
+        borderRadius: 999, padding: "2px 7px",
+      }}>
+      {dif > 0 ? <TrendingUp size={11} strokeWidth={2.8} /> : <TrendingDown size={11} strokeWidth={2.8} />}
+      {kg ? `${kg > 0 ? "+" : ""}${pesoCorto(kg)}` : `${dif > 0 ? "+" : ""}${num(dif)}`}
+    </span>
+  );
+}
+
+function FilaEjercicio({ ejercicio, onEditar, onBorrar, anterior }) {
   return (
     <div className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "10px 12px" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -2764,6 +3058,7 @@ function FilaEjercicio({ ejercicio, onEditar, onBorrar }) {
           {ejercicio.series.map((s) => (s.kg ? `${pesoCorto(s.kg)}×${s.reps}` : `${s.reps} rep`)).join(" · ")}
         </p>
       </div>
+      {anterior && <Delta actual={ejercicio.series} anterior={anterior} />}
       <Acciones size={13} que="el ejercicio" onEditar={onEditar} onBorrar={onBorrar} />
     </div>
   );
@@ -3125,7 +3420,7 @@ function Aplicacion({ sesion }) {
         {listo && sinApuntar && (
           <Card style={{ marginBottom: 14, background: C.amberSoft, boxShadow: "none",
             display: "flex", alignItems: "center", gap: 12 }}>
-            <Badge Icon={CalendarDays} color={C.amber} soft="#fff" />
+            <Badge Icon={CalendarDays} color={C.amber} soft={C.card} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontFamily: display, fontWeight: 700, fontSize: 15, color: C.ink, margin: 0 }}>
                 {sinApuntar.dias} días sin apuntar nada
@@ -3148,7 +3443,7 @@ function Aplicacion({ sesion }) {
         {listo && sinPerfil && (
           <Card onClick={() => setPantalla("perfil")} className="flex items-center gap-3"
             style={{ marginBottom: 14, cursor: "pointer", background: C.amberSoft, boxShadow: "none" }}>
-            <Badge Icon={User} color={C.amber} soft="#fff" />
+            <Badge Icon={User} color={C.amber} soft={C.card} />
             <div style={{ flex: 1 }}>
               <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>Completa tu perfil</p>
               <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: 0 }}>Altura, edad y actividad afinan la valoración</p>
@@ -3171,16 +3466,16 @@ function Aplicacion({ sesion }) {
           <button onClick={() => setPantalla("valoracion")} className="flex items-center gap-3"
             style={{
               width: "100%", marginTop: 16, border: "none", cursor: "pointer", textAlign: "left",
-              borderRadius: 26, padding: 18, background: C.ink, boxShadow: sh,
+              borderRadius: 26, padding: 18, background: C.tarjetaOscura, boxShadow: sh,
             }}>
-            <div style={{ width: 38, height: 38, borderRadius: 14, background: "rgba(255,255,255,.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 38, height: 38, borderRadius: 14, background: "color-mix(in srgb, var(--sobreTarjetaOscura) 14%, transparent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Sparkles size={19} color={C.mint} strokeWidth={2.3} />
             </div>
             <div style={{ flex: 1 }}>
-              <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: "#fff", margin: 0 }}>Valorar mi semana o mes</p>
-              <p style={{ fontFamily: body, fontSize: 12.5, color: "rgba(255,255,255,.62)", margin: 0 }}>Peso, entrenos y comidas juntos</p>
+              <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: C.sobreTarjetaOscura, margin: 0 }}>Valorar mi semana o mes</p>
+              <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, margin: 0 }}>Peso, entrenos y comidas juntos</p>
             </div>
-            <ChevronRight size={19} color="rgba(255,255,255,.6)" />
+            <ChevronRight size={19} color={C.mid} />
           </button>
         )}
       </main>
@@ -3188,8 +3483,8 @@ function Aplicacion({ sesion }) {
       <button onClick={() => { setEditando(null); setDictado(null); setHoja(true); }} aria-label="Añadir en otra fecha" className="botonFlotante"
         style={{
           position: "fixed", right: 20, bottom: 94, zIndex: 50, width: 56, height: 56, borderRadius: 20,
-          border: "none", background: C.teal, color: "#fff", cursor: "pointer",
-          boxShadow: "0 10px 24px rgba(16,179,163,.45)", display: "flex", alignItems: "center", justifyContent: "center",
+          border: "none", background: C.teal, color: C.sobreAcento, cursor: "pointer",
+          boxShadow: "var(--brilloAcento)", display: "flex", alignItems: "center", justifyContent: "center",
         }}>
         <Plus size={25} strokeWidth={2.7} />
       </button>
@@ -3197,7 +3492,7 @@ function Aplicacion({ sesion }) {
       <nav className="barraInferior"
         style={{
           position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45,
-          background: "rgba(255,255,255,.93)", backdropFilter: "blur(14px)",
+          background: C.barra, backdropFilter: "blur(14px)",
           borderTop: `1px solid ${C.line}`, padding: "9px 8px 22px", display: "flex", justifyContent: "space-around",
         }}>
         {TABS.map((t) => {

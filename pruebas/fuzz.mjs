@@ -175,6 +175,8 @@ const FORMA = {
     ausencia: ["datosS", "fecha", "numero"], calcularEnergia: ["perfil", "numero"],
     cerrado: ["tramo", "fecha"], comidasFrecuentes: ["listaComidas", "texto", "numero", "fecha"],
     conFecha: ["listaPesos"], pesosSanos: ["listaPesos"], desdeIso: ["fecha"], detalleTramo: ["periodo", "offset"], diasTranscurridos: ["tramo", "fecha"],
+    diferenciasEjercicio: ["listaEntrenos", "texto"], progresoEjercicios: ["listaEntrenos", "opciones"],
+    progresoPlantilla: ["listaEntrenos", "texto"],
     ejerciciosUsados: ["listaEntrenos"], energiaDelDia: ["energia", "listaEntrenos", "numero", "perfil"],
     enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], etiquetaFecha: ["fecha"],
     etiquetaTramo: ["periodo", "offset"], extraPorEntrenos: ["listaEntrenos", "numero", "texto"],

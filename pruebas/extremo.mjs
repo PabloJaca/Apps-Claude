@@ -1623,6 +1623,124 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await ctx.close();
 }
 
+/* ── 10. Salud en oscuro ──────────────────────────────────────────────────
+   El modo oscuro no se revisa a ojo: se barre la pantalla entera midiendo el
+   contraste real de cada texto contra el fondo que de verdad tiene detrás.
+   Invertir una paleta rompe cosas de formas que no se ven en una captura —un
+   blanco fijo que se queda blanco sobre turquesa claro, una tarjeta negra que
+   en oscuro deja de ser la más oscura— y todas dan el mismo síntoma: texto
+   ilegible en un rincón por el que no pasabas.                             */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/iris@ejemplo.com": { nombre: "Iris" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/salud.html");
+  await pag.waitForTimeout(400);
+
+  /* El tema se aplica al importar el módulo, o sea antes de que se dibuje la
+     puerta de acceso: si eso falla, el login sale con las variables sin
+     definir y no hay forma de verlo salvo mirándolo. */
+  const temaEnPuerta = await pag.getAttribute("html", "data-tema");
+  check("oscuro: el tema está puesto ya en la pantalla de acceso", temaEnPuerta === "oscuro", String(temaEnPuerta));
+  const fondoPuerta = await pag.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  check("oscuro: y el fondo de la puerta es oscuro de verdad",
+    /rgb\((\d+), (\d+), (\d+)\)/.test(fondoPuerta)
+      && fondoPuerta.match(/\d+/g).map(Number).reduce((a, b) => a + b, 0) < 200,
+    fondoPuerta);
+
+  await acceder(pag, "iris@ejemplo.com", "secreta8", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+
+  /* Barrido: todo nodo con texto propio, su color y el fondo que hereda. */
+  const barrer = () => pag.evaluate(() => {
+    const luz = (c) => {
+      const m = c.match(/[\d.]+/g);
+      if (!m) return null;
+      const [r, g, b] = m.slice(0, 3).map(Number).map((v) => {
+        v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const opaco = (c) => c && c !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(c);
+    const fondoReal = (el) => {
+      let n = el;
+      while (n) {
+        const bg = getComputedStyle(n).backgroundColor;
+        if (opaco(bg)) return bg;
+        n = n.parentElement;
+      }
+      return "rgb(255,255,255)";
+    };
+    const malos = [];
+    for (const el of document.querySelectorAll("body *")) {
+      const propio = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!propio) continue;
+      const est = getComputedStyle(el);
+      if (est.visibility === "hidden" || est.display === "none" || Number(est.opacity) < 0.5) continue;
+      const caja = el.getBoundingClientRect();
+      if (caja.width < 4 || caja.height < 4) continue;
+      const a = luz(est.color);
+      const b = luz(fondoReal(el));
+      if (a === null || b === null) continue;
+      const razon = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      /* 3,0 para texto grande (>=18,66px, o >=14px en negrita); 4,5 el resto. */
+      const px = parseFloat(est.fontSize);
+      const grande = px >= 18.66 || (px >= 14 && Number(est.fontWeight) >= 700);
+      const minimo = grande ? 3 : 4.5;
+      if (razon < minimo) {
+        malos.push({
+          texto: (el.textContent || "").trim().slice(0, 32),
+          color: est.color, fondo: fondoReal(el),
+          px, razon: Math.round(razon * 10) / 10, minimo,
+        });
+      }
+    }
+    return malos;
+  });
+
+  for (const [pestana, etiqueta] of [["Peso", "peso"], ["Entrenos", "entrenos"], ["Comidas", "comidas"]]) {
+    await pag.click(`nav >> text=${pestana}`);
+    await pag.waitForTimeout(700);
+    const malos = await barrer();
+    check(`oscuro: todo se lee en ${etiqueta} (contraste suficiente)`,
+      malos.length === 0, JSON.stringify(malos.slice(0, 4)));
+  }
+
+  /* Las hojas y pantallas de encima son donde más fácil se cuela un blanco. */
+  await pag.click('button[aria-label="Perfil"]');
+  await pag.waitForTimeout(700);
+  const enPerfil = await barrer();
+  check("oscuro: el perfil y los ajustes se leen", enPerfil.length === 0, JSON.stringify(enPerfil.slice(0, 4)));
+
+  /* Y el interruptor de tema hace su trabajo sin recargar. */
+  await pag.click('button:has-text("Claro")');
+  await pag.waitForTimeout(500);
+  check("oscuro: cambiar a claro se nota al momento",
+    (await pag.getAttribute("html", "data-tema")) === "claro");
+  const enClaro = await barrer();
+  check("claro: y en claro también se lee todo", enClaro.length === 0, JSON.stringify(enClaro.slice(0, 4)));
+
+  await pag.click('button:has-text("Oscuro")');
+  await pag.waitForTimeout(400);
+  await pag.reload();
+  await pag.waitForTimeout(1400);
+  check("oscuro: la elección sobrevive a recargar",
+    (await pag.getAttribute("html", "data-tema")) === "oscuro");
+
+  check("oscuro: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
 await nav.close();
 srv.close();
 await rm(dir, { recursive: true, force: true });

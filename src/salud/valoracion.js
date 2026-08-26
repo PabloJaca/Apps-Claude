@@ -34,6 +34,47 @@ function diasValorados(comidas, energia) {
     });
 }
 
+/**
+ * Los cuatro números de un tramo, sin opinar sobre ellos.
+ *
+ * Vive aparte para poder medir también el periodo ANTERIOR y comparar. Un
+ * «has entrenado 3 días» no dice nada por sí solo: contra el objetivo dice si
+ * cumples, pero contra las 5 de la semana pasada dice hacia dónde vas, que es
+ * lo que de verdad se quiere saber.
+ */
+function medirTramo(datos, energia, tramo, diasPasados) {
+  const pesos = conFecha(datos.pesos).filter((p) => enTramo(p.fecha, tramo)).sort(porFecha);
+  const entrenos = conFecha(datos.entrenos).filter((e) => enTramo(e.fecha, tramo));
+  const comidas = conFecha(datos.comidas).filter((c) => enTramo(c.fecha, tramo));
+
+  const { fiables } = pesosFiables(pesos);
+  const dias = diasValorados(comidas, energia);
+  const kcal = dias.length
+    ? dias.reduce((s, d) => s + (d.kcalMin + d.kcalMax) / 2, 0) / dias.length
+    : null;
+
+  return {
+    hay: Boolean(pesos.length || entrenos.length || comidas.length),
+    diasEntrenados: new Set(entrenos.map((e) => e.fecha)).size,
+    sesiones: entrenos.length,
+    minutos: entrenos.reduce((s, e) => s + (e.minutos || 0), 0),
+    kcalMedia: kcal,
+    diasApuntados: dias.length,
+    cobertura: diasPasados > 0 ? dias.length / diasPasados : 0,
+    diferenciaPeso: fiables.length > 1
+      ? Number((fiables[fiables.length - 1].kg - fiables[0].kg).toFixed(2))
+      : null,
+  };
+}
+
+/** «2 más», «1 menos», «igual». Sin número cuando no hay con qué comparar. */
+function compara(ahora, antes, { uno = "más", otro = "menos" } = {}) {
+  if (antes === null || antes === undefined || ahora === null || ahora === undefined) return null;
+  const d = Number((ahora - antes).toFixed(2));
+  if (d === 0) return { d: 0, texto: "igual que antes" };
+  return { d, texto: `${Math.abs(d) % 1 === 0 ? Math.abs(d) : num(Math.abs(d))} ${d > 0 ? uno : otro}` };
+}
+
 export function valorarPeriodo(datos, energia, periodo, offset) {
   const tramo = periodo === "semana" ? rangoSemana(offset) : rangoMes(offset);
   const etiqueta = etiquetaTramo(periodo, offset);
@@ -51,6 +92,12 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   if (!pesosTramo.length && !entrenos.length && !comidas.length) {
     return { hayDatos: false, etiqueta, detalle, motivo: "No hay nada apuntado en este periodo." };
   }
+
+  /* El tramo anterior, medido sobre los MISMOS días transcurridos: comparar
+     media semana contra una semana entera diría que has entrenado menos
+     cuando lo único que pasa es que aún no ha terminado. */
+  const tramoPrevio = periodo === "semana" ? rangoSemana(offset + 1) : rangoMes(offset + 1);
+  const previo = medirTramo(datos, energia, tramoPrevio, diasPasados);
 
   /* ── peso, apartando los saltos que no se sostienen ─────────────────── */
   const { fiables, sospechosos } = pesosFiables(pesosTramo);
@@ -86,6 +133,20 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
      vuelve a usar en el veredicto, así que vive fuera de los dos. */
   let vaBien = false;
 
+  /* Las tres comparaciones que de verdad dicen algo. `null` cuando el periodo
+     anterior está vacío: comparar contra la nada es inventarse una tendencia. */
+  const vs = previo.hay
+    ? {
+        entrenos: compara(diasEntrenados, previo.diasEntrenados, { uno: "más", otro: "menos" }),
+        kcal: kcalMedia !== null && previo.kcalMedia !== null
+          ? Math.round(kcalMedia - previo.kcalMedia) : null,
+        peso: diferencia !== null && previo.diferenciaPeso !== null
+          ? Number((diferencia - previo.diferenciaPeso).toFixed(2)) : null,
+        apuntados: compara(dias.length, previo.diasApuntados),
+      }
+    : null;
+  const antes = periodo === "semana" ? "la semana pasada" : "el mes pasado";
+
   /* ── avisos: cortos, con número y sin anestesia ─────────────────────── */
   const avisos = [];
 
@@ -116,20 +177,28 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     avisos.push({
       area: "Entrenos",
       tono: "mal",
-      texto: `Cero entrenos en ${plural(diasPasados, "día")}. Deberían haber sido ${objetivoEntrenos}.`,
+      texto: previo.hay && previo.diasEntrenados > 0
+        ? `Cero entrenos en ${plural(diasPasados, "día")}, y ${antes} fueron ${previo.diasEntrenados}. Eso no es un bajón, es haberlo dejado.`
+        : `Cero entrenos en ${plural(diasPasados, "día")}. Deberían haber sido ${objetivoEntrenos}.`,
     });
   } else if (diasEntrenados < objetivoEntrenos) {
     const faltan = objetivoEntrenos - diasEntrenados;
     avisos.push({
       area: "Entrenos",
       tono: diasEntrenados < objetivoEntrenos / 2 ? "mal" : "regular",
-      texto: `Has entrenado ${diasEntrenados} ${diasEntrenados === 1 ? "día" : "días"} de ${diasPasados}. Te ${faltan === 1 ? "falta uno" : `faltan ${faltan}`} para llegar a ${objetivoEntrenos}.`,
+      texto: vs && vs.entrenos && vs.entrenos.d < 0
+        ? `${plural(diasEntrenados, "día entrenado", "días entrenados")}: ${vs.entrenos.texto} que ${antes}. Vas hacia abajo, no hacia arriba.`
+        : vs && vs.entrenos && vs.entrenos.d > 0
+          ? `${plural(diasEntrenados, "día entrenado", "días entrenados")}, ${vs.entrenos.texto} que ${antes}. Aún te ${faltan === 1 ? "falta uno" : `faltan ${faltan}`}, pero la dirección es la buena.`
+          : `Has entrenado ${diasEntrenados} ${diasEntrenados === 1 ? "día" : "días"} de ${diasPasados}. Te ${faltan === 1 ? "falta uno" : `faltan ${faltan}`} para llegar a ${objetivoEntrenos}.`,
     });
   } else {
     avisos.push({
       area: "Entrenos",
       tono: "bien",
-      texto: `${plural(diasEntrenados, "día entrenado", "días entrenados")} y ${plural(minutos, "minuto")}. Ahí no hay nada que corregir.`,
+      texto: vs && vs.entrenos && vs.entrenos.d > 0
+        ? `${plural(diasEntrenados, "día entrenado", "días entrenados")}, ${vs.entrenos.texto} que ${antes}. Ahí no hay nada que corregir.`
+        : `${plural(diasEntrenados, "día entrenado", "días entrenados")} y ${plural(minutos, "minuto")}. Ahí no hay nada que corregir.`,
     });
   }
 
@@ -152,7 +221,9 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       avisos.push({
         area: "Comidas",
         tono: "mal",
-        texto: `Comes ${miles(kcalMedia)} kcal de media y tu diana son ${miles(energia.diana)}. Te pasas ${miles(desviacion)} al día: así no se baja.`,
+        texto: vs && vs.kcal !== null && Math.abs(vs.kcal) >= 100
+          ? `Te pasas ${miles(desviacion)} kcal al día de tu diana, y comes ${miles(Math.abs(vs.kcal))} ${vs.kcal > 0 ? "MÁS" : "menos"} que ${antes}. ${vs.kcal > 0 ? "Vas a peor." : "Menos que antes, pero todavía no baja."}`
+          : `Comes ${miles(kcalMedia)} kcal de media y tu diana son ${miles(energia.diana)}. Te pasas ${miles(desviacion)} al día: así no se baja.`,
       });
     } else if (quedarse) {
       avisos.push({
@@ -170,7 +241,9 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       avisos.push({
         area: "Comidas",
         tono: "bien",
-        texto: `${miles(kcalMedia)} kcal de media, con la diana en ${miles(energia.diana)}. Ahí vas fino.`,
+        texto: vs && vs.kcal !== null && Math.abs(vs.kcal) >= 150
+          ? `En la diana, y ${miles(Math.abs(vs.kcal))} kcal ${vs.kcal > 0 ? "por encima" : "por debajo"} de ${antes}. Ahí vas fino.`
+          : `${miles(kcalMedia)} kcal de media, con la diana en ${miles(energia.diana)}. Ahí vas fino.`,
       });
     }
 
@@ -216,7 +289,9 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       area: "Peso",
       tono: vaBien ? "bien" : "mal",
       texto: vaBien
-        ? `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg en ${plural(diasPasados, "día")}. Va hacia donde quieres.`
+        ? vs && vs.peso !== null && Math.abs(vs.peso) >= 0.3
+          ? `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg, contra ${previo.diferenciaPeso > 0 ? "+" : "−"}${num(Math.abs(previo.diferenciaPeso))} de ${antes}. Va hacia donde quieres y ${Math.abs(diferencia) > Math.abs(previo.diferenciaPeso) ? "más rápido" : "más despacio"}.`
+          : `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg en ${plural(diasPasados, "día")}. Va hacia donde quieres.`
         : Math.abs(diferencia) < 0.15
         ? `El peso no se mueve: ${num(primero)} a ${num(ultimo)} kg. Con tu objetivo de ${energia.objetivo.verbo}, eso es no avanzar.`
         : `${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg y tu objetivo es ${energia.objetivo.verbo}. Va al revés.`,
@@ -231,7 +306,12 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   if (!dias.length && !entrenos.length) {
     veredicto = { texto: "Sin datos suficientes para decirte nada", tono: "regular" };
   } else if (malos.length >= 3) {
-    veredicto = { texto: `${malos.length} cosas mal esta ${periodo === "semana" ? "semana" : "vez"}`, tono: "mal" };
+    veredicto = {
+      texto: vs && vs.entrenos && vs.entrenos.d < 0
+        ? `Peor que ${antes}, y en ${malos.length} cosas a la vez`
+        : `${malos.length} cosas mal esta ${periodo === "semana" ? "semana" : "vez"}`,
+      tono: "mal",
+    };
   } else if (malos.length) {
     veredicto = { texto: `Falla ${listar(malos.map((a) => a.area.toLowerCase()))}`, tono: "mal" };
   } else {
@@ -251,14 +331,38 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
       logros.push(`${diferencia > 0 ? "+" : "−"}${num(Math.abs(diferencia))} kg`);
     }
 
-    const cabecera = buenos.length >= 3 || logros.length >= 3
-      ? periodo === "semana" ? "Semana redonda" : "Mes redondo"
-      : periodo === "semana" ? "Buena semana" : "Buen mes";
+    /*
+     * Un titular de «buena semana» no puede convivir con un aviso que dice
+     * que entrenas menos que antes. Sin esto la valoración se contradecía a sí
+     * misma: arriba felicitaba y dos líneas más abajo avisaba de que vas a
+     * menos, y de las dos la que se lee es la de arriba.
+     *
+     * Que no haya nada catalogado como «mal» no significa que la cosa vaya
+     * bien: ir a menos sin llegar a estar mal sigue siendo ir a menos.
+     */
+    const aMenos = vs && vs.entrenos && vs.entrenos.d < 0;
 
-    veredicto = {
-      texto: logros.length ? `${cabecera}: ${listar(logros)}` : `${cabecera}, nada que corregir`,
-      tono: "bien",
-    };
+    if (aMenos) {
+      veredicto = {
+        texto: `Nada grave, pero ${vs.entrenos.texto} que ${antes}`,
+        tono: "regular",
+      };
+    } else {
+      const cabecera = buenos.length >= 3 || logros.length >= 3
+        ? periodo === "semana" ? "Semana redonda" : "Mes redondo"
+        : periodo === "semana" ? "Buena semana" : "Buen mes";
+
+      /* Cuando además se mejora lo anterior, se dice: es el dato que más
+         empuja a repetir, y es el que el usuario no puede ver de un vistazo. */
+      const mejora = vs && vs.entrenos && vs.entrenos.d > 0 ? `${vs.entrenos.texto} que ${antes}` : null;
+
+      veredicto = {
+        texto: logros.length
+          ? `${cabecera}: ${listar(mejora ? [...logros, mejora] : logros)}`
+          : `${cabecera}, nada que corregir`,
+        tono: "bien",
+      };
+    }
   }
 
   /* ── cierre: una sola cosa que hacer ────────────────────────────────── */
@@ -316,6 +420,8 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
     veredicto,
     avisos,
     cierre,
+    /* Lo de antes, para que la pantalla pueda enseñar el «vs.» sin recalcular. */
+    comparacion: previo.hay ? { previo, vs, etiqueta: antes } : null,
     cifras: {
       peso: { registros: pesosTramo.length, fiables: fiables.length, sospechosos: sospechosos.length, primero, ultimo, diferencia, pendiente },
       entrenos: { sesiones: entrenos.length, minutos, diasEntrenados, objetivo: objetivoEntrenos, porTipo },

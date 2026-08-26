@@ -7,12 +7,12 @@
   <meta name="description" content="Registro personal de peso, entrenos y comidas" />
 
   <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#EDF3F8" />
+  <meta name="theme-color" content="#0E1519" />
   <link rel="icon" href="./favicon-32.png" sizes="32x32" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Salud" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -20,7 +20,16 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
 
   <style>
-    html, body { margin: 0; padding: 0; background: #EDF3F8; }
+    /* El fondo de arranque se duplica aquí a propósito: la paleta completa vive
+       en el paquete, pero para cuando este se descarga ya ha habido un
+       fotograma pintado. Si ese fotograma es blanco, abrir la app de noche es
+       un fogonazo. Solo se repite el color de fondo, nada más. */
+    html, body { margin: 0; padding: 0; background: #0E1519; }
+    html[data-tema="claro"], html[data-tema="claro"] body { background: #EDF3F8; }
+    @media (prefers-color-scheme: light) {
+      html:not([data-tema="oscuro"]):not([data-tema="claro"]),
+      html:not([data-tema="oscuro"]):not([data-tema="claro"]) body { background: #EDF3F8; }
+    }
     body {
       font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -28,8 +37,19 @@
     }
     #root { min-height: 100vh; min-height: 100dvh; }
     .arranque { min-height: 100vh; display: flex; align-items: center; justify-content: center;
-      color: #9BB2BF; font-size: 14px; }
+      color: #8AA3AF; font-size: 14px; }
   </style>
+
+  <script>
+    /* Antes de pintar nada: la elección guardada al <html>, para que el CSS de
+       arriba acierte a la primera. Va en línea y sin depender de nada. */
+    (function () {
+      try {
+        var t = localStorage.getItem("misapps_tema");
+        if (t === "claro" || t === "oscuro") document.documentElement.setAttribute("data-tema", t);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="root"><div class="arranque">Cargando…</div></div>

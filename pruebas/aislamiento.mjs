@@ -124,14 +124,15 @@ check(
 
 /* ── 2. Nada de datos del usuario en el propio dispositivo ──────────────── */
 
-/* localStorage solo puede aparecer en dos sitios: los núcleos, para rescatar
-   lo de la versión anterior, y el bloqueo, que es de este aparato a propósito
-   —un PIN es un cierre de pantalla, no una credencial de la cuenta—. Ningún
-   dato tuyo puede acabar ahí. */
+/* localStorage solo puede aparecer en tres sitios: los núcleos, para rescatar
+   lo de la versión anterior; el bloqueo, que es de este aparato a propósito
+   —un PIN es un cierre de pantalla, no una credencial de la cuenta—; y el
+   tema, que es una preferencia de esta pantalla y no un dato de la cuenta.
+   Ningún dato tuyo puede acabar ahí. */
 const usanAlmacenLocal = fuentes.filter(([, t]) => /localStorage|sessionStorage/.test(t)).map(([f]) => f);
 check(
-  "al almacén del navegador solo llegan el rescate y el bloqueo de pantalla",
-  usanAlmacenLocal.every((f) => /nucleo\.js$|comun\/bloqueo\.js$/.test(f)),
+  "al almacén del navegador solo llegan el rescate, el bloqueo y el tema",
+  usanAlmacenLocal.every((f) => /nucleo\.js$|comun\/bloqueo\.js$|comun\/tema\.js$/.test(f)),
   usanAlmacenLocal.join(", ")
 );
 

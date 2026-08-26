@@ -487,6 +487,114 @@ export function recordEjercicio(entrenos, nombre) {
   };
 }
 
+/**
+ * La progresión de un ejercicio, sesión a sesión y con la diferencia hecha.
+ *
+ * La gráfica que hacía falta no es la del peso levantado: es la de **cuánto
+ * ha cambiado**. Ver «80, 80, 82,5, 82,5, 85» obliga a restar de cabeza; ver
+ * «+0, +2,5, +0, +2,5» dice a la primera si hay progreso o llevas un mes
+ * estancado.
+ *
+ * Se mide sobre el 1RM estimado y no sobre los kilos de la barra porque 80×8
+ * y 90×5 no se pueden comparar a ojo: bajar el peso subiendo repeticiones no
+ * es un retroceso y no debe pintarse como tal.
+ */
+export function diferenciasEjercicio(entrenos, nombre) {
+  const historia = progresionEjercicio(entrenos, nombre).filter((p) => p.mejor);
+  return historia.map((p, i) => {
+    const previo = i > 0 ? historia[i - 1] : null;
+    return {
+      fecha: p.fecha,
+      kg: p.mejor.kg,
+      reps: p.mejor.reps,
+      estimado: p.mejor.estimado,
+      volumen: p.volumen,
+      /* La primera sesión no tiene contra qué compararse: null, no cero. Un
+         cero diría «no progresaste» y lo cierto es «no había antes». */
+      delta: previo ? Number((p.mejor.estimado - previo.mejor.estimado).toFixed(1)) : null,
+      deltaKg: previo && p.mejor.kg != null && previo.mejor.kg != null
+        ? Number((p.mejor.kg - previo.mejor.kg).toFixed(1))
+        : null,
+    };
+  });
+}
+
+/* Cuántas sesiones seguidas sin mejorar cuentan como estancamiento. */
+export const SESIONES_ESTANCADO = 3;
+
+/**
+ * Cómo va cada ejercicio: la foto que contesta «¿estoy progresando?» sin
+ * tener que abrir uno por uno.
+ *
+ * `tendencia` sale de comparar la última sesión con la mejor marca anterior,
+ * no con la sesión de antes: un mal día no es un retroceso, y encadenar tres
+ * sesiones sin tocar la mejor marca sí es un estancamiento.
+ */
+export function progresoEjercicios(entrenos, { minimoSesiones = 2 } = {}) {
+  const salida = [];
+  for (const { nombre } of ejerciciosUsados(entrenos || [])) {
+    const historia = diferenciasEjercicio(entrenos, nombre);
+    if (historia.length < minimoSesiones) continue;
+
+    const ultima = historia[historia.length - 1];
+    const previas = historia.slice(0, -1);
+    const mejorPrevio = previas.reduce((m, p) => (m === null || p.estimado > m ? p.estimado : m), null);
+
+    let sinMejorar = 0;
+    let tope = -Infinity;
+    for (const p of historia) {
+      if (p.estimado > tope) { tope = p.estimado; sinMejorar = 0; } else sinMejorar++;
+    }
+
+    const contraMejor = mejorPrevio === null ? null : Number((ultima.estimado - mejorPrevio).toFixed(1));
+    const tendencia =
+      contraMejor === null ? "nuevo"
+        : contraMejor > 0 ? "sube"
+          : sinMejorar >= SESIONES_ESTANCADO ? "estancado"
+            : contraMejor < 0 ? "baja" : "igual";
+
+    salida.push({
+      nombre,
+      sesiones: historia.length,
+      ultima,
+      contraMejor,
+      sinMejorar,
+      tendencia,
+      historia,
+    });
+  }
+
+  /* Primero lo que pide atención: lo estancado y lo que baja. Dentro de cada
+     grupo, lo más reciente, que es de lo que uno se acuerda. */
+  const peso = { estancado: 0, baja: 1, igual: 2, sube: 3, nuevo: 4 };
+  return salida.sort(
+    (a, b) => peso[a.tendencia] - peso[b.tendencia]
+      || String(b.ultima.fecha).localeCompare(String(a.ultima.fecha))
+  );
+}
+
+/**
+ * Lo mismo pero de una plantilla entera: los kilos movidos por sesión.
+ *
+ * Para un entreno completo el número honesto no es el de ningún ejercicio
+ * suelto, es el volumen: si subes en press y bajas en fondos, el total dice
+ * qué pasó de verdad ese día.
+ */
+export function progresoPlantilla(entrenos, plantillaId) {
+  if (!plantillaId) return [];
+  const sesiones = (entrenos || [])
+    .filter((e) => e && e.plantilla === plantillaId && (e.ejercicios || []).length)
+    .sort(porFecha)
+    .map((e) => {
+      const r = resumenFuerza(e);
+      return { fecha: e.fecha, volumen: r.volumen, series: r.series, reps: r.reps };
+    });
+  return sesiones.map((s, i) => ({
+    ...s,
+    delta: i > 0 ? s.volumen - sesiones[i - 1].volumen : null,
+  }));
+}
+
 /* ── tendencia del peso ──────────────────────────────────────────────────── */
 
 /**
