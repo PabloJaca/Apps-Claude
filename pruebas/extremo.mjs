@@ -1614,6 +1614,52 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.click('.rise [aria-label="Cerrar"]');
   await pag.waitForTimeout(400);
 
+  /* El otro camino, que es el que faltaba: «añadir un entreno» es el botón
+     «+», y por ahí se llegaba a un formulario en blanco sin rastro de las
+     plantillas. Un atajo que solo existe en un sitio no está la mitad de las
+     veces que se busca. */
+  await pag.click('[aria-label="Añadir en otra fecha"]');
+  await pag.waitForTimeout(600);
+  await pag.locator('.rise button:has-text("Entreno")').first().click();
+  await pag.waitForTimeout(500);
+  const enHojaMas = await pag.innerText(".rise");
+  check("plantillas: el botón + también las ofrece",
+    /Usar una de las tuyas/i.test(enHojaMas) && /Empuje/.test(enHojaMas),
+    enHojaMas.replace(/\n+/g, " | ").slice(0, 300));
+
+  /* Y la fecha elegida allí tiene que viajar hasta el entreno: si se perdiera,
+     apuntar el entreno del jueves lo guardaría en hoy. */
+  await pag.fill('.rise input[type="date"]', "2026-08-14");
+  await pag.waitForTimeout(300);
+  await pag.locator('.rise button:has-text("Empuje")').first().click();
+  await pag.waitForTimeout(700);
+  check("plantillas: al elegirla se abre el entreno montado",
+    /Press banca/.test(await pag.innerText(".rise")), (await pag.innerText(".rise")).slice(0, 250));
+  check("plantillas: y conserva la fecha que habías puesto",
+    (await pag.inputValue('.rise input[type="date"]')) === "2026-08-14",
+    await pag.inputValue('.rise input[type="date"]'));
+
+  /* Añadir un ejercicio suelto de ese día, encima de la plantilla. */
+  await pag.locator('.rise button:has-text("Añadir ejercicio")').first().click();
+  await pag.waitForTimeout(500);
+  const hojaNueva = pag.locator(".rise").last();
+  await hojaNueva.locator("input").first().fill("Fondos");
+  await hojaNueva.locator('input[aria-label="Repeticiones de la serie 1"]').fill("12");
+  await hojaNueva.locator('button:has-text("Añadir al entreno")').click();
+  await pag.waitForTimeout(500);
+  check("plantillas: se puede añadir un ejercicio suelto de ese día",
+    /Fondos/.test(await pag.innerText(".rise")), (await pag.innerText(".rise")).slice(0, 300));
+
+  await pag.locator('.rise button:has-text("Guardar entreno")').first().click();
+  await pag.waitForTimeout(900);
+  const srv3 = await pag.evaluate(() => window.__espia.verServidor());
+  const delMas = Object.values(srv3.docs).find((d) => d && d.fecha === "2026-08-14");
+  check("plantillas: se guarda en la fecha elegida, no en hoy", Boolean(delMas),
+    JSON.stringify(Object.values(srv3.docs).filter((d) => d && d.tipo).map((d) => d.fecha)));
+  check("plantillas: con el ejercicio añadido incluido",
+    delMas && (delMas.ejercicios || []).some((e) => /Fondos/.test(e.nombre)),
+    JSON.stringify(delMas && delMas.ejercicios));
+
   check("plantillas: nada se sale de la pantalla",
     await pag.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1),
     String(await pag.evaluate(() => document.body.scrollWidth)));

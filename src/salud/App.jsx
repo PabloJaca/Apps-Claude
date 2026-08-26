@@ -804,7 +804,7 @@ function VistaPeso({ datos, anadir, borrar, editar }) {
 
 /* -------------------------------------------------------- vista entrenos */
 
-function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas }) {
+function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, onUsarPlantilla }) {
   const entrenos = useMemo(
     () => [...datos.entrenos].sort((a, b) => b.fecha.localeCompare(a.fecha) || (b.ts || 0) - (a.ts || 0)),
     [datos.entrenos]
@@ -820,7 +820,6 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
   const [ejercicios, setEjercicios] = useState([]);
   const [hojaEj, setHojaEj] = useState(null);   // { indice } o { indice: null } para uno nuevo
   const [verEj, setVerEj] = useState(null);    // ficha de progresión de un ejercicio
-  const [usando, setUsando] = useState(null);  // plantilla abierta para confirmar
   const [verTodoProgreso, setVerTodoProgreso] = useState(false);
   const verEjercicio = (nombre) => setVerEj(nombre);
 
@@ -950,7 +949,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
                 {plantillas.map((p) => {
                   const t = tipoDe(p.tipo);
                   return (
-                    <button key={p.id} onClick={() => setUsando(p)} className="flex items-center gap-2"
+                    <button key={p.id} onClick={() => onUsarPlantilla(p)} className="flex items-center gap-2"
                       style={{
                         border: "none", cursor: "pointer", borderRadius: 999, padding: "11px 15px",
                         minHeight: 44, background: t.soft, color: t.color,
@@ -1123,11 +1122,6 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas })
             </button>
           )}
         </Card>
-      )}
-
-      {usando && (
-        <HojaPlantilla plantilla={usando} entrenos={datos.entrenos}
-          onGuardar={anadir} onCerrar={() => setUsando(null)} />
       )}
 
       {verEj && (
@@ -1881,7 +1875,7 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
  *
  * `editando` es `{ coleccion, registro }` cuando se viene de un lápiz.
  */
-function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGuardar }) {
+function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [], onUsarPlantilla, onCerrar, onGuardar }) {
   const [sec, setSec] = useState(seccion);
   const [fecha, setFecha] = useState(hoy());
   const [kg, setKg] = useState("");
@@ -2043,6 +2037,42 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, onCerrar, onGu
             <input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="En ayunas"
               style={{ ...inputBase, marginTop: 6, marginBottom: 14 }} />
           </>
+        )}
+
+        {/*
+            Las plantillas también aquí, y no solo en la pestaña.
+            «Añadir un entreno» es el botón «+», así que quien entra por ahí
+            se encontraba el formulario en blanco y ni se enteraba de que
+            tenía sus entrenos guardados a un toque. Un atajo que solo existe
+            en un sitio es un atajo que la mitad de las veces no está.
+        */}
+        {sec === "entrenos" && !editando && !borrador && plantillas.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <Rotulo>Usar una de las tuyas</Rotulo>
+            <div className="flex gap-2" style={{ flexWrap: "wrap", marginTop: 8 }}>
+              {plantillas.map((p) => {
+                const t = tipoDe(p.tipo);
+                return (
+                  <button key={p.id} onClick={() => onUsarPlantilla(p, fecha)} className="flex items-center gap-2"
+                    style={{
+                      border: "none", cursor: "pointer", borderRadius: 999, padding: "11px 15px",
+                      minHeight: 44, background: t.soft, color: t.color, maxWidth: "100%",
+                      fontFamily: body, fontWeight: 700, fontSize: 13.5,
+                    }}>
+                    <t.Icon size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.nombre}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "9px 0 0", lineHeight: 1.45 }}>
+              Se abre con tus ejercicios y los pesos de la última vez, para revisarlos antes de guardar.
+              Abajo tienes el entreno suelto, si hoy hiciste otra cosa.
+            </p>
+            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16 }} />
+          </div>
         )}
 
         {sec === "entrenos" && borrador && borrador.ejercicios && borrador.ejercicios.length > 0 && (
@@ -2313,9 +2343,12 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
  * que se hizo. Ese es todo el truco: lo normal es repetir lo mismo o subir un
  * poco, así que lo que hay que teclear son dos números, no la sesión entera.
  */
-function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
+function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar }) {
   const ultimo = useMemo(() => ultimaDePlantilla(entrenos, plantilla.id), [entrenos, plantilla.id]);
-  const base = useMemo(() => entrenoDesdePlantilla(plantilla, hoy(), ultimo), [plantilla, ultimo]);
+  const base = useMemo(
+    () => entrenoDesdePlantilla(plantilla, fechaInicial || hoy(), ultimo),
+    [plantilla, fechaInicial, ultimo]
+  );
 
   const [fecha, setFecha] = useState(base.fecha);
   const [ejercicios, setEjercicios] = useState(() => base.ejercicios.map((e) => ({ ...e, series: e.series.map((s) => ({ ...s })) })));
@@ -2353,7 +2386,7 @@ function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
       plantilla: plantilla.id, ts: Date.now(),
     };
     if (mins > 0) registro.minutos = mins;
-    if (esFuerza && ejercicios.length) registro.ejercicios = ejercicios;
+    if (ejercicios.length) registro.ejercicios = ejercicios;
     const dist = parseFloat(String(km).replace(",", "."));
     if (!esFuerza && dist > 0) registro.km = dist;
     onGuardar("entrenos", registro);
@@ -2414,6 +2447,22 @@ function HojaPlantilla({ plantilla, entrenos, onGuardar, onCerrar }) {
                 style={{ ...inputBase, flex: 1, fontFamily: mono, fontWeight: 600 }} />
               <span style={{ fontFamily: body, fontSize: 14, color: C.mid }}>km</span>
             </div>
+
+            {/* Un día de pádel puede llevar core detrás. El hueco está, pero no
+                ocupa hasta que se usa: una plantilla que no es de pesas no
+                tiene por qué enseñar una lista de ejercicios vacía. */}
+            {ejercicios.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 14 }}>
+                {ejercicios.map((ej, i) => (
+                  <FilaEjercicio key={i} ejercicio={ej} anterior={seriesPrevias(ej.nombre)}
+                    onEditar={() => setHojaEj({ indice: i })}
+                    onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
+                ))}
+              </div>
+            )}
+            <button onClick={() => setHojaEj({ indice: null })} style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 12 }}>
+              {ejercicios.length ? "+ Añadir otro ejercicio" : "+ ¿Hiciste algo más?"}
+            </button>
           </div>
         )}
 
@@ -3264,6 +3313,12 @@ function Aplicacion({ sesion }) {
   const [editando, setEditando] = useState(null); // { coleccion, registro }
   const [dictado, setDictado] = useState(null);   // borrador salido de una frase
   const [pantalla, setPantalla] = useState(null);
+  const [usando, setUsando] = useState(null);     // { plantilla, fecha } en confirmación
+
+  const plantillasOrdenadas = useMemo(
+    () => [...datos.plantillas].sort(porOrdenPlantilla),
+    [datos.plantillas]
+  );
 
   const ultimoPeso = useMemo(() => {
     const p = [...datos.pesos].sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -3455,7 +3510,8 @@ function Aplicacion({ sesion }) {
         {listo && tab === "peso" && <VistaPeso datos={datos} anadir={anadir} borrar={borrar} editar={editar} />}
         {listo && tab === "entrenos" && (
           <VistaEntrenos datos={datos} anadir={anadir} borrar={borrar} editar={editar}
-            onGestionarPlantillas={() => setPantalla("plantillas")} />
+            onGestionarPlantillas={() => setPantalla("plantillas")}
+            onUsarPlantilla={(p) => setUsando({ plantilla: p, fecha: hoy() })} />
         )}
         {listo && tab === "comidas" && (
           <VistaComidas datos={datos} anadir={anadir} borrar={borrar} editar={editar} energia={energiaHoy}
@@ -3511,7 +3567,22 @@ function Aplicacion({ sesion }) {
       </nav>
 
       <HojaFecha abierta={hoja} seccion={tab} editando={editando} borrador={dictado} pesos={datos.pesos}
+        plantillas={plantillasOrdenadas}
+        onUsarPlantilla={(p, fecha) => { cerrarHoja(); setUsando({ plantilla: p, fecha }); }}
         onCerrar={cerrarHoja} onGuardar={anadir} />
+
+      {/* La hoja de plantilla vive aquí y no dentro de la pestaña: se llega a
+          ella desde los dos sitios —los botones de Entrenos y el «+»— y tener
+          dos copias sería tener dos comportamientos. */}
+      {usando && (
+        <HojaPlantilla
+          plantilla={usando.plantilla}
+          fechaInicial={usando.fecha}
+          entrenos={datos.entrenos}
+          onGuardar={anadir}
+          onCerrar={() => setUsando(null)}
+        />
+      )}
 
 
       {pantalla === "dictado" && (
