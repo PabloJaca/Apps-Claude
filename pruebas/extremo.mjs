@@ -139,6 +139,60 @@ const conVozDeMentira = (pag, frase) =>
 
 /* Apuntar un gasto en la app de Gastos, como se hace a mano: botón flotante,
    importe, concepto y guardar. */
+/**
+ * Contraste real de cada texto de la pantalla contra el fondo que hereda.
+ *
+ * Devuelve solo lo que no llega al mínimo de WCAG AA: 4,5 para texto normal y
+ * 3,0 para texto grande. Es la prueba que de verdad vale para un tema, porque
+ * mide lo pintado y no lo declarado —una regla CSS con un color cosido a mano
+ * no aparece en la paleta, pero sí aquí—.
+ */
+const barridoContraste = (pag) => pag.evaluate(() => {
+  const luz = (c) => {
+    const m = c.match(/[\d.]+/g);
+    if (!m) return null;
+    const [r, g, b] = m.slice(0, 3).map(Number).map((v) => {
+      v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const opaco = (c) => c && c !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(c);
+  const fondoReal = (el) => {
+    let n = el;
+    while (n) {
+      const bg = getComputedStyle(n).backgroundColor;
+      if (opaco(bg)) return bg;
+      n = n.parentElement;
+    }
+    return "rgb(255,255,255)";
+  };
+  const malos = [];
+  for (const el of document.querySelectorAll("body *")) {
+    const propio = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    if (!propio) continue;
+    const est = getComputedStyle(el);
+    if (est.visibility === "hidden" || est.display === "none" || Number(est.opacity) < 0.5) continue;
+    const caja = el.getBoundingClientRect();
+    if (caja.width < 4 || caja.height < 4) continue;
+    const a = luz(est.color);
+    const b = luz(fondoReal(el));
+    if (a === null || b === null) continue;
+    const razon = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    /* 3,0 para texto grande (>=18,66px, o >=14px en negrita); 4,5 el resto. */
+    const px = parseFloat(est.fontSize);
+    const grande = px >= 18.66 || (px >= 14 && Number(est.fontWeight) >= 700);
+    const minimo = grande ? 3 : 4.5;
+    if (razon < minimo) {
+      malos.push({
+        texto: (el.textContent || "").trim().slice(0, 32),
+        color: est.color, fondo: fondoReal(el),
+        px, razon: Math.round(razon * 10) / 10, minimo,
+      });
+    }
+  }
+  return malos;
+});
+
 const apuntarGasto = async (pag, importe, concepto) => {
   await pag.click(".fab");
   await pag.waitForTimeout(320);
@@ -1707,57 +1761,11 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(900);
   await saltarBienvenida(pag);
 
-  /* Barrido: todo nodo con texto propio, su color y el fondo que hereda. */
-  const barrer = () => pag.evaluate(() => {
-    const luz = (c) => {
-      const m = c.match(/[\d.]+/g);
-      if (!m) return null;
-      const [r, g, b] = m.slice(0, 3).map(Number).map((v) => {
-        v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-      });
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const opaco = (c) => c && c !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(c);
-    const fondoReal = (el) => {
-      let n = el;
-      while (n) {
-        const bg = getComputedStyle(n).backgroundColor;
-        if (opaco(bg)) return bg;
-        n = n.parentElement;
-      }
-      return "rgb(255,255,255)";
-    };
-    const malos = [];
-    for (const el of document.querySelectorAll("body *")) {
-      const propio = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
-      if (!propio) continue;
-      const est = getComputedStyle(el);
-      if (est.visibility === "hidden" || est.display === "none" || Number(est.opacity) < 0.5) continue;
-      const caja = el.getBoundingClientRect();
-      if (caja.width < 4 || caja.height < 4) continue;
-      const a = luz(est.color);
-      const b = luz(fondoReal(el));
-      if (a === null || b === null) continue;
-      const razon = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      /* 3,0 para texto grande (>=18,66px, o >=14px en negrita); 4,5 el resto. */
-      const px = parseFloat(est.fontSize);
-      const grande = px >= 18.66 || (px >= 14 && Number(est.fontWeight) >= 700);
-      const minimo = grande ? 3 : 4.5;
-      if (razon < minimo) {
-        malos.push({
-          texto: (el.textContent || "").trim().slice(0, 32),
-          color: est.color, fondo: fondoReal(el),
-          px, razon: Math.round(razon * 10) / 10, minimo,
-        });
-      }
-    }
-    return malos;
-  });
 
   for (const [pestana, etiqueta] of [["Peso", "peso"], ["Entrenos", "entrenos"], ["Comidas", "comidas"]]) {
     await pag.click(`nav >> text=${pestana}`);
     await pag.waitForTimeout(700);
-    const malos = await barrer();
+    const malos = await barridoContraste(pag);
     check(`oscuro: todo se lee en ${etiqueta} (contraste suficiente)`,
       malos.length === 0, JSON.stringify(malos.slice(0, 4)));
   }
@@ -1765,7 +1773,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   /* Las hojas y pantallas de encima son donde más fácil se cuela un blanco. */
   await pag.click('button[aria-label="Perfil"]');
   await pag.waitForTimeout(700);
-  const enPerfil = await barrer();
+  const enPerfil = await barridoContraste(pag);
   check("oscuro: el perfil y los ajustes se leen", enPerfil.length === 0, JSON.stringify(enPerfil.slice(0, 4)));
 
   /* Y el interruptor de tema hace su trabajo sin recargar. */
@@ -1773,7 +1781,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(500);
   check("oscuro: cambiar a claro se nota al momento",
     (await pag.getAttribute("html", "data-tema")) === "claro");
-  const enClaro = await barrer();
+  const enClaro = await barridoContraste(pag);
   check("claro: y en claro también se lee todo", enClaro.length === 0, JSON.stringify(enClaro.slice(0, 4)));
 
   await pag.click('button:has-text("Oscuro")');
@@ -1784,6 +1792,56 @@ const apuntarGasto = async (pag, importe, concepto) => {
     (await pag.getAttribute("html", "data-tema")) === "oscuro");
 
   check("oscuro: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
+  await ctx.close();
+}
+
+/* ── 11. Gastos en oscuro ─────────────────────────────────────────────────
+   Mismo barrido que en Salud. Gastos pinta con clases CSS y no con estilos en
+   línea, así que aquí lo que se pone a prueba es que no haya quedado ninguna
+   regla con un color cosido a mano.                                        */
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 844 } });
+  const pag = await ctx.newPage();
+  const errores = [];
+  pag.on("pageerror", (e) => errores.push(String(e)));
+
+  await pag.addInitScript(() => {
+    if (localStorage.getItem("__servidor_de_mentira__")) return;
+    localStorage.setItem("__servidor_de_mentira__", JSON.stringify({
+      usuarios: {}, docs: { "permitidos/nora@ejemplo.com": { nombre: "Nora" } },
+    }));
+  });
+
+  await pag.goto("http://localhost:8321/gastos.html");
+  await pag.waitForTimeout(400);
+  check("gastos oscuro: el tema está puesto ya en la pantalla de acceso",
+    (await pag.getAttribute("html", "data-tema")) === "oscuro",
+    String(await pag.getAttribute("html", "data-tema")));
+
+  await acceder(pag, "nora@ejemplo.com", "secreta9", { registrar: true });
+  await pag.waitForTimeout(900);
+  await saltarBienvenida(pag);
+  await apuntarGasto(pag, 42, "Cena");
+  await pag.waitForTimeout(700);
+
+  for (const [pestana, etiqueta] of [["Resumen", "resumen"], ["Análisis", "análisis"], ["Ajustes", "ajustes"]]) {
+    await pag.click(`.pestana:has-text("${pestana}")`);
+    await pag.waitForTimeout(800);
+    const malos = await barridoContraste(pag);
+    check(`gastos oscuro: todo se lee en ${etiqueta}`, malos.length === 0, JSON.stringify(malos.slice(0, 4)));
+  }
+
+  /* El interruptor vive en Ajustes, que es donde acabamos. */
+  await pag.click('button:has-text("Claro")');
+  await pag.waitForTimeout(600);
+  check("gastos: cambiar a claro se nota al momento",
+    (await pag.getAttribute("html", "data-tema")) === "claro");
+  const enClaro = await barridoContraste(pag);
+  check("gastos claro: y en claro también se lee todo", enClaro.length === 0, JSON.stringify(enClaro.slice(0, 4)));
+
+  await pag.click('button:has-text("Oscuro")');
+  await pag.waitForTimeout(500);
+  check("gastos: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
   await ctx.close();
 }
 

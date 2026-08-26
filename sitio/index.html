@@ -7,7 +7,7 @@
   <meta name="description" content="Acceso a Gastos y Salud" />
 
   <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#EDF3F8" />
+  <meta name="theme-color" content="#0E1519" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -19,19 +19,58 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" />
 
+  <script>
+    /* Antes de pintar: la misma elección que guardan las apps. */
+    (function () {
+      try {
+        var t = localStorage.getItem("misapps_tema");
+        if (t === "claro" || t === "oscuro") document.documentElement.setAttribute("data-tema", t);
+      } catch (e) {}
+    })();
+  </script>
+
   <style>
     :root {
+      /* Oscuro de casa, la misma familia que las dos apps. El claro queda
+         detrás para quien lo elija dentro de cualquiera de ellas: la
+         preferencia se guarda con la misma clave y vale para las tres. */
+      --bg: #0E1519;
+      --card: #141F25;
+      --ink: #E9F2F6;
+      --mid: #A6BCC6;
+      --faint: #8AA3AF;
+      --line: #26363E;
+      --teal: #38CFBB;
+      --tealSoft: #10312E;
+      --coral: #FF8877;
+      --coralSoft: #3B1B17;
+      --apagado: #33454F;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 26px rgba(0,0,0,.34);
+      color-scheme: dark;
+    }
+    :root[data-tema="claro"] {
       --bg: #EDF3F8;
       --card: #FFFFFF;
       --ink: #15303D;
-      --mid: #5C7B8C;
-      --faint: #9BB2BF;
+      --mid: #4C6675;
+      --faint: #54707E;
       --line: #E3EDF3;
-      --teal: #10B3A3;
+      --teal: #066B63;
       --tealSoft: #DCF5F1;
-      --coral: #FF7A6B;
+      --coral: #BB3527;
       --coralSoft: #FFE8E4;
+      --apagado: #C9D8E2;
       --shadow: 0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06);
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-tema="oscuro"]):not([data-tema="claro"]) {
+        --bg: #EDF3F8; --card: #FFFFFF; --ink: #15303D; --mid: #4C6675;
+        --faint: #54707E; --line: #E3EDF3; --teal: #066B63; --tealSoft: #DCF5F1;
+        --coral: #BB3527; --coralSoft: #FFE8E4; --apagado: #C9D8E2;
+        --shadow: 0 1px 2px rgba(21,48,61,.04), 0 10px 26px rgba(21,48,61,.06);
+        color-scheme: light;
+      }
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
@@ -81,7 +120,7 @@
     }
     .punto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
     .punto.ok { background: var(--teal); }
-    .punto.no { background: #C9D8E2; }
+    .punto.no { background: var(--apagado); }
     @keyframes rise { from { transform: translateY(14px); opacity: 0 } to { transform: none; opacity: 1 } }
     .tarjeta:nth-of-type(2) { animation-delay: .05s; }
     @media (prefers-reduced-motion: reduce) { .tarjeta { animation: none } }

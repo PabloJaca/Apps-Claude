@@ -16,7 +16,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const raiz = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const fuente = readFileSync(path.join(raiz, "src/salud/App.jsx"), "utf8");
+const FUENTES = {
+  salud: readFileSync(path.join(raiz, "src/salud/App.jsx"), "utf8"),
+  gastos: readFileSync(path.join(raiz, "src/gastos/estilos.js"), "utf8"),
+};
 
 let fallos = 0;
 let hechas = 0;
@@ -30,7 +33,7 @@ const check = (que, ok, detalle) => {
 /* ── leer la paleta del archivo, no repetirla aquí ───────────────────────── */
 
 /** Las variables de un bloque `:root...{ ... }` con el selector que se pida. */
-function leerTema(selector) {
+function leerTema(fuente, selector) {
   const i = fuente.indexOf(selector);
   if (i === -1) return null;
   const abre = fuente.indexOf("{", i);
@@ -44,22 +47,24 @@ function leerTema(selector) {
   return vars;
 }
 
-const claro = leerTema(':root, :root[data-tema="claro"]');
-const oscuro = leerTema(':root[data-tema="oscuro"]');
+const APPS = {};
+for (const [app, fuente] of Object.entries(FUENTES)) {
+  const claro = leerTema(fuente, ':root, :root[data-tema="claro"]');
+  const oscuro = leerTema(fuente, ':root[data-tema="oscuro"]');
 
-check("se encuentra el tema claro en la hoja", claro && Object.keys(claro).length >= 15,
-  claro ? String(Object.keys(claro).length) : "no encontrado");
-check("se encuentra el tema oscuro en la hoja", oscuro && Object.keys(oscuro).length >= 15,
-  oscuro ? String(Object.keys(oscuro).length) : "no encontrado");
+  check(`${app}: se encuentra el tema claro`, claro && Object.keys(claro).length >= 12,
+    claro ? String(Object.keys(claro).length) : "no encontrado");
+  check(`${app}: se encuentra el tema oscuro`, oscuro && Object.keys(oscuro).length >= 12,
+    oscuro ? String(Object.keys(oscuro).length) : "no encontrado");
 
-if (!claro || !oscuro) {
-  console.log("\n✗ contraste: no se ha podido leer la paleta");
-  process.exit(1);
+  if (!claro || !oscuro) continue;
+
+  check(`${app}: los dos temas declaran las mismas variables`,
+    Object.keys(claro).sort().join() === Object.keys(oscuro).sort().join(),
+    `solo en claro: ${Object.keys(claro).filter((k) => !(k in oscuro))} · solo en oscuro: ${Object.keys(oscuro).filter((k) => !(k in claro))}`);
+
+  APPS[app] = { claro, oscuro };
 }
-
-check("los dos temas declaran exactamente las mismas variables",
-  Object.keys(claro).sort().join() === Object.keys(oscuro).sort().join(),
-  `solo en claro: ${Object.keys(claro).filter((k) => !(k in oscuro))} · solo en oscuro: ${Object.keys(oscuro).filter((k) => !(k in claro))}`);
 
 /* ── la cuenta ───────────────────────────────────────────────────────────── */
 
@@ -76,44 +81,73 @@ const razon = (a, b) => {
 };
 
 const MINIMO = 4.5;          // texto normal, AA
-const SUPERFICIES = ["bg", "card", "soft"];
-const TEXTOS = ["ink", "mid", "faint"];
-const ACENTOS = ["teal", "mint", "coral", "amber", "indigo"];
 
-for (const [nombre, T] of [["claro", claro], ["oscuro", oscuro]]) {
-  const bajos = [];
-  const mirar = (que, a, b) => {
-    if (!T[a] || !T[b]) return;
-    const r = razon(T[a], T[b]);
-    if (r < MINIMO) bajos.push(`${que} ${r}`);
-  };
+/*
+ * Cada app nombra sus variables a su manera —Salud dice «bg» y «teal»; Gastos,
+ * «paper» y «accent»—, así que el mapa dice qué papel cumple cada nombre. Lo
+ * que se comprueba es el papel, no la palabra.
+ */
+const PAPELES = {
+  salud: {
+    superficies: ["bg", "card", "soft"],
+    textos: ["ink", "mid", "faint"],
+    acentos: [["teal", "tealSoft"], ["mint", "mintSoft"], ["coral", "coralSoft"],
+              ["amber", "amberSoft"], ["indigo", "indigoSoft"]],
+    fondo: "bg",
+  },
+  gastos: {
+    superficies: ["paper", "card", "suave", "suave2", "suave3"],
+    textos: ["ink", "soft", "tenue"],
+    /* En Gastos el color del tinte y el del texto encima no son el mismo en
+       claro: el ámbar de un icono no se lee sobre su propio fondo crema. */
+    acentos: [["accent", "accentSoft"], ["mintTexto", "mintSoft"],
+              ["coralTexto", "coralSoft"], ["amberTexto", "amberSoft"]],
+    fondo: "paper",
+  },
+};
 
-  // Los tres grises de texto sobre las tres superficies.
-  for (const s of SUPERFICIES) for (const t of TEXTOS) mirar(`${t}/${s}`, t, s);
+for (const [app, temas] of Object.entries(APPS)) {
+  const P = PAPELES[app];
+  for (const [nombre, T] of [["claro", temas.claro], ["oscuro", temas.oscuro]]) {
+    const bajos = [];
+    const mirar = (que, a, b) => {
+      if (!T[a] || !T[b]) return;
+      const r = razon(T[a], T[b]);
+      if (r < MINIMO) bajos.push(`${que} ${r}`);
+    };
 
-  // Cada acento como texto: sobre su propio tinte, sobre tarjeta y sobre fondo.
-  for (const a of ACENTOS) {
-    mirar(`${a}/${a}Soft`, a, `${a}Soft`);
-    mirar(`${a}/card`, a, "card");
-    mirar(`${a}/bg`, a, "bg");
+    // Los grises de texto sobre cada superficie.
+    for (const sup of P.superficies) for (const t of P.textos) mirar(`${t}/${sup}`, t, sup);
+
+    // Cada acento como texto: sobre su tinte, sobre tarjeta y sobre el fondo.
+    for (const [a, tinte] of P.acentos) {
+      mirar(`${a}/${tinte}`, a, tinte);
+      mirar(`${a}/card`, a, "card");
+      mirar(`${a}/${P.fondo}`, a, P.fondo);
+    }
+
+    // Y el texto que va ENCIMA de un acento, que es el que se rompe al invertir.
+    for (const [a] of P.acentos) mirar(`sobreAcento/${a}`, "sobreAcento", a);
+    mirar("sobreAcento/accent", "sobreAcento", "accent");
+    mirar("sobreAcento/teal", "sobreAcento", "teal");
+
+    // La tarjeta oscura y su texto.
+    mirar("sobreTarjetaOscura/tarjetaOscura", "sobreTarjetaOscura", "tarjetaOscura");
+    mirar("sobreTarjetaOscuraSuave/tarjetaOscura", "sobreTarjetaOscuraSuave", "tarjetaOscura");
+
+    check(`${app} · ${nombre}: ninguna pareja baja de ${MINIMO}`, bajos.length === 0, bajos.join(" · "));
   }
 
-  // Y el texto que va ENCIMA de un acento, que es el que se rompe al invertir.
-  for (const a of ACENTOS) mirar(`sobreAcento/${a}`, "sobreAcento", a);
-
-  // La tarjeta oscura y su texto.
-  mirar("sobreTarjetaOscura/tarjetaOscura", "sobreTarjetaOscura", "tarjetaOscura");
-
-  check(`tema ${nombre}: ninguna pareja baja de ${MINIMO}`, bajos.length === 0, bajos.join(" · "));
-}
-
-/* Los grises tienen que seguir siendo tres escalones distinguibles: si al
-   subirles el contraste acaban todos iguales, se pierde la jerarquía. */
-for (const [nombre, T] of [["claro", claro], ["oscuro", oscuro]]) {
-  const [a, b, c] = TEXTOS.map((t) => luz(T[t]));
-  const ordenados = nombre === "claro" ? a < b && b < c : a > b && b > c;
-  check(`tema ${nombre}: los tres grises siguen siendo tres escalones`, ordenados,
-    TEXTOS.map((t) => `${t}=${T[t]}`).join(" "));
+  /* Los grises tienen que seguir siendo escalones distinguibles: si al subirles
+     el contraste acaban todos iguales, se pierde la jerarquía. */
+  for (const [nombre, T] of [["claro", temas.claro], ["oscuro", temas.oscuro]]) {
+    const vs = P.textos.map((t) => luz(T[t]));
+    const ordenados = nombre === "claro"
+      ? vs.every((v, i) => i === 0 || v > vs[i - 1])
+      : vs.every((v, i) => i === 0 || v < vs[i - 1]);
+    check(`${app} · ${nombre}: los grises siguen siendo escalones`, ordenados,
+      P.textos.map((t) => `${t}=${T[t]}`).join(" "));
+  }
 }
 
 console.log(`\n${fallos ? "✗" : "✓"} contraste: ${hechas - fallos}/${hechas} comprobaciones`);

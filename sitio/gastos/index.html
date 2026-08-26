@@ -7,7 +7,7 @@
   <meta name="description" content="Control de gastos personal" />
 
   <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#0F9E8E" />
+  <meta name="theme-color" content="#0E1519" />
 
   <link rel="icon" type="image/png" sizes="192x192" href="./icono-192.png" />
   <link rel="apple-touch-icon" href="./icono-180.png" />
@@ -20,9 +20,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
 
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("misapps_tema");
+        if (t === "claro" || t === "oscuro") document.documentElement.setAttribute("data-tema", t);
+      } catch (e) {}
+    })();
+  </script>
+
   <style>
+    /* Solo el color de arranque, para que abrir de noche no sea un fogonazo
+       blanco mientras se descarga el paquete. La paleta entera va dentro. */
+    html[data-tema="claro"], html[data-tema="claro"] body { background:#F1F6FA; }
+    @media (prefers-color-scheme: light) {
+      html:not([data-tema="oscuro"]):not([data-tema="claro"]),
+      html:not([data-tema="oscuro"]):not([data-tema="claro"]) body { background:#F1F6FA; }
+    }
     html, body { margin:0; padding:0; height:100%; overscroll-behavior:none;
-      background:#F1F6FA; -webkit-tap-highlight-color:transparent; }
+      background:#0E1519; -webkit-tap-highlight-color:transparent; }
     #raiz { height:100%; }
     .arranque { height:100%; display:flex; align-items:center; justify-content:center;
       font-family:system-ui, sans-serif; color:#7C93A8; font-size:14px; }

@@ -18,7 +18,8 @@ import { PantallaCuenta, PastillaSync } from "../comun/cuenta.jsx";
 import { CSS_VOZ, HojaDictado, hayDictado } from "../comun/voz.jsx";
 import { analizarMes } from "./analisis.js";
 import { EJEMPLOS_GASTOS, interpretarGasto } from "./dictado.js";
-import { CSS } from "./estilos.js";
+import { CSS, TEMAS } from "./estilos.js";
+import { TEMAS_ELEGIBLES, aplicarTema, guardarTema, instalarTema, temaGuardado } from "../comun/tema.js";
 import {
   AJUSTES_VACIO, COLECCIONES, MESES, PALETA,
   adivinarIcono, categoriasIniciales, categoriasSanas, claveMes, conFecha, diaDeISO, diasDelMes, fijosSanos,
@@ -76,11 +77,16 @@ const ICONO_BLOQUE = {
   wallet: Wallet, target: Target, pie: IcAnalisis, calendar: CalendarDays, repeat: Repeat,
 };
 
+/* Antes de dibujar nada: la puerta de acceso y el candado usan esta paleta. */
+if (typeof document !== "undefined") instalarTema(TEMAS);
+
 const PALETA_CUENTA = {
-  bg: "#F1F6FA", card: "#FFFFFF", suave: "#F7FAFC", ink: "#15293C", mid: "#5C7B8C",
-  faint: "#9DB0C2", line: "#E6EDF3", acento: "#0F9E8E", acentoSuave: "#DFF3F0",
-  coral: "#F4614E", mint: "#1FB47A",
-  sombra: "0 1px 2px rgba(21,41,60,.04), 0 6px 20px rgba(21,41,60,.055)",
+  /* Igual que en Salud: nombres, no colores. Los rellena el tema. */
+  bg: "var(--paper)", card: "var(--card)", suave: "var(--suave2)", ink: "var(--ink)",
+  mid: "var(--soft)", faint: "var(--tenue)", line: "var(--line)",
+  acento: "var(--accent)", acentoSuave: "var(--accentSoft)",
+  coral: "var(--coral)", mint: "var(--mint)",
+  sombra: "var(--sombra)",
   display: "'Bricolage Grotesque', system-ui, sans-serif",
   body: "'Instrument Sans', system-ui, sans-serif",
   mono: "'IBM Plex Mono', ui-monospace, monospace",
@@ -186,7 +192,7 @@ function Aplicacion({ sesion }) {
       .map(([id, { total, variable }]) => ({
         id, total, variable,
         nombre: catPorId[id]?.nombre || "Sin categoría",
-        color: catPorId[id]?.color || "#7C93A8",
+        color: catPorId[id]?.color || "var(--soft)",
         icono: catPorId[id]?.icono || "package",
         presupuesto: catPorId[id]?.presupuesto || null,
       }))
@@ -237,7 +243,7 @@ function Aplicacion({ sesion }) {
         return {
           id,
           nombre: catPorId[id]?.nombre || "Sin categoría",
-          color: catPorId[id]?.color || "#7C93A8",
+          color: catPorId[id]?.color || "var(--soft)",
           icono: catPorId[id]?.icono || "package",
           actual, previa, delta: actual - previa,
         };
@@ -768,7 +774,7 @@ function Resumen({
           gastos se pierden: los del sábado ya no se recuerdan el martes. */}
       {ausencia && (
         <button className="filaAviso" onClick={onNuevo}>
-          <span className="insignia" style={{ background: "#FFF4E2", color: "#B87400" }}>
+          <span className="insignia" style={{ background: "var(--amberSoft)", color: "var(--amberTexto)" }}>
             <CalendarDays size={17} />
           </span>
           <span className="itemTexto">
@@ -827,7 +833,7 @@ function Resumen({
             const c = catPorId[g.categoria];
             return (
               <button key={g.nota} className="chipRepetir" onClick={() => onRepetir(g)}>
-                <span className="insignia mini" style={{ background: `${c?.color || "#7C93A8"}1F`, color: c?.color || "#7C93A8" }}>
+                <span className="insignia mini" style={{ background: `color-mix(in srgb, ${c?.color || "var(--soft)"} var(--tinte), transparent)`, color: c?.color || "#7C93A8" }}>
                   <Icono nombre={c?.icono} size={14} />
                 </span>
                 <span className="nom">{g.nota}</span>
@@ -881,7 +887,7 @@ function Resumen({
           <ul className="lista">
             {movimientos.map((g) => {
               const c = catPorId[g.categoria];
-              const color = c?.color || "#7C93A8";
+              const color = c?.color || "var(--soft)";
               return (
                 <li key={g.id}>
                   <button className="itemGasto" onClick={() => onAbrir(g)}>
@@ -1152,13 +1158,13 @@ function Analisis({
         <Grafica alto={190} style={{ marginLeft: -8 }}>
             <BarChart data={ultimosMeses} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
               <XAxis dataKey="etiqueta" tickLine={false} axisLine={false}
-                tick={{ fill: "#7C93A8", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }} />
-              <Tooltip content={<TipMes />} cursor={{ fill: "rgba(15,158,142,.07)" }} />
+                tick={{ fill: "var(--soft)", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }} />
+              <Tooltip content={<TipMes />} cursor={{ fill: "var(--accent)", fillOpacity: 0.09 }} />
               {presupuestoGlobal > 0 && (
-                <ReferenceLine y={presupuestoGlobal} stroke="#F4614E" strokeDasharray="4 4" strokeWidth={1.5} />
+                <ReferenceLine y={presupuestoGlobal} stroke="var(--coral)" strokeDasharray="4 4" strokeWidth={1.5} />
               )}
               <Bar dataKey="total" radius={[6, 6, 0, 0]} isAnimationActive={false}>
-                {ultimosMeses.map((m) => <Cell key={m.clave} fill={m.actual ? "#0F9E8E" : "#D6E2EC"} />)}
+                {ultimosMeses.map((m) => <Cell key={m.clave} fill={m.actual ? "var(--accent)" : "var(--futuro)"} />)}
               </Bar>
             </BarChart>
         </Grafica>
@@ -1420,7 +1426,7 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
           <button className={`chipCat ${!categoria ? "sel" : ""}`} onClick={() => setCategoria(null)}>Todas</button>
           {datos.categorias.map((c) => (
             <button key={c.id} className={`chipCat ${categoria === c.id ? "sel" : ""}`}
-              style={categoria === c.id ? { background: c.color, borderColor: c.color, color: "#fff" } : undefined}
+              style={categoria === c.id ? { background: c.color, borderColor: c.color, color: "var(--sobreAcento)" } : undefined}
               onClick={() => setCategoria(categoria === c.id ? null : c.id)}>
               <Icono nombre={c.icono} size={15} /> {c.nombre}
             </button>
@@ -1432,7 +1438,7 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
           <div className="chips" style={{ marginBottom: 10 }}>
             {TRAMOS.map((t) => (
               <button key={t.id} className={`chipCat ${tramoActivo?.id === t.id ? "sel" : ""}`}
-                style={tramoActivo?.id === t.id ? { background: "#0F9E8E", borderColor: "#0F9E8E", color: "#fff" } : undefined}
+                style={tramoActivo?.id === t.id ? { background: "var(--accent)", borderColor: "var(--accent)", color: "var(--sobreAcento)" } : undefined}
                 onClick={() => { setDesde(t.desde); setHasta(t.hasta); }}>
                 {t.label}
               </button>
@@ -1471,7 +1477,7 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
               {resultados.slice(0, 120).map((m) => {
                 const c = catPorId[m.categoria];
                 const esIngreso = m.tipo === "ingreso";
-                const color = esIngreso ? "#1FB47A" : c?.color || "#7C93A8";
+                const color = esIngreso ? "var(--mint)" : c?.color || "var(--soft)";
                 return (
                   <li key={`${m.tipo}:${m.id}`}>
                     <button className="itemGasto" onClick={() => !esIngreso && onAbrir(m)}>
@@ -1483,7 +1489,7 @@ function PantallaBuscar({ datos, catPorId, onAbrir, onCerrar }) {
                         <span className="itemNota">{esIngreso ? "Ingreso" : c?.nombre || "Sin categoría"}</span>
                       </span>
                       <span className="itemDerecha">
-                        <span className="itemImporte mono" style={esIngreso ? { color: "#1FB47A" } : undefined}>
+                        <span className="itemImporte mono" style={esIngreso ? { color: "var(--mint)" } : undefined}>
                           {esIngreso ? "+" : ""}{eur(m.importe)}
                         </span>
                         <span className="itemFecha mono">{m.fecha.slice(8, 10)}/{m.fecha.slice(5, 7)}/{m.fecha.slice(2, 4)}</span>
@@ -1706,7 +1712,7 @@ function PantallaAnual({ datos, catPorId, anoInicial, onCerrar }) {
               <ul className="leyenda">
                 {a.categorias.slice(0, 8).map((c) => {
                   const cat = catPorId[c.id];
-                  const color = cat?.color || "#7C93A8";
+                  const color = cat?.color || "var(--soft)";
                   return (
                     <li key={c.id}>
                       <span className="insignia mini" style={{ background: `${color}1F`, color }}>
@@ -1757,12 +1763,12 @@ function PantallaFijos({ fijos, catPorId, mesKey, onEditar, onNuevo, onCerrar })
   const Fila = ({ f, apagado }) => {
     const esIngreso = f.tipo === "ingreso";
     const c = catPorId[f.categoria];
-    const color = apagado ? "#9DB0C2" : esIngreso ? "#1FB47A" : c?.color || "#7C93A8";
+    const color = apagado ? "var(--tenue)" : esIngreso ? "var(--mint)" : c?.color || "var(--soft)";
     const pendiente = f.desde > mesKey;
     return (
       <li>
         <button className="itemGasto" onClick={() => onEditar(f)}>
-          <span className="insignia" style={{ background: apagado ? "#EDF2F7" : `${color}1F`, color }}>
+          <span className="insignia" style={{ background: apagado ? "var(--suave)" : `color-mix(in srgb, ${color} var(--tinte), transparent)`, color }}>
             <Icono nombre={esIngreso ? origenDe(f.origen).icono : c?.icono} size={17} />
           </span>
           <span className="itemTexto">
@@ -1779,7 +1785,7 @@ function PantallaFijos({ fijos, catPorId, mesKey, onEditar, onNuevo, onCerrar })
               {f.hasta && ` · hasta ${nombreMesClave(f.hasta)}`}
             </span>
           </span>
-          <span className="itemImporte mono" style={esIngreso && !apagado ? { color: "#1FB47A" } : undefined}>
+          <span className="itemImporte mono" style={esIngreso && !apagado ? { color: "var(--mint)" } : undefined}>
             {esIngreso ? "+" : ""}{eur(f.importe)}
           </span>
         </button>
@@ -1878,7 +1884,12 @@ function Ajustes({
   const [confirmarReset, setConfirmarReset] = useState(false);
   const [editandoIcono, setEditandoIcono] = useState(null);
   const [avisoCopia, setAvisoCopia] = useState(null);
+  const [tema, setTema] = useState(() => temaGuardado());
   const refArchivo = useRef(null);
+
+  /* Preferencia de esta pantalla, no de la cuenta: se aplica y se guarda a la
+     vez para que el cambio se vea sin recargar. */
+  const cambiarTema = (id) => { setTema(id); aplicarTema(id); guardarTema(id); };
 
   const fijos = datos.fijos || [];
   const activos = fijos.filter((f) => !f.hasta || mesKey <= f.hasta);
@@ -1950,7 +1961,7 @@ function Ajustes({
       {/* Los fijos no son un ajuste: son la mitad de tu mes. Tienen pantalla
           propia, y aquí solo queda la puerta para entrar. */}
       <button className="filaAjuste" onClick={onFijos}>
-        <span className="insignia" style={{ background: "#E7F6F4", color: "var(--accent)" }}>
+        <span className="insignia" style={{ background: "var(--accentSoft)", color: "var(--accent)" }}>
           <Repeat size={17} />
         </span>
         <span className="itemTexto">
@@ -1969,7 +1980,7 @@ function Ajustes({
       {/* La tarjeta de objetivos del Resumen solo aparece cuando ya hay
           alguno, así que sin esta fila no había forma de crear el primero. */}
       <button className="filaAjuste" onClick={onObjetivos}>
-        <span className="insignia" style={{ background: "#DFF6EB", color: "var(--mint)" }}>
+        <span className="insignia" style={{ background: "var(--mintSoft)", color: "var(--mint)" }}>
           <Target size={17} />
         </span>
         <span className="itemTexto">
@@ -1982,6 +1993,21 @@ function Ajustes({
         </span>
         <ChevronRight size={19} className="hIcono" />
       </button>
+
+      <section className="tarjeta">
+        <div className="filaCabecera"><h2><Sparkles size={15} className="hIcono" /> Aspecto</h2></div>
+        <p className="nota" style={{ marginBottom: 10 }}>
+          «Automático» sigue lo que tenga puesto el móvil. Se guarda en este dispositivo.
+        </p>
+        <div className="conmutador">
+          {TEMAS_ELEGIBLES.map((t) => (
+            <button key={t.id} className={tema === t.id ? "sel" : ""} aria-pressed={tema === t.id}
+              onClick={() => cambiarTema(t.id)} style={{ flex: 1, minHeight: 40 }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="tarjeta">
         <div className="filaCabecera"><h2><Wallet size={15} className="hIcono" /> Presupuesto mensual</h2></div>
@@ -2036,7 +2062,7 @@ function Ajustes({
                   <div className="rejillaIconos">
                     {CLAVES_ICONO.map((k) => (
                       <button key={k} className={`opIcono ${c.icono === k ? "sel" : ""}`}
-                        style={c.icono === k ? { background: c.color, color: "#fff" } : undefined}
+                        style={c.icono === k ? { background: c.color, color: "var(--sobreAcento)" } : undefined}
                         onClick={() => cambiarCat(c.id, { icono: k })} aria-label={k}>
                         <Icono nombre={k} size={16} />
                       </button>
@@ -2191,7 +2217,7 @@ function HojaGasto({ modo, gasto, tipo = "gasto", categorias, onGuardar, onBorra
           <div className="chips">
             {esIngreso && ORIGENES.map((o) => (
               <button key={o.id} className={`chipCat ${origen === o.id ? "sel" : ""}`}
-                style={origen === o.id ? { background: "#1FB47A", borderColor: "#1FB47A", color: "#fff" } : undefined}
+                style={origen === o.id ? { background: "var(--mint)", borderColor: "var(--mint)", color: "var(--sobreAcento)" } : undefined}
                 onClick={() => setOrigen(o.id)}>
                 <Icono nombre={o.icono} size={15} /> {o.label}
               </button>
@@ -2302,7 +2328,7 @@ function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar,
           <div className="chips">
             {esIngreso && ORIGENES.map((o) => (
               <button key={o.id} className={`chipCat ${origen === o.id ? "sel" : ""}`}
-                style={origen === o.id ? { background: "#1FB47A", borderColor: "#1FB47A", color: "#fff" } : undefined}
+                style={origen === o.id ? { background: "var(--mint)", borderColor: "var(--mint)", color: "var(--sobreAcento)" } : undefined}
                 onClick={() => setOrigen(o.id)}>
                 <Icono nombre={o.icono} size={15} /> {o.label}
               </button>
