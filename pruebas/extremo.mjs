@@ -620,10 +620,38 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(300);
   check("añadir ejercicio: la serie nueva copia la anterior",
     (await pag.inputValue('.rise input[aria-label="Kilos de la serie 2"]')) === "100");
+
+  /* Rango de repeticiones: el segundo campo no está hasta que se pide, para
+     no llenar la fila a quien siempre hace un número fijo. */
+  check("series: sin pedirlo no hay campo de repeticiones máximas",
+    (await pag.$$('.rise input[aria-label="Repeticiones máximas de la serie 1"]')).length === 0);
+  await pag.click('.rise button:has-text("Usar rango")');
+  await pag.waitForTimeout(300);
+  await pag.fill('.rise input[aria-label="Repeticiones máximas de la serie 1"]', "8");
+
+  /* Al fallo y dropset. El escalón se inserta justo debajo de su serie, con
+     un 20% menos de peso, y viene marcado al fallo por definición. */
+  await pag.click('.rise button[aria-label="Al fallo en la serie 2"]');
+  await pag.waitForTimeout(200);
+  check("series: el botón de al fallo queda marcado",
+    (await pag.getAttribute('.rise button[aria-label="Al fallo en la serie 2"]', "aria-pressed")) === "true");
+
+  await pag.locator('.rise button:has-text("+ Bajar peso y seguir")').nth(1).click();
+  await pag.waitForTimeout(300);
+  check("dropset: el escalón entra debajo, con un 20% menos de peso",
+    (await pag.inputValue('.rise input[aria-label="Kilos de la serie 3"]')) === "80",
+    await pag.inputValue('.rise input[aria-label="Kilos de la serie 3"]'));
+  check("dropset: y viene ya marcado al fallo",
+    (await pag.getAttribute('.rise button[aria-label="Al fallo en la serie 3"]', "aria-pressed")) === "true");
+
   await pag.click("text=Añadir al entreno");
   await pag.waitForTimeout(500);
   const conSentadilla = await pag.innerText("body");
   check("añadir ejercicio: queda en la lista del entreno", /Sentadilla/.test(conSentadilla));
+  check("series: el rango se escribe «5-8», no dos números sueltos",
+    /100×5-8/.test(conSentadilla), conSentadilla.slice(0, 500));
+  check("series: el fallo se ve en la fila", /AF/.test(conSentadilla), conSentadilla.slice(0, 500));
+  check("dropset: se dibuja colgando de su serie", /↳ 80×/.test(conSentadilla), conSentadilla.slice(0, 500));
   check("añadir ejercicio: y se resume lo levantado", /kg movidos/.test(conSentadilla), conSentadilla.slice(0, 400));
   check("los kilos se escriben como se dicen: «75×8», no «75,0×8»",
     /75×8/.test(conSentadilla) && !/75,0×/.test(conSentadilla));

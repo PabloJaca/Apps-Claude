@@ -144,6 +144,8 @@ const T = {
   sobras: () => new Set(["he", "de", "en"]),
   listaPlantillas: () => lista(registro, 4),
   registroPlantilla: () => plantillasS.plantillasSanas([registro()])[0] || { nombre: "X", ejercicios: [] },
+  /* Una serie tal y como sale de la frontera: la app nunca dibuja otra cosa. */
+  serie: () => plantillasS.serieSana(registro()),
 };
 
 /* Cada función exportada, con la forma de sus argumentos.
@@ -178,17 +180,19 @@ const FORMA = {
     diferenciasEjercicio: ["listaEntrenos", "texto"], progresoEjercicios: ["listaEntrenos", "opciones"],
     progresoPlantilla: ["listaEntrenos", "texto"],
     ejerciciosUsados: ["listaEntrenos"], energiaDelDia: ["energia", "listaEntrenos", "numero", "perfil"],
-    enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], etiquetaFecha: ["fecha"],
+    enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], esEnlazada: ["serie"], etiquetaFecha: ["fecha"],
     etiquetaTramo: ["periodo", "offset"], extraPorEntrenos: ["listaEntrenos", "numero", "texto"],
     fechaCorta: ["fecha"], hoy: [], huellaEjercicio: ["texto"], inicioSemana: ["fecha"], iso: ["fecha"],
-    kcalEntreno: ["registro", "numero"], mediaMovil: ["listaPesos", "numero"], mejorSerie: ["lista"],
-    miles: ["numero"], mismoEjercicio: ["texto", "texto"], num: ["numero"], objetivoDe: ["texto"],
+    kcalEntreno: ["registroEntreno", "numero"], mediaMovil: ["listaPesos", "numero"], mejorSerie: ["lista"],
+    miles: ["numero"], minutosDeEntreno: ["registroEntreno"], mismoEjercicio: ["texto", "texto"],
+    num: ["numero"], objetivoDe: ["texto"],
     pendienteSemanal: ["listaPesos"], pesoCorto: ["numero"], pesosFiables: ["listaPesos"], plural: ["numero", "texto", "texto"],
     porFecha: ["registro", "registro"], progresionEjercicio: ["listaEntrenos", "texto"],
     progresoMeta: ["listaPesos", "perfil"], racha: ["datosS", "fecha"], rangoMes: ["numero"],
     rangoSemana: ["numero"], recordEjercicio: ["listaEntrenos", "texto"], repartir: ["datosS"],
     resumenFuerza: ["registroEntreno"], revisarPeso: ["numero", "fecha", "listaPesos"], saciedadDe: ["numero"],
-    saneaEntrenos: ["listaEntrenos"], tendenciaPeso: ["listaPesos", "opciones"], toleranciaPeso: ["numero"],
+    saneaEntrenos: ["listaEntrenos"], tendenciaPeso: ["listaPesos", "opciones"], textoSerie: ["serie"],
+    toleranciaPeso: ["numero"],
     ultimaVezEjercicio: ["listaEntrenos", "texto"], ultimoEntrenoConEjercicios: ["listaEntrenos", "fecha"],
     unaRepeticion: ["numero", "numero"], volumenDe: ["numero"],
     exportar: null, importar: null, leerLegado: null, olvidarLegado: null,
@@ -203,7 +207,8 @@ const FORMA = {
     buscarPlantilla: ["listaPlantillas", "texto"], entrenoDesdePlantilla: ["registroPlantilla", "fecha", "registroEntreno"],
     interpretarPlantillas: ["texto"], plantillaDesdeEntreno: ["registroEntreno", "texto"],
     plantillasSanas: ["listaPlantillas"], porOrdenPlantilla: ["registro", "registro"],
-    resumenPlantilla: ["registroPlantilla"], ultimaDePlantilla: ["listaEntrenos", "texto"],
+    resumenPlantilla: ["registroPlantilla"], serieSana: ["registro"],
+    ultimaDePlantilla: ["listaEntrenos", "texto"],
   },
   "comun/lengua": {
     aNumero: ["texto"], buscarNumeros: ["lista"], capitalizar: ["texto"], leerFecha: ["lista", "fecha"],

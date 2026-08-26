@@ -35,9 +35,40 @@ export const MAX_PLANTILLAS = 40;
 const TIPOS_VALIDOS = new Set(["fuerza", "cardio", "equipo", "otro"]);
 const INTENS_VALIDAS = new Set(["suave", "media", "fuerte"]);
 
+/*
+ * Un número, o nada.
+ *
+ * El vacío se comprueba ANTES de convertir porque `Number(null)` y `Number("")`
+ * valen cero, no NaN. Sin esta guarda, un ejercicio a peso corporal —el campo
+ * de kilos en blanco— se guardaba como «0 kg», que no es lo mismo que «sin
+ * peso»: uno es un dato y el otro es su ausencia.
+ */
 const numeroONada = (v, min, max) => {
+  if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
+};
+
+/**
+ * Una serie con la forma buena.
+ *
+ * Vive aquí y no repetida en tres sitios porque los campos nuevos —el rango de
+ * repeticiones, el fallo y el enlace del dropset— se perdían en cada copia:
+ * `plantillasSanas` los recortaba, `entrenoDesdePlantilla` los dejaba fuera y
+ * `plantillaDesdeEntreno` también. Tres olvidos del mismo olvido.
+ */
+export const serieSana = (s) => {
+  const reps = numeroONada(s && s.reps, 0, 999);
+  const hasta = numeroONada(s && s.repsHasta, 0, 999);
+  return {
+    kg: numeroONada(s && s.kg, 0, 1000),
+    reps,
+    /* Un «hasta» por debajo del «desde» no es un rango, es un error de
+       tecleo: se descarta en vez de pintar «12-8». */
+    repsHasta: hasta !== null && reps !== null && hasta > reps ? hasta : null,
+    fallo: Boolean(s && s.fallo),
+    enlace: s && s.enlace === "dropset" ? "dropset" : null,
+  };
 };
 
 /**
@@ -66,7 +97,7 @@ export const plantillasSanas = (lista) =>
           series: (Array.isArray(ej.series) ? ej.series : [])
             .filter((s) => s && typeof s === "object")
             .slice(0, MAX_SERIES)
-            .map((s) => ({ kg: numeroONada(s.kg, 0, 1000), reps: numeroONada(s.reps, 0, 999) })),
+            .map(serieSana),
         })),
     }));
 
@@ -110,7 +141,7 @@ export function entrenoDesdePlantilla(plantilla, fecha, ultimo) {
     return {
       nombre: ej.nombre,
       series: (Array.isArray(series) && series.length ? series : [{ kg: null, reps: null }])
-        .map((s) => ({ kg: s.kg ?? null, reps: s.reps ?? null })),
+        .map(serieSana),
     };
   });
 
@@ -138,7 +169,7 @@ export function plantillaDesdeEntreno(entreno, nombre) {
     km: entreno.km ?? null,
     ejercicios: (entreno.ejercicios || []).slice(0, MAX_EJERCICIOS).map((ej) => ({
       nombre: ej.nombre,
-      series: (ej.series || []).slice(0, MAX_SERIES).map((s) => ({ kg: s.kg ?? null, reps: s.reps ?? null })),
+      series: (ej.series || []).slice(0, MAX_SERIES).map(serieSana),
     })),
   };
 }
@@ -207,6 +238,12 @@ export function buscarPlantilla(plantillas, texto) {
        3x12      un número pequeño delante son series → 3 series de 12, sin peso
        3x10 @40  con peso explícito siempre son series → 3 series de 10 con 40 kg
 
+   Y las tres formas de anotar cómo se hace la serie:
+
+       3x8-12        un rango de repeticiones: el objetivo es entre 8 y 12
+       80x8 AF       al fallo («AF», «fallo» o «al fallo» valen igual)
+       80x8 > 60x8   dropset: al fallo, se baja el peso y se sigue
+
    El umbral entre «grande» y «pequeño» es arbitrario y por tanto puede
    equivocarse; para eso el pegado enseña lo entendido antes de guardar nada.
 */
@@ -221,6 +258,12 @@ const RE_INICIO_SERIES = new RegExp(
   `${NUM}\\s*(?:[x×*]|series?\\b)|${NUM}(?:\\s*,\\s*${NUM})+`, "i"
 );
 const RE_PESO = new RegExp(`(?:@\\s*(${NUM})|\\b(?:con|a)\\s+(${NUM})\\s*(?:kg|kilos?)?\\b|\\b(${NUM})\\s*(?:kg|kilos?)\\b)`, "i");
+
+/* «al fallo», «fallo» o «AF» a secas. */
+const RE_FALLO = /\b(?:al\s+fallo|fallo|af)\b/i;
+/* Los escalones de un dropset se separan con «>»; «ds» o «dropset» también
+   marcan que lo que sigue continúa la serie anterior. */
+const RE_DROP = /\b(?:dropset|drop|ds)\b/i;
 
 /** Por debajo de esto, el primer número de «AxB» se lee como número de series. */
 const TOPE_SERIES = 10;
@@ -272,54 +315,99 @@ function leerCabecera(linea) {
 function leerSeriesEscritas(texto) {
   let resto = ` ${texto} `;
 
+  /* El fallo y el dropset son de toda la línea, no de un trozo suelto: se
+     leen y se quitan antes de partir, para que no estorben a los números. */
+  const alFallo = RE_FALLO.test(resto);
+  resto = resto.replace(new RegExp(RE_FALLO.source, "gi"), " ");
+  const diceDrop = RE_DROP.test(resto);
+  resto = resto.replace(new RegExp(RE_DROP.source, "gi"), " ");
+
   const peso = resto.match(RE_PESO);
   const pesoGlobal = peso ? aFloat(peso[1] || peso[2] || peso[3]) : null;
   if (peso) resto = resto.replace(peso[0], " ");
 
   /* Un trozo, o nada. Se devuelve en vez de empujar a la lista para poder
      reintentarlo partido por comas si no ha salido nada. */
-  const leerTrozo = (t) => {
+  const leerTrozo = (t, enCadena) => {
     const salida = [];
 
-    /* «3 series de 10» y «3 series x 10». */
-    const conPalabra = t.match(new RegExp(`(${NUM})\\s*series?\\s*(?:de|x|×)?\\s*(${NUM})`, "i"));
+    /* «3 series de 10» y «3 series x 10», con rango opcional en las repes. */
+    const conPalabra = t.match(new RegExp(`(${NUM})\\s*series?\\s*(?:de|x|×)?\\s*(${NUM})(?:\\s*[-–]\\s*(${NUM}))?`, "i"));
     if (conPalabra) {
       const n = Math.min(MAX_SERIES, Math.max(1, Math.round(aFloat(conPalabra[1]))));
       const reps = Math.round(aFloat(conPalabra[2]));
-      for (let i = 0; i < n; i++) salida.push({ kg: pesoGlobal, reps });
+      const hasta = conPalabra[3] ? Math.round(aFloat(conPalabra[3])) : null;
+      for (let i = 0; i < n; i++) salida.push({ kg: pesoGlobal, reps, repsHasta: hasta });
       return salida;
     }
 
-    const par = t.match(new RegExp(`^(${NUM})\\s*[x×*]\\s*(${NUM})$`, "i"));
+    /* «80x8», «3x8-12». El guion solo separa un rango cuando va DESPUÉS de la
+       equis: un «80-8» suelto no es un rango de repeticiones. */
+    const par = t.match(new RegExp(`^(${NUM})\\s*[x×*]\\s*(${NUM})(?:\\s*[-–]\\s*(${NUM}))?$`, "i"));
     if (par) {
       const a = aFloat(par[1]);
       const b = Math.round(aFloat(par[2]));
-      if (pesoGlobal != null || (Number.isInteger(a) && a <= TOPE_SERIES)) {
+      const hasta = par[3] ? Math.round(aFloat(par[3])) : null;
+      /* Dentro de un dropset, «AxB» son SIEMPRE kilos por repeticiones: lo que
+         se baja en cada escalón es el peso, así que cada escalón es una serie
+         y nunca un número de series. Sin esto, «20x10 > 10x8» leía el último
+         como diez series de ocho. */
+      if (!enCadena && (pesoGlobal != null || (Number.isInteger(a) && a <= TOPE_SERIES))) {
         const n = Math.min(MAX_SERIES, Math.max(1, Math.round(a)));
-        for (let i = 0; i < n; i++) salida.push({ kg: pesoGlobal, reps: b });
+        for (let i = 0; i < n; i++) salida.push({ kg: pesoGlobal, reps: b, repsHasta: hasta });
       } else {
-        salida.push({ kg: a, reps: b });
+        salida.push({ kg: a, reps: b, repsHasta: hasta });
       }
       return salida;
     }
 
     /* Un número suelto son repeticiones: «10, 10, 8 @60». */
-    const solo = t.match(new RegExp(`^(${NUM})$`));
-    if (solo) salida.push({ kg: pesoGlobal, reps: Math.round(aFloat(solo[1])) });
+    const solo = t.match(new RegExp(`^(${NUM})(?:\\s*[-–]\\s*(${NUM}))?$`));
+    if (solo) {
+      salida.push({
+        kg: pesoGlobal,
+        reps: Math.round(aFloat(solo[1])),
+        repsHasta: solo[2] ? Math.round(aFloat(solo[2])) : null,
+      });
+    }
     return salida;
   };
 
   /* La coma es separador cuando lleva espacio detrás y decimal cuando no lo
      lleva: «80x8, 75x10» son dos series y «82,5x5» son ochenta y dos kilos y
      medio. Si un trozo no da nada y aún tiene comas, se reintenta partiéndolo
-     por ellas, que es como se recupera «80x8,80x8» escrito sin espacios. */
+     por ellas, que es como se recupera «80x8,80x8» escrito sin espacios.
+
+     El «>» es aparte: separa los escalones de un dropset, y lo que va detrás
+     del primero continúa la serie anterior sin descanso. */
   const series = [];
-  for (const trozo of resto.split(/\s*[;/]\s*|\s*,\s+/)) {
-    const t = trozo.trim();
-    if (!t) continue;
-    const leidas = leerTrozo(t);
-    if (leidas.length) { series.push(...leidas); continue; }
-    if (t.includes(",")) for (const pieza of t.split(",")) series.push(...leerTrozo(pieza.trim()));
+  const bloques = resto.split(/\s*>\s*/);
+  const hayCadena = bloques.length > 1;
+
+  bloques.forEach((bloque, iBloque) => {
+    const deEsteBloque = [];
+    for (const trozo of bloque.split(/\s*[;/]\s*|\s*,\s+/)) {
+      const t = trozo.trim();
+      if (!t) continue;
+      const leidas = leerTrozo(t, hayCadena);
+      if (leidas.length) { deEsteBloque.push(...leidas); continue; }
+      if (t.includes(",")) for (const pieza of t.split(",")) deEsteBloque.push(...leerTrozo(pieza.trim(), hayCadena));
+    }
+    /* Todo lo que viene tras un «>» son escalones enlazados. */
+    if (iBloque > 0) for (const x of deEsteBloque) x.enlace = "dropset";
+    series.push(...deEsteBloque);
+  });
+
+  /* Al fallo marca la última serie de cada bloque, que es donde se llega:
+     decir «3x10 al fallo» no significa fallar en las tres. Con dropset, el
+     fallo es implícito en cada escalón. */
+  /* En un dropset se falla en cada escalón, el primero incluido: esa es la
+     definición. Un «al fallo» suelto, en cambio, marca solo la última serie:
+     decir «3x10 al fallo» no significa fallar en las tres. */
+  if (hayCadena || diceDrop) {
+    for (const x of series) x.fallo = true;
+  } else if (alFallo && series.length) {
+    series[series.length - 1].fallo = true;
   }
 
   return series.slice(0, MAX_SERIES);
@@ -380,9 +468,13 @@ export function interpretarPlantillas(texto) {
         avisos.push(`«${actual.nombre}» pasa de ${MAX_EJERCICIOS} ejercicios; se ha cortado ahí.`);
         continue;
       }
+      /* Por `serieSana` para que salgan con TODAS las claves puestas. Sin
+         esto, una serie sin dropset no traía `enlace` y quien comparaba con
+         `=== null` se encontraba un `undefined`: en JSON los dos se imprimen
+         igual, así que el fallo no se ve ni leyendo el volcado. */
       actual.ejercicios.push({
         nombre: nombre.slice(0, MAX_NOMBRE),
-        series: series.length ? series : [{ kg: null, reps: null }],
+        series: (series.length ? series : [{ kg: null, reps: null }]).map(serieSana),
       });
       continue;
     }

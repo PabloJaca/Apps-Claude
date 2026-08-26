@@ -290,7 +290,9 @@ const DESCUENTO = { sedentaria: 1, ligera: 0.8, activa: 0.45, muy_activa: 0.25 }
 
 export function kcalEntreno(entreno, pesoKg) {
   const kg = Number(pesoKg);
-  const minutos = Number(entreno && entreno.minutos);
+  /* Medidos si los hay; estimados a partir de las series si no. Los entrenos
+     de fuerza ya no piden duración, y sin esto sumarían cero. */
+  const minutos = minutosDeEntreno(entreno);
   if (!(kg > 0) || !(minutos > 0)) return 0;
 
   const porTipo = METS[(entreno && entreno.tipo) || "otro"] || METS.otro;
@@ -376,6 +378,55 @@ export const mismoEjercicio = (a, b) => huellaEjercicio(a) === huellaEjercicio(b
 export function unaRepeticion(kg, reps) {
   if (!(kg > 0) || !(reps > 0)) return null;
   return Number((kg * (1 + reps / 30)).toFixed(1));
+}
+
+/*
+ * Una serie puede ser de cuatro maneras, y todas caben en el mismo objeto:
+ *
+ *   { kg, reps }                     la de siempre
+ *   { kg, reps, repsHasta }          un rango: «8 a 12», que es un objetivo
+ *   { kg, reps, fallo: true }        llevada al fallo
+ *   { kg, reps, enlace: "dropset" }  continúa la anterior sin descanso
+ *
+ * El dropset se guarda plano, como series consecutivas enlazadas, en vez de
+ * anidar una lista dentro de otra. Anidado obligaría a tocar el volumen, la
+ * mejor serie, la progresión y las reglas de Firestore; plano, todo lo que ya
+ * sabía sumar series lo sigue sabiendo, y lo único que cambia es cómo se pinta.
+ */
+
+/** Los escalones de un dropset son series de verdad, no adornos. */
+export const esEnlazada = (s) => Boolean(s && s.enlace === "dropset");
+
+/** Cómo se lee una serie. Vale para la lista, para la ficha y para el resumen. */
+export function textoSerie(s) {
+  if (!s) return "";
+  const reps = s.repsHasta && s.repsHasta !== s.reps ? `${s.reps}-${s.repsHasta}` : `${s.reps ?? "—"}`;
+  const carga = s.kg != null && s.kg !== "" ? `${pesoCorto(s.kg)}×` : "";
+  return `${carga}${reps}${s.fallo ? " AF" : ""}`;
+}
+
+/**
+ * Minutos de un entreno, medidos o estimados.
+ *
+ * La duración dejó de pedirse en los entrenos de fuerza: lo que describe una
+ * sesión de pesas son las series, no el rato que estuviste allí. Pero la
+ * estimación de calorías del día se apoyaba en los minutos, así que sin ellos
+ * un día de pesas pasaba a sumar cero y la diana de comer salía baja.
+ *
+ * Se estiman a partir de las series, que es el dato que sí hay. Tres minutos
+ * por serie es el número redondo del gimnasio: la serie y su descanso.
+ */
+export const MINUTOS_POR_SERIE = 3;
+
+export function minutosDeEntreno(entreno) {
+  const dados = Number(entreno && entreno.minutos);
+  if (dados > 0) return dados;
+
+  const ejercicios = entreno && entreno.ejercicios;
+  const series = (Array.isArray(ejercicios) ? ejercicios : [])
+    .reduce((n, ej) => n + (Array.isArray(ej && ej.series) ? ej.series.length : 0), 0);
+  if (!series) return 0;
+  return Math.min(180, series * MINUTOS_POR_SERIE);
 }
 
 /** La serie que más vale de un ejercicio, medida por 1RM estimado. */

@@ -8,7 +8,7 @@
 import {
   EJEMPLO_PEGADO, MAX_EJERCICIOS, PLANTILLA_VACIA, buscarPlantilla,
   entrenoDesdePlantilla, interpretarPlantillas, plantillaDesdeEntreno,
-  plantillasSanas, porOrdenPlantilla, resumenPlantilla, ultimaDePlantilla,
+  plantillasSanas, porOrdenPlantilla, resumenPlantilla, serieSana, ultimaDePlantilla,
 } from "../src/salud/plantillas.js";
 
 let fallos = 0;
@@ -107,6 +107,45 @@ grupo("Pegado: las formas de escribir unas series");
 }
 
 /* ── decidir qué línea es qué ────────────────────────────────────────────── */
+
+grupo("Pegado: rangos, fallo y dropsets");
+{
+  const rango = uno("E\nPress 3x8-12 @80");
+  check("un rango se guarda como desde-hasta",
+    series(rango, 0).length === 3 && series(rango, 0).every((s) => s.reps === 8 && s.repsHasta === 12 && s.kg === 80),
+    JSON.stringify(series(rango, 0)));
+
+  const rangoSuelto = uno("E\nPress 80x8-12");
+  check("y también con una sola serie",
+    series(rangoSuelto, 0)[0].repsHasta === 12, JSON.stringify(series(rangoSuelto, 0)));
+
+  const noRango = uno("E\nPress 80x8, 75x10");
+  check("un guion fuera de sitio no inventa rangos",
+    series(noRango, 0).every((s) => s.repsHasta === null), JSON.stringify(series(noRango, 0)));
+
+  for (const forma of ["Press 3x10 @80 al fallo", "Press 3x10 @80 fallo", "Press 3x10 @80 AF"]) {
+    const f = uno(`E\n${forma}`);
+    const ss = series(f, 0);
+    check(`«${forma.split("@80 ")[1]}» marca solo la última serie`,
+      ss.length === 3 && !ss[0].fallo && !ss[1].fallo && ss[2].fallo,
+      JSON.stringify(ss.map((x) => x.fallo)));
+  }
+
+  const drop = uno("E\nCurl 20x10 > 15x8 > 10x8");
+  check("un dropset da tres escalones", series(drop, 0).length === 3, JSON.stringify(series(drop, 0)));
+  check("el primero no va enlazado y los otros sí",
+    series(drop, 0)[0].enlace === null && series(drop, 0)[1].enlace === "dropset" && series(drop, 0)[2].enlace === "dropset",
+    JSON.stringify(series(drop, 0).map((s) => s.enlace)));
+  check("en un dropset se falla en todos los escalones",
+    series(drop, 0).every((s) => s.fallo), JSON.stringify(series(drop, 0).map((s) => s.fallo)));
+  check("y cada escalón son KILOS por repeticiones, no un número de series",
+    series(drop, 0).map((s) => `${s.kg}x${s.reps}`).join() === "20x10,15x8,10x8",
+    JSON.stringify(series(drop, 0)));
+
+  const dropPalabra = uno("E\nCurl 20x10 dropset");
+  check("la palabra «dropset» sola también marca el fallo",
+    series(dropPalabra, 0)[0].fallo === true, JSON.stringify(series(dropPalabra, 0)));
+}
 
 grupo("Pegado: qué es una cabecera y qué un ejercicio");
 {
@@ -282,6 +321,43 @@ grupo("Resumen de una tarjeta");
     resumenPlantilla({ km: 5, minutos: 30 }));
   check("y sin nada no dice nada", resumenPlantilla({}) === "");
   check("null tampoco", resumenPlantilla(null) === "");
+}
+
+grupo("Los campos nuevos no se pierden en las copias");
+{
+  const rica = {
+    nombre: "Empuje", tipo: "fuerza", id: "p1",
+    ejercicios: [{ nombre: "Curl", series: [
+      { kg: 20, reps: 10, repsHasta: 12, fallo: true },
+      { kg: 15, reps: 8, enlace: "dropset", fallo: true },
+    ] }],
+  };
+
+  const sana = plantillasSanas([rica])[0];
+  check("plantillasSanas conserva el rango", sana.ejercicios[0].series[0].repsHasta === 12);
+  check("conserva el fallo", sana.ejercicios[0].series[0].fallo === true);
+  check("y conserva el enlace del dropset", sana.ejercicios[0].series[1].enlace === "dropset");
+
+  const borrador = entrenoDesdePlantilla(rica, "2026-08-20", null);
+  check("al abrir la plantilla siguen ahí",
+    borrador.ejercicios[0].series[0].repsHasta === 12
+    && borrador.ejercicios[0].series[1].enlace === "dropset",
+    JSON.stringify(borrador.ejercicios[0].series));
+
+  const vuelta = plantillaDesdeEntreno(
+    { tipo: "fuerza", ejercicios: rica.ejercicios }, "Otra"
+  );
+  check("y al guardar un entreno como plantilla, también",
+    vuelta.ejercicios[0].series[0].fallo === true
+    && vuelta.ejercicios[0].series[1].enlace === "dropset",
+    JSON.stringify(vuelta.ejercicios[0].series));
+
+  check("un «hasta» menor que el «desde» no es un rango",
+    serieSana({ reps: 12, repsHasta: 8 }).repsHasta === null,
+    JSON.stringify(serieSana({ reps: 12, repsHasta: 8 })));
+  check("un enlace inventado se descarta",
+    serieSana({ reps: 8, enlace: "loquesea" }).enlace === null);
+  check("y basura no revienta", serieSana(null).reps === null);
 }
 
 console.log(`\n${fallos ? "✗" : "✓"} plantillas: ${hechas - fallos}/${hechas} comprobaciones`);

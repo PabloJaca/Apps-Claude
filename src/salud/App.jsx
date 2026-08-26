@@ -27,6 +27,7 @@ import {
   etiquetaTramo, exportar, fechaCorta, mismoEjercicio, progresionEjercicio,
   recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   diferenciasEjercicio, progresoEjercicios, progresoPlantilla, mejorSerie,
+  textoSerie, esEnlazada, minutosDeEntreno,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
   pesoCorto, plural, progresoMeta, racha, rangoMes, rangoSemana, revisarPeso, saciedadDe,
   tendenciaPeso, volumenDe, ausencia as calcularAusencia, energiaDelDia, pesosSanos,
@@ -858,7 +859,10 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
   const deHoy = useMemo(() => entrenos.filter((e) => e.fecha === hoy()).sort((a, b) => (a.ts || 0) - (b.ts || 0)), [entrenos]);
 
   const guardarEntreno = () => {
-    const registro = { fecha: hoy(), tipo, minutos: dur, intensidad: inten, ts: Date.now() };
+    /* La fuerza no lleva duración: se describe con sus series. Las calorías
+       del día se estiman a partir de ellas, no del rato que estuviste. */
+    const registro = { fecha: hoy(), tipo, ts: Date.now() };
+    if (tipo !== "fuerza") registro.minutos = dur;
     if (tipo === "fuerza" && ejercicios.length) registro.ejercicios = ejercicios;
     const dist = parseFloat(String(km).replace(",", "."));
     if (tipo === "cardio" && dist > 0) registro.km = dist;
@@ -1054,18 +1058,14 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
               </div>
             )}
 
-            <Rotulo>{tipo === "fuerza" ? "Duración (opcional)" : "Duración"}</Rotulo>
-            <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
-              {DURACIONES.map((d) => <Chip key={d} activo={dur === d} onClick={() => setDur(d)}>{d}′</Chip>)}
-            </div>
-            <div style={{ marginTop: 14 }}><Rotulo>Intensidad</Rotulo></div>
-            <div className="flex gap-2" style={{ marginTop: 7 }}>
-              {INTENS.map((i) => (
-                <Chip key={i.id} activo={inten === i.id} color={i.color} onClick={() => setInten(i.id)} style={{ flex: 1 }}>
-                  {i.label}
-                </Chip>
-              ))}
-            </div>
+            {tipo !== "fuerza" && (
+              <>
+                <Rotulo>Duración</Rotulo>
+                <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
+                  {DURACIONES.map((d) => <Chip key={d} activo={dur === d} onClick={() => setDur(d)}>{d}′</Chip>)}
+                </div>
+              </>
+            )}
             <div style={{ marginTop: 16 }}>
               <BotonGuardar onClick={guardarEntreno}>Guardar entreno</BotonGuardar>
             </div>
@@ -1176,7 +1176,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
                     style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left", padding: "2px 0", width: "100%" }}>
                     <span style={{ fontFamily: body, fontSize: 12.5, color: C.mid, flexShrink: 0 }}>{ej.nombre}</span>
                     <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {ej.series.map((x) => (x.kg ? `${pesoCorto(x.kg)}×${x.reps}` : `${x.reps}`)).join(" · ")}
+                      {ej.series.map((x) => textoSerie(x)).join(" · ")}
                     </span>
                     <ChevronRight size={13} color={C.line} style={{ flexShrink: 0 }} />
                   </button>
@@ -1937,7 +1937,9 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
 
   const valido =
     (sec === "peso" && parseFloat(String(kg).replace(",", ".")) > 0) ||
-    (sec === "entrenos" && parseInt(minutos, 10) > 0) ||
+    /* Un entreno de fuerza vale sin minutos: lo que lo describe son las
+       series, y apuntar «el martes hice pesas» ya es un dato. */
+    (sec === "entrenos" && (tipo === "fuerza" || parseInt(minutos, 10) > 0)) ||
     (sec === "comidas" && texto.trim().length > 1);
 
   /* Al corregir se conserva el id, así que se sobrescribe el mismo documento
@@ -1982,9 +1984,12 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
       return;
     }
     if (sec === "entrenos") {
-      onGuardar("entrenos", conIdentidad({ fecha, tipo, minutos: parseInt(minutos, 10), intensidad: inten, ts: Date.now() }));
+      const campos = { fecha, tipo, ts: Date.now() };
+      const mins = parseInt(minutos, 10);
+      if (tipo !== "fuerza" && mins > 0) campos.minutos = mins;
+      onGuardar("entrenos", conIdentidad(campos));
       if (editando) return onCerrar();
-      setMinutos("45"); setInten("media");
+      setMinutos("45");
     }
     if (sec === "comidas") {
       onGuardar("comidas", conIdentidad({ fecha, texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() }));
@@ -2085,7 +2090,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
                   {ej.series.some((s) => s.reps) && (
                     <span style={{ fontFamily: mono, color: C.mid }}>
                       {"  "}
-                      {ej.series.filter((s) => s.reps).map((s) => `${s.kg != null ? s.kg : "—"}×${s.reps}`).join(", ")}
+                      {ej.series.filter((s) => s.reps || s.fallo).map((s) => textoSerie(s)).join(", ")}
                     </span>
                   )}
                 </p>
@@ -2112,15 +2117,13 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
                 </button>
               ))}
             </div>
-            <Rotulo>Duración (min)</Rotulo>
-            <input type="number" inputMode="numeric" value={minutos} onChange={(e) => setMinutos(e.target.value)}
-              style={{ ...inputBase, marginTop: 6, marginBottom: 14, fontFamily: mono, fontSize: 20, fontWeight: 600 }} />
-            <Rotulo>Intensidad</Rotulo>
-            <div className="flex gap-2" style={{ marginTop: 7, marginBottom: 14 }}>
-              {INTENS.map((i) => (
-                <Chip key={i.id} activo={inten === i.id} color={i.color} onClick={() => setInten(i.id)} style={{ flex: 1 }}>{i.label}</Chip>
-              ))}
-            </div>
+            {tipo !== "fuerza" && (
+              <>
+                <Rotulo>Duración (min)</Rotulo>
+                <input type="number" inputMode="numeric" value={minutos} onChange={(e) => setMinutos(e.target.value)}
+                  style={{ ...inputBase, marginTop: 6, marginBottom: 14, fontFamily: mono, fontSize: 20, fontWeight: 600 }} />
+              </>
+            )}
           </>
         )}
 
@@ -2188,7 +2191,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
 
 /* ------------------------------------------------- ejercicios de fuerza */
 
-const SERIE_VACIA = { reps: 8, kg: null, rir: null };
+const SERIE_VACIA = { reps: 8, kg: null, repsHasta: null, fallo: false, enlace: null };
 
 /**
  * Hoja para añadir o corregir un ejercicio con sus series.
@@ -2203,6 +2206,10 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
     ejercicio && ejercicio.series.length ? ejercicio.series.map((s) => ({ ...s })) : [{ ...SERIE_VACIA }]
   );
   const [tocado, setTocado] = useState(!!ejercicio);
+  /* El rango se enseña si el ejercicio ya lo usa: quien lo puso una vez lo
+     quiere ver, y a quien no lo usa no se le llena la fila de campos. */
+  const [rango, setRango] = useState(() =>
+    Boolean(ejercicio && (ejercicio.series || []).some((x) => x && x.repsHasta)));
 
   const usados = useMemo(() => ejerciciosUsados(entrenos), [entrenos]);
 
@@ -2232,17 +2239,35 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
     setSeries((ss) => ss.map((s, j) => (j === i ? { ...s, [campo]: valor } : s)));
 
   const anadirSerie = () =>
-    setSeries((ss) => [...ss, ss.length ? { ...ss[ss.length - 1] } : { ...SERIE_VACIA }]);
+    setSeries((ss) => [...ss, ss.length ? { ...ss[ss.length - 1], enlace: null } : { ...SERIE_VACIA }]);
+
+  /* Un escalón de dropset: mismo ejercicio, menos peso, sin descanso. Se
+     propone un 20% menos, que es lo que se baja de verdad, y se marca al
+     fallo porque un dropset es eso por definición. */
+  const anadirDrop = (i) =>
+    setSeries((ss) => {
+      const base = ss[i] || SERIE_VACIA;
+      const kg = base.kg ? Math.round(Number(base.kg) * 0.8 * 2) / 2 : null;
+      const nuevo = { ...base, kg, enlace: "dropset", fallo: true };
+      return [...ss.slice(0, i + 1), nuevo, ...ss.slice(i + 1)];
+    });
+
+  const alternar = (i, campo) =>
+    setSeries((ss) => ss.map((x, j) => (j === i ? { ...x, [campo]: !x[campo] } : x)));
 
   const quitarSerie = (i) => setSeries((ss) => (ss.length > 1 ? ss.filter((_, j) => j !== i) : ss));
 
   const limpio = series
     .map((s) => ({
       reps: parseInt(s.reps, 10) || 0,
+      repsHasta: parseInt(s.repsHasta, 10) || null,
       kg: s.kg === "" || s.kg === null || s.kg === undefined ? null : Number(String(s.kg).replace(",", ".")),
-      rir: s.rir === "" || s.rir === null || s.rir === undefined ? null : Number(s.rir),
+      fallo: Boolean(s.fallo),
+      enlace: s.enlace === "dropset" ? "dropset" : null,
     }))
-    .filter((s) => s.reps > 0);
+    /* Una serie al fallo puede no llevar repeticiones apuntadas: se hizo lo
+       que salió. Esas también cuentan, así que no se filtran por `reps`. */
+    .filter((s) => s.reps > 0 || s.fallo);
 
   const valido = nombre.trim().length > 1 && limpio.length > 0;
   const ultima = nombre.trim() ? ultimaVezEjercicio(entrenos, nombre) : null;
@@ -2286,40 +2311,87 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
         {ultima && (
           <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "9px 0 0" }}>
             Última vez ({etiquetaFecha(ultima.fecha)}):{" "}
-            {ultima.series.map((s) => `${s.kg ? `${pesoCorto(s.kg)}×` : ""}${s.reps}`).join(" · ")}
+            {ultima.series.map((s) => textoSerie(s)).join(" · ")}
           </p>
         )}
 
-        <div style={{ marginTop: 18, marginBottom: 8 }}><Rotulo>Series</Rotulo></div>
+        <div className="flex items-center justify-between" style={{ marginTop: 18, marginBottom: 8 }}>
+          <Rotulo>Series</Rotulo>
+          <button onClick={() => setRango((v) => !v)}
+            style={{ ...btnMini, background: rango ? C.teal : C.soft, color: rango ? C.sobreAcento : C.mid,
+              padding: "5px 11px", fontSize: 11.5 }}>
+            {rango ? "Repeticiones fijas" : "Usar rango"}
+          </button>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7 }}>
           <div className="flex items-center gap-2" style={{ padding: "0 4px" }}>
             <span style={{ width: 18 }} />
-            <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>Reps</span>
+            <span style={{ flex: rango ? 2 : 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>
+              {rango ? "Reps (de – a)" : "Reps"}
+            </span>
             <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>Kg</span>
-            <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>RIR</span>
+            <span style={{ width: 74 }} />
             <span style={{ width: 26 }} />
           </div>
-          {series.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span style={{ width: 18, fontFamily: mono, fontSize: 12, color: C.faint, textAlign: "center" }}>{i + 1}</span>
-              <input type="number" inputMode="numeric" value={s.reps ?? ""} aria-label={`Repeticiones de la serie ${i + 1}`}
-                onChange={(e) => cambiar(i, "reps", e.target.value)} style={{ ...campoNum, flex: 1 }} />
-              <input type="number" inputMode="decimal" step="0.5" value={s.kg ?? ""} placeholder="—"
-                aria-label={`Kilos de la serie ${i + 1}`}
-                onChange={(e) => cambiar(i, "kg", e.target.value)} style={{ ...campoNum, flex: 1 }} />
-              <input type="number" inputMode="numeric" min="0" max="5" value={s.rir ?? ""} placeholder="—"
-                aria-label={`RIR de la serie ${i + 1}`}
-                onChange={(e) => cambiar(i, "rir", e.target.value)} style={{ ...campoNum, flex: 1 }} />
-              <button onClick={() => quitarSerie(i)} style={{ ...btnBorrar, width: 26, padding: 4 }}
-                aria-label={`Quitar la serie ${i + 1}`} disabled={series.length === 1}>
-                <X size={14} color={series.length === 1 ? C.line : C.faint} />
-              </button>
-            </div>
-          ))}
+
+          {series.map((s, i) => {
+            const enlazada = s.enlace === "dropset";
+            return (
+              <div key={i} style={{ paddingLeft: enlazada ? 16 : 0 }}>
+                <div className="flex items-center gap-2">
+                  <span style={{ width: 18, fontFamily: mono, fontSize: 12, color: enlazada ? C.amber : C.faint, textAlign: "center" }}>
+                    {enlazada ? "↳" : i + 1 - series.slice(0, i).filter((x) => x.enlace === "dropset").length}
+                  </span>
+
+                  <div className="flex items-center gap-1" style={{ flex: rango ? 2 : 1 }}>
+                    <input type="number" inputMode="numeric" value={s.reps ?? ""} aria-label={`Repeticiones de la serie ${i + 1}`}
+                      onChange={(e) => cambiar(i, "reps", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+                    {rango && (
+                      <>
+                        <span style={{ fontFamily: mono, fontSize: 13, color: C.faint }}>–</span>
+                        <input type="number" inputMode="numeric" value={s.repsHasta ?? ""} placeholder="—"
+                          aria-label={`Repeticiones máximas de la serie ${i + 1}`}
+                          onChange={(e) => cambiar(i, "repsHasta", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+                      </>
+                    )}
+                  </div>
+
+                  <input type="number" inputMode="decimal" step="0.5" value={s.kg ?? ""} placeholder="—"
+                    aria-label={`Kilos de la serie ${i + 1}`}
+                    onChange={(e) => cambiar(i, "kg", e.target.value)} style={{ ...campoNum, flex: 1 }} />
+
+                  <button onClick={() => alternar(i, "fallo")} aria-pressed={Boolean(s.fallo)}
+                    aria-label={`Al fallo en la serie ${i + 1}`}
+                    style={{
+                      width: 74, minHeight: 40, borderRadius: 12, border: "none", cursor: "pointer",
+                      fontFamily: body, fontWeight: 700, fontSize: 11.5, flexShrink: 0,
+                      background: s.fallo ? C.coral : C.soft, color: s.fallo ? C.sobreAcento : C.mid,
+                    }}>
+                    Al fallo
+                  </button>
+
+                  <button onClick={() => quitarSerie(i)} style={{ ...btnBorrar, width: 26, padding: 4 }}
+                    aria-label={`Quitar la serie ${i + 1}`} disabled={series.length === 1}>
+                    <X size={14} color={series.length === 1 ? C.line : C.faint} />
+                  </button>
+                </div>
+
+                {/* El dropset cuelga de la serie que continúa, no de la lista. */}
+                {!enlazada && (
+                  <button onClick={() => anadirDrop(i)}
+                    style={{ ...btnMini, marginTop: 5, marginLeft: 26, background: C.amberSoft, color: C.amber,
+                      padding: "4px 10px", fontSize: 11 }}>
+                    + Bajar peso y seguir
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "9px 0 0", lineHeight: 1.45 }}>
-          Deja los kilos vacíos si es peso corporal. RIR son las repeticiones que te quedaban dentro; es opcional.
+        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "10px 0 0", lineHeight: 1.45 }}>
+          Deja los kilos vacíos si es peso corporal. «Al fallo» marca la serie que llevaste hasta no poder más;
+          «bajar peso y seguir» añade un escalón de dropset debajo.
         </p>
 
         <button onClick={anadirSerie} style={{ ...btnMini, marginTop: 12 }}>+ Añadir serie</button>
@@ -2381,10 +2453,7 @@ function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar 
 
   const enviar = () => {
     if (!valido) return;
-    const registro = {
-      fecha, tipo: plantilla.tipo, intensidad: inten,
-      plantilla: plantilla.id, ts: Date.now(),
-    };
+    const registro = { fecha, tipo: plantilla.tipo, plantilla: plantilla.id, ts: Date.now() };
     if (mins > 0) registro.minutos = mins;
     if (ejercicios.length) registro.ejercicios = ejercicios;
     const dist = parseFloat(String(km).replace(",", "."));
@@ -2466,23 +2535,22 @@ function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar 
           </div>
         )}
 
-        <Rotulo>{esFuerza ? "Duración (opcional)" : "Duración"}</Rotulo>
-        <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
-          {DURACIONES.map((d) => (
-            <Chip key={d} activo={mins === d} onClick={() => setMinutos(String(d))}>{d}′</Chip>
-          ))}
-        </div>
+        {/* En un entreno de fuerza la duración y la intensidad sobran: lo que
+            describe la sesión son las series, y el rato que estuviste allí no
+            dice nada. Se siguen pidiendo donde son el único dato —un partido,
+            una tirada—, y las calorías del día se estiman de las series. */}
+        {!esFuerza && (
+          <>
+            <Rotulo>Duración</Rotulo>
+            <div className="flex gap-2" style={{ marginTop: 7, marginBottom: 14, flexWrap: "wrap" }}>
+              {DURACIONES.map((d) => (
+                <Chip key={d} activo={mins === d} onClick={() => setMinutos(String(d))}>{d}′</Chip>
+              ))}
+            </div>
+          </>
+        )}
 
-        <div style={{ marginTop: 14 }}><Rotulo>Intensidad</Rotulo></div>
-        <div className="flex gap-2" style={{ marginTop: 7 }}>
-          {INTENS.map((i) => (
-            <Chip key={i.id} activo={inten === i.id} color={i.color} onClick={() => setInten(i.id)} style={{ flex: 1 }}>
-              {i.label}
-            </Chip>
-          ))}
-        </div>
-
-        <div style={{ marginTop: 14 }}><Rotulo>Fecha</Rotulo></div>
+        <Rotulo>Fecha</Rotulo>
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
           style={{ ...inputBase, marginTop: 6, marginBottom: 16, fontFamily: mono, fontSize: 15 }} />
 
@@ -2603,21 +2671,16 @@ function HojaPlantillaEditar({ plantilla, entrenos, orden, onGuardar, onCerrar }
           </div>
         )}
 
-        <Rotulo>Duración habitual</Rotulo>
-        <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
-          {DURACIONES.map((d) => (
-            <Chip key={d} activo={parseInt(minutos, 10) === d} onClick={() => setMinutos(String(d))}>{d}′</Chip>
-          ))}
-        </div>
-
-        <div style={{ marginTop: 14 }}><Rotulo>Intensidad habitual</Rotulo></div>
-        <div className="flex gap-2" style={{ marginTop: 7, marginBottom: 18 }}>
-          {INTENS.map((i) => (
-            <Chip key={i.id} activo={inten === i.id} color={i.color} onClick={() => setInten(i.id)} style={{ flex: 1 }}>
-              {i.label}
-            </Chip>
-          ))}
-        </div>
+        {!esFuerza && (
+          <>
+            <Rotulo>Duración habitual</Rotulo>
+            <div className="flex gap-2" style={{ marginTop: 7, marginBottom: 18, flexWrap: "wrap" }}>
+              {DURACIONES.map((d) => (
+                <Chip key={d} activo={parseInt(minutos, 10) === d} onClick={() => setMinutos(String(d))}>{d}′</Chip>
+              ))}
+            </div>
+          </>
+        )}
 
         <BotonGuardar onClick={enviar} disabled={!valido}>
           {esCorreccion ? "Guardar los cambios" : "Crear plantilla"}
@@ -2719,7 +2782,7 @@ function HojaPegarPlantillas({ desde, onGuardar, onCerrar }) {
                             {ej.nombre}
                             <span style={{ fontFamily: mono, color: C.faint }}>
                               {"  "}
-                              {ej.series.filter((s) => s.reps).map((s) => `${s.kg != null ? pesoCorto(s.kg) : "—"}×${s.reps}`).join(" · ") || "sin series"}
+                              {ej.series.filter((s) => s.reps || s.fallo).map((s) => textoSerie(s)).join(" · ") || "sin series"}
                             </span>
                           </p>
                         ))}
@@ -3104,7 +3167,10 @@ function FilaEjercicio({ ejercicio, onEditar, onBorrar, anterior }) {
           {ejercicio.nombre}
         </p>
         <p style={{ fontFamily: mono, fontSize: 11.5, color: C.mid, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {ejercicio.series.map((s) => (s.kg ? `${pesoCorto(s.kg)}×${s.reps}` : `${s.reps} rep`)).join(" · ")}
+          {/* El escalón de dropset se pega a la serie de la que cuelga; entre
+              series distintas va el punto de siempre. */}
+          {ejercicio.series.map((s, i) =>
+            `${i === 0 ? "" : esEnlazada(s) ? " " : " · "}${esEnlazada(s) ? "↳ " : ""}${textoSerie(s)}`).join("")}
         </p>
       </div>
       {anterior && <Delta actual={ejercicio.series} anterior={anterior} />}
