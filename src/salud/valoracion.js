@@ -12,7 +12,7 @@
 
 import {
   ENTRENOS_SEMANA, KCAL_POR_KILO, cerrado, detalleTramo,
-  conFecha, diasTranscurridos, enTramo, etiquetaTramo, miles, num, pendienteSemanal,
+  conFecha, diasTranscurridos, enTramo, etiquetaTramo, miles, minutosDeEntreno, num, pendienteSemanal,
   pesosFiables, plural, porFecha, rangoMes, rangoSemana,
 } from "./nucleo.js";
 import { calcularBalance, valorarDia } from "./estimador.js";
@@ -57,7 +57,7 @@ function medirTramo(datos, energia, tramo, diasPasados) {
     hay: Boolean(pesos.length || entrenos.length || comidas.length),
     diasEntrenados: new Set(entrenos.map((e) => e.fecha)).size,
     sesiones: entrenos.length,
-    minutos: entrenos.reduce((s, e) => s + (e.minutos || 0), 0),
+    minutos: entrenos.reduce((s, e) => s + minutosDeEntreno(e), 0),
     kcalMedia: kcal,
     diasApuntados: dias.length,
     cobertura: diasPasados > 0 ? dias.length / diasPasados : 0,
@@ -107,7 +107,7 @@ export function valorarPeriodo(datos, energia, periodo, offset) {
   const pendiente = pendienteSemanal(fiables);
 
   /* ── entrenos ───────────────────────────────────────────────────────── */
-  const minutos = entrenos.reduce((s, e) => s + (e.minutos || 0), 0);
+  const minutos = entrenos.reduce((s, e) => s + minutosDeEntreno(e), 0);
   const diasEntrenados = new Set(entrenos.map((e) => e.fecha)).size;
   const objetivoEntrenos = Math.max(1, Math.round((ENTRENOS_SEMANA * diasPasados) / 7));
   const porTipo = {};

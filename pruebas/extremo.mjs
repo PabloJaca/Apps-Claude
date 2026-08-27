@@ -603,6 +603,33 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("repetir: con sus ejercicios y series dentro del documento",
     nuevo && nuevo.ejercicios[0].series.length === 2, JSON.stringify(nuevo && nuevo.ejercicios));
 
+  /* La gráfica de la semana, que es donde se vio el fallo.
+
+     Los entrenos apuntados antes de quitar la duración llevan dentro un
+     `minutos` y los nuevos no. La gráfica sumaba `e.minutos` a pelo, así que
+     los viejos pintaban barra y los nuevos se quedaban a cero: desde fuera
+     parecía que todos los entrenos se habían ido al día del viejo. Aquí hay
+     justo eso —una sesión sembrada con minutos y otra recién guardada sin
+     ellos—, y las dos tienen que pintar. */
+  const barras = await pag.evaluate(() => {
+    const dentro = [...document.querySelectorAll(".recharts-bar-rectangle")];
+    return dentro.map((n) => {
+      const r = n.getBoundingClientRect();
+      return Math.round(r.height);
+    });
+  });
+  const conBarra = barras.filter((h) => h > 0);
+  check("semana: la sesión vieja y la nueva pintan las dos, en días distintos",
+    conBarra.length >= 2, `alturas: ${JSON.stringify(barras)}`);
+
+  const semana = await pag.innerText("body");
+  check("semana: y los minutos de la semana no salen a cero",
+    !/\b0\s*min\b/.test(semana) && /\d+\s*min/.test(semana),
+    (semana.match(/.{0,40}min.{0,10}/) || [""])[0]);
+  check("semana: se cuentan las dos sesiones",
+    /2\s*sesiones/.test(semana.replace(/\n+/g, " ")),
+    (semana.replace(/\n+/g, " ").match(/.{0,30}sesion.{0,10}/) || [""])[0]);
+
   /* Añadir un ejercicio a mano, con sus series. */
   await pag.click('button:has-text("Fuerza")');
   await pag.waitForTimeout(400);

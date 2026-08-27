@@ -839,7 +839,9 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
   );
   const semana = inicioSemana();
   const deSemana = entrenos.filter((e) => enRango(e.fecha, semana));
-  const minutos = deSemana.reduce((s, e) => s + (e.minutos || 0), 0);
+  /* Estimados cuando no están medidos: la fuerza ya no pide duración, así que
+     leer `e.minutos` a pelo dejaba cada sesión de pesas en cero. */
+  const minutos = deSemana.reduce((s, e) => s + minutosDeEntreno(e), 0);
 
   const [tipo, setTipo] = useState(null);
   const [dur, setDur] = useState(45);
@@ -879,7 +881,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
 
   const barras = useMemo(() => {
     const base = DIAS.map((d) => ({ x: d, min: 0 }));
-    for (const e of deSemana) base[(desdeIso(e.fecha).getDay() + 6) % 7].min += e.minutos || 0;
+    for (const e of deSemana) base[(desdeIso(e.fecha).getDay() + 6) % 7].min += minutosDeEntreno(e);
     return base;
   }, [deSemana]);
 
@@ -938,7 +940,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
                 <div key={e.id} className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "8px 10px" }}>
                   <t.Icon size={15} color={t.color} strokeWidth={2.4} />
                   <span style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, flex: 1 }}>{t.label}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12.5, color: C.mid }}>{e.minutos}′</span>
+                  <span style={{ fontFamily: mono, fontSize: 12.5, color: C.mid }}>{minutosDeEntreno(e) || "—"}′</span>
                   <Acciones size={13} que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
                 </div>
               );
@@ -1174,7 +1176,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
           const r = resumenFuerza(e);
           const detalle = [
             etiquetaFecha(e.fecha),
-            e.minutos ? `${e.minutos} min` : null,
+            minutosDeEntreno(e) ? `${minutosDeEntreno(e)} min` : null,
             e.km ? `${num(e.km)} km` : null,
             r.series ? plural(r.series, "serie") : null,
             r.volumen ? `${miles(r.volumen)} kg` : null,

@@ -429,14 +429,20 @@ export function textoSerie(s) {
 export const MINUTOS_POR_SERIE = 3;
 
 export function minutosDeEntreno(entreno) {
-  const dados = Number(entreno && entreno.minutos);
-  if (dados > 0) return dados;
-
   const ejercicios = entreno && entreno.ejercicios;
   const series = (Array.isArray(ejercicios) ? ejercicios : [])
     .reduce((n, ej) => n + (Array.isArray(ej && ej.series) ? ej.series.length : 0), 0);
-  if (!series) return 0;
-  return Math.min(180, series * MINUTOS_POR_SERIE);
+
+  /* En fuerza mandan las series, incluso si el documento trae minutos. Los
+     guardados antes del cambio llevan dentro el 45 por defecto del formulario,
+     que nadie escribió, y mezclarlo con los estimados de las sesiones nuevas
+     descuadraba la gráfica de la semana: las viejas pintaban barra y las
+     nuevas se quedaban a cero, como si todo hubiera pasado el mismo día. */
+  if (series) return Math.min(180, series * MINUTOS_POR_SERIE);
+
+  // Sin series no hay nada que estimar: vale lo que se apuntó, si se apuntó.
+  const dados = Number(entreno && entreno.minutos);
+  return dados > 0 ? dados : 0;
 }
 
 /** La serie que más vale de un ejercicio, medida por 1RM estimado. */

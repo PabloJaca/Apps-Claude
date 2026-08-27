@@ -257,7 +257,20 @@ grupo("Abrir una plantilla: la plantilla pone el qué, el historial el cuánto")
     borrador.ejercicios[0].series[0].kg === 85, JSON.stringify(borrador.ejercicios[0].series));
   check("el ejercicio que no se hizo la última vez conserva el de la plantilla",
     borrador.ejercicios[1].series[0].reps === 12, JSON.stringify(borrador.ejercicios[1].series));
-  check("los minutos también vienen de la última vez", borrador.minutos === 65, String(borrador.minutos));
+  /* Antes los minutos venían de la última vez. Ya no: en fuerza no hay
+     duración que arrastrar —se estima de las series— y arrastrarla era lo que
+     seguía copiando el 45 por defecto de las plantillas viejas a cada entreno
+     nuevo. En lo que no es fuerza, donde los minutos son el único dato, se
+     siguen trayendo. */
+  check("en fuerza no se arrastra ninguna duración", borrador.minutos === null, String(borrador.minutos));
+  const dePadel = entrenoDesdePlantilla(
+    { id: "p2", nombre: "Pádel", tipo: "equipo", minutos: 90 },
+    "2026-08-18",
+    { plantilla: "p2", minutos: 105 }
+  );
+  check("pero un pádel sí trae los minutos de la última vez", dePadel.minutos === 105, String(dePadel.minutos));
+  check("y si no hubo última vez, los de la plantilla",
+    entrenoDesdePlantilla({ id: "p2", nombre: "Pádel", tipo: "equipo", minutos: 90 }, "2026-08-18", null).minutos === 90);
   check("y queda apuntado de qué plantilla salió", borrador.plantilla === "p1");
 
   /* «press de banca» y «Press banca» son el mismo ejercicio: si el cruce se

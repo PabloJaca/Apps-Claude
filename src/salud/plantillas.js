@@ -162,7 +162,10 @@ export function entrenoDesdePlantilla(plantilla, fecha, ultimo) {
     seccion: "entrenos",
     fecha,
     tipo: plantilla.tipo || "otro",
-    minutos: (ultimo && ultimo.minutos) || plantilla.minutos || null,
+    /* En fuerza no se arrastra ninguna duración: se estima de las series. Sin
+       esto, el 45 por defecto de las plantillas viejas se seguía copiando a
+       cada entreno nuevo que saliera de ellas. */
+    minutos: plantilla.tipo === "fuerza" ? null : (ultimo && ultimo.minutos) || plantilla.minutos || null,
     intensidad: plantilla.intensidad || "media",
     km: (ultimo && ultimo.km) || plantilla.km || null,
     ejercicios,

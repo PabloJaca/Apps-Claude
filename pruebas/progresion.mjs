@@ -5,8 +5,8 @@
    hacia atrás cuando no lo es. */
 
 import {
-  SESIONES_ESTANCADO, diferenciasEjercicio, progresoEjercicios, progresoPlantilla,
-  unaRepeticion,
+  MINUTOS_POR_SERIE, SESIONES_ESTANCADO, diferenciasEjercicio, minutosDeEntreno,
+  progresoEjercicios, progresoPlantilla, unaRepeticion,
 } from "../src/salud/nucleo.js";
 
 let fallos = 0;
@@ -126,6 +126,37 @@ grupo("Progresión de una plantilla entera");
   check("la primera no tiene diferencia", pr[0].delta === null);
   check("sin id no devuelve nada", progresoPlantilla(entrenos, null).length === 0);
   check("una plantilla sin sesiones tampoco", progresoPlantilla(entrenos, "nadie").length === 0);
+}
+
+grupo("Minutos de un entreno de fuerza");
+{
+  /* El fallo que se veía: los entrenos apuntados antes de quitar la duración
+     llevan dentro el 45 por defecto del formulario, y los nuevos no llevan
+     nada. La gráfica de la semana sumaba `e.minutos` a pelo, así que los
+     viejos pintaban barra y los nuevos se quedaban a cero: parecía que todos
+     los entrenos se habían ido al mismo día. */
+  const conSeries = (n, extra) => ({
+    tipo: "fuerza", ...extra,
+    ejercicios: [{ nombre: "Press", series: Array.from({ length: n }, () => ({ kg: 80, reps: 8 })) }],
+  });
+
+  check("seis series son seis veces los minutos por serie",
+    minutosDeEntreno(conSeries(6)) === 6 * MINUTOS_POR_SERIE,
+    String(minutosDeEntreno(conSeries(6))));
+  check("el 45 fantasma de una sesión vieja no pisa a las series",
+    minutosDeEntreno(conSeries(6, { minutos: 45 })) === 6 * MINUTOS_POR_SERIE,
+    String(minutosDeEntreno(conSeries(6, { minutos: 45 }))));
+  check("así una sesión vieja y una nueva con las mismas series miden lo mismo",
+    minutosDeEntreno(conSeries(21, { minutos: 45 })) === minutosDeEntreno(conSeries(21)));
+  check("y ninguna de las dos se queda en cero",
+    minutosDeEntreno(conSeries(21)) > 0 && minutosDeEntreno(conSeries(21, { minutos: 45 })) > 0);
+
+  check("sin series manda lo que se apuntó: un pádel de 90 minutos",
+    minutosDeEntreno({ tipo: "equipo", minutos: 90 }) === 90);
+  check("y sin series ni minutos no hay nada que contar",
+    minutosDeEntreno({ tipo: "fuerza" }) === 0);
+  check("una sesión larguísima se corta en tres horas",
+    minutosDeEntreno(conSeries(120)) === 180, String(minutosDeEntreno(conSeries(120))));
 }
 
 console.log(`\n${fallos ? "✗" : "✓"} progresión: ${hechas - fallos}/${hechas} comprobaciones`);
