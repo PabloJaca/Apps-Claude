@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, Cell } from "recharts";
 import {
   Scale, Dumbbell, UtensilsCrossed, Plus, X, Trash2, Pencil, CalendarDays,
@@ -179,9 +180,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes spin { to { transform: rotate(360deg) } }
 @keyframes pop { 0% { transform: scale(.9); opacity: 0 } 100% { transform: none; opacity: 1 } }
-.rise { animation: rise .26s cubic-bezier(.2,.8,.3,1) both }
+/* «backwards» y no «both», a propósito. Con «both» el relleno hacia delante
+   deja puesto para siempre el transform del último fotograma —aunque sea la
+   matriz identidad—, y un elemento con transform es el marco de referencia de
+   sus descendientes en position:fixed. Resultado: una hoja abierta desde
+   dentro de otra hoja se colocaba respecto a la de abajo y no respecto a la
+   ventana. Con «backwards» no hay parpadeo al entrar y el transform se va en
+   cuanto la animación termina. */
+.rise { animation: rise .26s cubic-bezier(.2,.8,.3,1) backwards }
 .fade { animation: fade .2s ease both }
-.pop { animation: pop .22s cubic-bezier(.2,.8,.3,1) both }
+.pop { animation: pop .22s cubic-bezier(.2,.8,.3,1) backwards }   /* idem: toca transform */
 .spin { animation: spin 1s linear infinite }
 @media (prefers-reduced-motion: reduce) { .rise,.fade,.spin,.pop { animation: none } }
 
@@ -258,6 +266,25 @@ const momentoPorHora = () => {
 };
 
 /* ------------------------------------------------------------------ base */
+
+/**
+ * Una capa que se dibuja encima de todo, colgada del `body`.
+ *
+ * `position: fixed` sólo se mide contra la ventana si ningún antepasado tiene
+ * un `transform`. Una hoja que se abre desde dentro de otra hoja es
+ * precisamente ese caso, y basta con que a alguien se le vaya la mano con una
+ * animación para que la de arriba aparezca a media pantalla y con el título
+ * por debajo de la de abajo. Sacándola del árbol deja de importar quién la
+ * contenga.
+ *
+ * Los clics siguen subiendo por el árbol de React, no por el del documento,
+ * así que el `stopPropagation` de la hoja de abajo sigue valiendo y tocar
+ * dentro de la de arriba no cierra la de abajo.
+ */
+function Capa({ children, ...resto }) {
+  if (typeof document === "undefined") return null;
+  return createPortal(<div {...resto}>{children}</div>, document.body);
+}
 
 function Card({ children, style, className = "", onClick }) {
   return (
@@ -2279,7 +2306,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
   };
 
   return (
-    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 85, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <Capa onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 85, background: C.velo, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="rise" onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, width: "100%", maxWidth: 560, borderRadius: "30px 30px 0 0", padding: "18px 18px 26px", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
@@ -2376,25 +2403,27 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
                   </button>
                 </div>
 
-                {/* El dropset cuelga de la serie que continúa, no de la lista. */}
-                {!enlazada && (
-                  <button onClick={() => anadirDrop(i)}
-                    style={{ ...btnMini, marginTop: 5, marginLeft: 26, background: C.amberSoft, color: C.amber,
-                      padding: "4px 10px", fontSize: 11 }}>
-                    + Bajar peso y seguir
-                  </button>
-                )}
               </div>
             );
           })}
         </div>
 
-        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "10px 0 0", lineHeight: 1.45 }}>
-          Deja los kilos vacíos si es peso corporal. «Al fallo» marca la serie que llevaste hasta no poder más;
-          «bajar peso y seguir» añade un escalón de dropset debajo.
-        </p>
+        {/* Los dos botones en la misma línea, y el escalón cuelga de la última
+            serie. Uno por fila costaba 26 px cada uno y hacía que la hoja
+            dejara de verse entera en cuanto pasabas de cinco series, que es lo
+            normal. Un dropset es la continuación de la serie que acabas de
+            hacer, así que la última es la que toca. */}
+        <div className="flex gap-2" style={{ marginTop: 12, flexWrap: "wrap" }}>
+          <button onClick={anadirSerie} style={btnMini}>+ Añadir serie</button>
+          <button onClick={() => anadirDrop(series.length - 1)}
+            style={{ ...btnMini, background: C.amberSoft, color: C.amber }}>
+            + Bajar peso y seguir
+          </button>
+        </div>
 
-        <button onClick={anadirSerie} style={{ ...btnMini, marginTop: 12 }}>+ Añadir serie</button>
+        <p style={{ fontFamily: body, fontSize: 11.5, color: C.faint, margin: "10px 0 0", lineHeight: 1.45 }}>
+          Kilos vacíos = peso corporal. «Bajar peso y seguir» engancha un escalón de dropset a la última serie.
+        </p>
 
         <div style={{ marginTop: 16 }}>
           <BotonGuardar onClick={() => valido && onGuardar({ nombre: nombre.trim(), series: limpio })} disabled={!valido}>
@@ -2402,7 +2431,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
           </BotonGuardar>
         </div>
       </div>
-    </div>
+    </Capa>
   );
 }
 

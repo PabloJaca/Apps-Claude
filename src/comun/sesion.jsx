@@ -22,7 +22,9 @@ import { PantallaBloqueo } from "./bloqueo.jsx";
 const CSS_PUERTA = `
 @keyframes puertaEntra { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
 @keyframes puertaGira { to { transform: rotate(360deg) } }
-.puertaCaja { animation: puertaEntra .3s cubic-bezier(.2,.8,.3,1) both }
+/* «backwards», no «both»: el relleno hacia delante deja el transform puesto y
+   eso rompe el position:fixed de cualquier cosa que se abra dentro. */
+.puertaCaja { animation: puertaEntra .3s cubic-bezier(.2,.8,.3,1) backwards }
 .puertaGiro { animation: puertaGira .8s linear infinite }
 /* En objetos de JavaScript la segunda clave pisa a la primera, así que la
    alternativa para navegadores sin dvh tiene que ir aquí, no en el estilo. */

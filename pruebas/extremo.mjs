@@ -636,7 +636,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("series: el botón de al fallo queda marcado",
     (await pag.getAttribute('.rise button[aria-label="Al fallo en la serie 2"]', "aria-pressed")) === "true");
 
-  await pag.locator('.rise button:has-text("+ Bajar peso y seguir")').nth(1).click();
+  await pag.click('.rise button:has-text("+ Bajar peso y seguir")');
   await pag.waitForTimeout(300);
   check("dropset: el escalón entra debajo, con un 20% menos de peso",
     (await pag.inputValue('.rise input[aria-label="Kilos de la serie 3"]')) === "80",
@@ -1614,6 +1614,37 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.click('.rise button:has-text("Añadir ejercicio")');
   await pag.waitForTimeout(500);
   const hojas = pag.locator(".rise");
+
+  /* Una hoja abierta desde dentro de otra hoja se colocaba respecto a la de
+     abajo y no respecto a la ventana: aparecía a media pantalla, con el título
+     y el campo del nombre tapados y la equis fuera de alcance. La causa era un
+     `animation-fill-mode: both` sobre una animación que toca `transform`, que
+     deja el transform puesto para siempre y convierte a ese antepasado en el
+     marco de referencia de todo lo que lleve `position: fixed` dentro.
+     Se mide lo que importa: que la capa cubra la ventana y que se pueda
+     escribir de verdad en el campo del nombre. */
+  const capa = await pag.evaluate(() => {
+    const capas = [...document.querySelectorAll('[style*="position: fixed"]')];
+    const r = capas[capas.length - 1].getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+      ventana: { w: innerWidth, h: innerHeight } };
+  });
+  check("hoja dentro de hoja: la capa cubre la ventana entera, no la hoja de abajo",
+    capa.x === 0 && capa.y === 0 && capa.w === capa.ventana.w && capa.h === capa.ventana.h,
+    JSON.stringify(capa));
+
+  const cabecera = await hojas.last().locator("h3").first().boundingBox();
+  check("hoja dentro de hoja: el título se ve entero", cabecera && cabecera.y >= 0, JSON.stringify(cabecera));
+
+  const alcanzable = await pag.evaluate(() => {
+    const h = [...document.querySelectorAll(".rise")].pop();
+    const el = h.querySelector("input");
+    const r = el.getBoundingClientRect();
+    const encima = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return encima === el;
+  });
+  check("hoja dentro de hoja: el campo del nombre no lo tapa nada", alcanzable);
+
   await hojas.last().locator('input').first().fill("Press banca");
   await hojas.last().locator('input[aria-label="Repeticiones de la serie 1"]').fill("8");
   await hojas.last().locator('input[aria-label="Kilos de la serie 1"]').fill("70");

@@ -275,6 +275,36 @@ check(
   }
 }
 
+/* ── 3ter. Ninguna animación de transform se queda rellenada ─────────────── */
+
+/* Un elemento con `transform` es el marco de referencia de sus descendientes
+   `position: fixed`. Y `animation-fill-mode: both` deja puesto el transform
+   del último fotograma para siempre —aunque sea la matriz identidad—, así que
+   una animación de entrada de 260 ms deja al elemento haciendo de marco el
+   resto de la vida de la página. Con eso, una hoja abierta desde dentro de
+   otra hoja se coloca respecto a la de abajo: aparece a media pantalla, con el
+   título tapado y el aspa fuera de alcance.
+   `backwards` da lo mismo al entrar (nada de parpadeo) y no deja rastro. */
+{
+  const fotogramasConTransform = (texto) =>
+    new Set([...texto.matchAll(/@keyframes\s+([\w-]+)\s*\{([\s\S]*?)\n?\s*\}\s*\n/g)]
+      .filter((m) => /transform\s*:/.test(m[2]))
+      .map((m) => m[1]));
+
+  for (const [ruta, texto] of fuentes) {
+    const mueven = fotogramasConTransform(texto);
+    if (!mueven.size) continue;
+    const rellenadas = [...texto.matchAll(/animation:\s*([\w-]+)[^;}]*?\bboth\b/g)]
+      .map((m) => m[1])
+      .filter((n) => mueven.has(n));
+    check(
+      `${ruta}: ninguna animación de transform usa «both» (rompe el position:fixed de dentro)`,
+      rellenadas.length === 0,
+      `usa both: ${rellenadas.join(", ")}`
+    );
+  }
+}
+
 /* ── 4. Las dos apps pasan por la puerta ────────────────────────────────── */
 
 for (const app of ["gastos", "salud"]) {
