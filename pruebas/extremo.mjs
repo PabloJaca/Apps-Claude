@@ -625,7 +625,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
      no llenar la fila a quien siempre hace un número fijo. */
   check("series: sin pedirlo no hay campo de repeticiones máximas",
     (await pag.$$('.rise input[aria-label="Repeticiones máximas de la serie 1"]')).length === 0);
-  await pag.click('.rise button:has-text("Usar rango")');
+  await pag.click('.rise button[aria-label="Usar rango"]');
   await pag.waitForTimeout(300);
   await pag.fill('.rise input[aria-label="Repeticiones máximas de la serie 1"]', "8");
 
@@ -1656,6 +1656,40 @@ const apuntarGasto = async (pag, importe, concepto) => {
   const trasCrear = await texto(pag);
   check("plantillas: la nueva sale en la lista", /Empuje/.test(trasCrear), trasCrear.slice(0, 300));
   check("plantillas: con su resumen de ejercicios", /1 ejercicio/.test(trasCrear), trasCrear.slice(0, 300));
+  /* La duración dejó de pedirse en fuerza, y el formulario la seguía guardando
+     con su 45 por defecto: el resumen anunciaba «45 min» de un dato que nadie
+     escribió. */
+  const fichaEmpuje = await pag.locator('div:has-text("Empuje")').last().innerText();
+  check("plantillas: una de fuerza no se inventa una duración",
+    !/\d+ min/.test(fichaEmpuje), fichaEmpuje.slice(0, 200));
+
+  /* --- una plantilla de abdominales, que se mide en segundos --- */
+  await pag.locator('button:has-text("Nueva plantilla")').first().click();
+  await pag.waitForTimeout(600);
+  await pag.fill('.rise input[placeholder*="Empuje"]', "Abdominales");
+  await pag.click('.rise button:has-text("Añadir ejercicio")');
+  await pag.waitForTimeout(500);
+  await hojas.last().locator("input").first().fill("Plancha");
+  await pag.waitForTimeout(300);
+  check("tiempo: por defecto las series se miden en repeticiones",
+    /Reps/.test(await hojas.last().innerText("")) ||
+      (await hojas.last().locator('input[aria-label="Repeticiones de la serie 1"]').count()) === 1);
+  await hojas.last().locator('button[aria-label="Medir en segundos"]').click();
+  await pag.waitForTimeout(300);
+  check("tiempo: el campo pasa a pedir segundos",
+    (await hojas.last().locator('input[aria-label="Segundos de la serie 1"]').count()) === 1);
+  await hojas.last().locator('input[aria-label="Segundos de la serie 1"]').fill("45");
+  await hojas.last().locator('button:has-text("Añadir al entreno")').click();
+  await pag.waitForTimeout(500);
+  const conPlancha = await hojas.last().innerText("");
+  check("tiempo: la serie se escribe con la ese de segundos",
+    /45s/.test(conPlancha), conPlancha.slice(0, 400));
+  check("tiempo: y la fila no habla de repeticiones",
+    !/repetici/i.test(conPlancha), conPlancha.slice(0, 400));
+  await pag.click('.rise button:has-text("Crear plantilla")');
+  await pag.waitForTimeout(800);
+  check("tiempo: la plantilla de abdominales queda guardada",
+    /Abdominales/.test(await texto(pag)), (await texto(pag)).slice(0, 400));
 
   // --- el pegado masivo ---
   await pag.locator('button:has-text("Pegar varias")').first().click();
@@ -1676,7 +1710,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
 
   const srv1 = await pag.evaluate(() => window.__espia.verServidor());
   const guardadas = Object.entries(srv1.docs).filter(([r]) => /\/plantillas\//.test(r));
-  check("plantillas: se escriben en su propia colección", guardadas.length === 4,
+  check("plantillas: se escriben en su propia colección", guardadas.length === 5,
     Object.keys(srv1.docs).join(" "));
   check("plantillas: la de pádel no se guarda como si fuera pesas",
     guardadas.some(([, v]) => v.nombre === "Pádel" && v.tipo === "equipo"),
@@ -1724,8 +1758,60 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("plantillas: Y TRAE LOS PESOS DE LA ÚLTIMA SESIÓN, no los de la plantilla",
     /75/.test(hoja2) && !/70×8/.test(hoja2), hoja2.replace(/\n+/g, " | ").slice(0, 400));
 
-  await pag.click('.rise [aria-label="Cerrar"]');
-  await pag.waitForTimeout(400);
+  /* --- enganchar una segunda plantilla al mismo entreno ---
+     Una rutina corta como los abdominales no tiene por qué vivir duplicada
+     dentro de las cuatro plantillas grandes: se guarda aparte y se engancha al
+     entreno del día. */
+  check("juntar: la hoja ofrece enganchar otra plantilla",
+    (await pag.locator('.rise button:has-text("+ Otra plantilla")').count()) === 1,
+    await pag.innerText(".rise"));
+  await pag.click('.rise button:has-text("+ Otra plantilla")');
+  await pag.waitForTimeout(300);
+  await pag.locator('.rise button:has-text("Abdominales")').first().click();
+  await pag.waitForTimeout(500);
+  const juntas = await pag.innerText(".rise");
+  check("juntar: los ejercicios de la segunda se suman a los de la primera",
+    /Press banca/.test(juntas) && /Plancha/.test(juntas), juntas.replace(/\n+/g, " | ").slice(0, 400));
+  check("juntar: la plancha llega con sus segundos, no con repeticiones",
+    /45s/.test(juntas), juntas.replace(/\n+/g, " | ").slice(0, 400));
+  check("juntar: y el resumen cuenta los segundos aparte de las repeticiones",
+    /45 s aguantados/.test(juntas) && /repetici/i.test(juntas),
+    juntas.replace(/\n+/g, " | ").slice(0, 400));
+
+  /* Engancharla dos veces no duplica nada. */
+  await pag.click('.rise button:has-text("+ Otra plantilla")');
+  await pag.waitForTimeout(300);
+  await pag.locator('.rise button:has-text("Abdominales")').first().click();
+  await pag.waitForTimeout(500);
+  const dosVeces = await pag.innerText(".rise");
+  check("juntar: engancharla dos veces no duplica el ejercicio",
+    (dosVeces.match(/Plancha/g) || []).length === 1,
+    dosVeces.replace(/\n+/g, " | ").slice(0, 400));
+
+  await pag.click('.rise button:has-text("Guardar entreno")');
+  await pag.waitForTimeout(900);
+  const srvJuntas = await pag.evaluate(() => window.__espia.verServidor());
+  const juntos = Object.entries(srvJuntas.docs)
+    .filter(([r]) => /\/entrenos\//.test(r))
+    .map(([, v]) => v)
+    .find((e) => (e.ejercicios || []).some((x) => /Plancha/.test(x.nombre)));
+  check("juntar: el entreno guardado lleva los ejercicios de las dos plantillas",
+    juntos && juntos.ejercicios.length === 2, JSON.stringify(juntos && juntos.ejercicios));
+  check("juntar: y la plancha se guarda con la unidad puesta",
+    juntos && juntos.ejercicios.find((x) => /Plancha/.test(x.nombre)).series[0].unidad === "seg",
+    JSON.stringify(juntos && juntos.ejercicios));
+
+  /* Dos entrenos el mismo día son dos entrenos, no uno que pisa al otro: es la
+     otra manera de apuntar los abdominales, sueltos y aparte. */
+  const antesDeSegundo = Object.keys(srvJuntas.docs).filter((r) => /\/entrenos\//.test(r)).length;
+  await pag.locator('button:has-text("Abdominales")').first().click();
+  await pag.waitForTimeout(700);
+  await pag.click('.rise button:has-text("Guardar entreno")');
+  await pag.waitForTimeout(900);
+  const srvDos = await pag.evaluate(() => window.__espia.verServidor());
+  check("juntar: o se apuntan dos entrenos el mismo día, sin pisarse",
+    Object.keys(srvDos.docs).filter((r) => /\/entrenos\//.test(r)).length === antesDeSegundo + 1,
+    `${antesDeSegundo} antes`);
 
   /* El otro camino, que es el que faltaba: «añadir un entreno» es el botón
      «+», y por ahí se llegaba a un formulario en blanco sin rastro de las

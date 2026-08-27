@@ -58,14 +58,22 @@ const numeroONada = (v, min, max) => {
  * `plantillaDesdeEntreno` también. Tres olvidos del mismo olvido.
  */
 export const serieSana = (s) => {
-  const reps = numeroONada(s && s.reps, 0, 999);
-  const hasta = numeroONada(s && s.repsHasta, 0, 999);
+  /* La plancha, el hollow o el vacío abdominal se miden en segundos, no en
+     repeticiones. El número vive en el mismo campo y es `unidad` quien dice
+     qué significa: así todo lo que ya sabía contar series lo sigue sabiendo, y
+     lo único que hay que mirar es quién suma repeticiones. El tope sube a
+     3.600 porque un minuto de plancha son 60 y hay quien encadena más. */
+  const seg = s && s.unidad === "seg";
+  const tope = seg ? 3600 : 999;
+  const reps = numeroONada(s && s.reps, 0, tope);
+  const hasta = numeroONada(s && s.repsHasta, 0, tope);
   return {
     kg: numeroONada(s && s.kg, 0, 1000),
     reps,
     /* Un «hasta» por debajo del «desde» no es un rango, es un error de
        tecleo: se descarta en vez de pintar «12-8». */
     repsHasta: hasta !== null && reps !== null && hasta > reps ? hasta : null,
+    unidad: seg ? "seg" : null,
     fallo: Boolean(s && s.fallo),
     enlace: s && s.enlace === "dropset" ? "dropset" : null,
   };
@@ -86,7 +94,12 @@ export const plantillasSanas = (lista) =>
       nombre: String(p.nombre).trim().slice(0, MAX_NOMBRE),
       tipo: TIPOS_VALIDOS.has(p.tipo) ? p.tipo : "otro",
       intensidad: INTENS_VALIDAS.has(p.intensidad) ? p.intensidad : "media",
-      minutos: numeroONada(p.minutos, 1, 1440),
+      /* En fuerza la duración ya no se pide, así que tampoco se enseña. Las
+         plantillas creadas antes del cambio llevan dentro un 45 que nadie
+         escribió —era el valor por defecto del formulario— y que salía en el
+         resumen como si fuera un dato. Se corta aquí, en la frontera, para no
+         obligar a reeditar a mano lo que ya está guardado. */
+      minutos: p.tipo === "fuerza" ? null : numeroONada(p.minutos, 1, 1440),
       km: numeroONada(p.km, 0, 1000),
       orden: numeroONada(p.orden, 0, 999) ?? 999,
       ejercicios: (Array.isArray(p.ejercicios) ? p.ejercicios : [])
@@ -252,10 +265,16 @@ const NUM = "\\d+(?:[.,]\\d+)?";
 const RE_SERIES_SUELTAS = new RegExp(`${NUM}\\s*[x×*]\\s*${NUM}`, "i");
 const RE_SERIES_PALABRA = new RegExp(`${NUM}\\s*series?\\b`, "i");
 
+/* Lo que se aguanta un rato se escribe en segundos: «plancha 45s», «hollow
+   3x30 seg». La unidad va siempre pegada a un número para no comerse la ese
+   de «series» ni la de cualquier nombre acabado en s. */
+const UNIDAD_TIEMPO = "(?:s|seg|segs|segundos)";
+const RE_TIEMPO = new RegExp(`${NUM}\\s*${UNIDAD_TIEMPO}\\b`, "i");
+
 /* Dónde empiezan las series dentro de una línea de ejercicio: un «80x8», un
-   «3 series de 10» o una lista suelta de repeticiones tipo «10, 10, 8». */
+   «3 series de 10», una lista suelta tipo «10, 10, 8» o un tiempo «45s». */
 const RE_INICIO_SERIES = new RegExp(
-  `${NUM}\\s*(?:[x×*]|series?\\b)|${NUM}(?:\\s*,\\s*${NUM})+`, "i"
+  `${NUM}\\s*(?:[x×*]|series?\\b)|${NUM}(?:\\s*,\\s*${NUM})+|${NUM}\\s*${UNIDAD_TIEMPO}\\b`, "i"
 );
 const RE_PESO = new RegExp(`(?:@\\s*(${NUM})|\\b(?:con|a)\\s+(${NUM})\\s*(?:kg|kilos?)?\\b|\\b(${NUM})\\s*(?:kg|kilos?)\\b)`, "i");
 
@@ -321,6 +340,12 @@ function leerSeriesEscritas(texto) {
   resto = resto.replace(new RegExp(RE_FALLO.source, "gi"), " ");
   const diceDrop = RE_DROP.test(resto);
   resto = resto.replace(new RegExp(RE_DROP.source, "gi"), " ");
+
+  /* La unidad también es de toda la línea: se anota y se quita, para que los
+     números lleguen limpios a los mismos patrones de siempre. Así «3x45s» son
+     tres series de 45 segundos sin tocar nada más. */
+  const enSegundos = RE_TIEMPO.test(resto);
+  if (enSegundos) resto = resto.replace(new RegExp(`(${NUM})\\s*${UNIDAD_TIEMPO}\\b`, "gi"), "$1 ");
 
   const peso = resto.match(RE_PESO);
   const pesoGlobal = peso ? aFloat(peso[1] || peso[2] || peso[3]) : null;
@@ -410,6 +435,8 @@ function leerSeriesEscritas(texto) {
     series[series.length - 1].fallo = true;
   }
 
+  if (enSegundos) for (const x of series) x.unidad = "seg";
+
   return series.slice(0, MAX_SERIES);
 }
 
@@ -420,6 +447,7 @@ const esLineaDeEjercicio = (linea) =>
   /^\s*[-*•]/.test(linea)
   || RE_SERIES_SUELTAS.test(linea)
   || RE_SERIES_PALABRA.test(linea)
+  || RE_TIEMPO.test(linea)
   || RE_INICIO_SERIES.test(linea);
 
 /**

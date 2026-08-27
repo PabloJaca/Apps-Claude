@@ -146,6 +146,8 @@ const T = {
   registroPlantilla: () => plantillasS.plantillasSanas([registro()])[0] || { nombre: "X", ejercicios: [] },
   /* Una serie tal y como sale de la frontera: la app nunca dibuja otra cosa. */
   serie: () => plantillasS.serieSana(registro()),
+  /* Y el resumen se lo da siempre `resumenFuerza`, nunca un objeto a mano. */
+  resumenFuerza: () => salud.resumenFuerza(salud.saneaEntrenos([registro(), registro()])[0] || {}),
 };
 
 /* Cada función exportada, con la forma de sus argumentos.
@@ -180,7 +182,8 @@ const FORMA = {
     diferenciasEjercicio: ["listaEntrenos", "texto"], progresoEjercicios: ["listaEntrenos", "opciones"],
     progresoPlantilla: ["listaEntrenos", "texto"],
     ejerciciosUsados: ["listaEntrenos"], energiaDelDia: ["energia", "listaEntrenos", "numero", "perfil"],
-    enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], esEnlazada: ["serie"], etiquetaFecha: ["fecha"],
+    enRango: ["fecha", "tramo"], enTramo: ["registro", "tramo"], esEnlazada: ["serie"], enTiempo: ["serie"],
+    etiquetaFecha: ["fecha"],
     etiquetaTramo: ["periodo", "offset"], extraPorEntrenos: ["listaEntrenos", "numero", "texto"],
     fechaCorta: ["fecha"], hoy: [], huellaEjercicio: ["texto"], inicioSemana: ["fecha"], iso: ["fecha"],
     kcalEntreno: ["registroEntreno", "numero"], mediaMovil: ["listaPesos", "numero"], mejorSerie: ["lista"],
@@ -192,7 +195,7 @@ const FORMA = {
     rangoSemana: ["numero"], recordEjercicio: ["listaEntrenos", "texto"], repartir: ["datosS"],
     resumenFuerza: ["registroEntreno"], revisarPeso: ["numero", "fecha", "listaPesos"], saciedadDe: ["numero"],
     saneaEntrenos: ["listaEntrenos"], tendenciaPeso: ["listaPesos", "opciones"], textoSerie: ["serie"],
-    toleranciaPeso: ["numero"],
+    textoResumenFuerza: ["resumenFuerza"], toleranciaPeso: ["numero"],
     ultimaVezEjercicio: ["listaEntrenos", "texto"], ultimoEntrenoConEjercicios: ["listaEntrenos", "fecha"],
     unaRepeticion: ["numero", "numero"], volumenDe: ["numero"],
     exportar: null, importar: null, leerLegado: null, olvidarLegado: null,

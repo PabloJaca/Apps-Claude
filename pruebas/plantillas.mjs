@@ -360,5 +360,63 @@ grupo("Los campos nuevos no se pierden en las copias");
   check("y basura no revienta", serieSana(null).reps === null);
 }
 
+/* ── series por tiempo: plancha, hollow, vacío abdominal ─────────────────── */
+
+{
+  const uno = (texto) => {
+    const { plantillas } = interpretarPlantillas(`Abdominales · fuerza\n${texto}`);
+    return (plantillas[0] && plantillas[0].ejercicios[0]) || null;
+  };
+
+  const suelto = uno("Plancha 45s");
+  check("tiempo: «Plancha 45s» es una serie de 45 segundos",
+    suelto && suelto.series.length === 1 && suelto.series[0].reps === 45
+    && suelto.series[0].unidad === "seg",
+    JSON.stringify(suelto));
+  check("tiempo: y el nombre no se queda con los segundos dentro",
+    suelto && suelto.nombre === "Plancha", suelto && suelto.nombre);
+
+  const varias = uno("Hollow 3x30 seg");
+  check("tiempo: «3x30 seg» son tres series de treinta segundos",
+    varias && varias.series.length === 3 && varias.series.every((s) => s.reps === 30 && s.unidad === "seg"),
+    JSON.stringify(varias && varias.series));
+
+  const rango = uno("Vacío abdominal 3x30-45s");
+  check("tiempo: y el rango también vale en segundos",
+    rango && rango.series.length === 3
+    && rango.series[0].reps === 30 && rango.series[0].repsHasta === 45
+    && rango.series[0].unidad === "seg",
+    JSON.stringify(rango && rango.series));
+
+  const conPeso = uno("Plancha con disco 3x40s @10");
+  check("tiempo: se puede aguantar con peso encima",
+    conPeso && conPeso.series.length === 3 && conPeso.series[0].kg === 10
+    && conPeso.series[0].reps === 40 && conPeso.series[0].unidad === "seg",
+    JSON.stringify(conPeso && conPeso.series));
+
+  /* Lo que NO debe pasar: que la ese de «series» o la de un nombre acabado en
+     ese conviertan un ejercicio normal en uno de tiempo. */
+  const normal = uno("Press banca 3 series de 10");
+  check("tiempo: «3 series de 10» siguen siendo repeticiones",
+    normal && normal.series.length === 3 && normal.series[0].reps === 10
+    && normal.series[0].unidad === null,
+    JSON.stringify(normal && normal.series));
+
+  const acabadoEnEse = uno("Dominadas 3x8");
+  check("tiempo: un nombre acabado en ese no lo convierte en tiempo",
+    acabadoEnEse && acabadoEnEse.series[0].unidad === null && acabadoEnEse.series[0].reps === 8,
+    JSON.stringify(acabadoEnEse && acabadoEnEse.series));
+
+  check("tiempo: la unidad sobrevive a la frontera",
+    plantillasSanas([{ nombre: "Abs", ejercicios: [{ nombre: "Plancha", series: [{ reps: 45, unidad: "seg" }] }] }])[0]
+      .ejercicios[0].series[0].unidad === "seg");
+  check("tiempo: y una unidad inventada se descarta",
+    serieSana({ reps: 8, unidad: "leguas" }).unidad === null);
+  check("tiempo: los segundos admiten más de 999, que 20 min de plancha caben",
+    serieSana({ reps: 1200, unidad: "seg" }).reps === 1200);
+  check("tiempo: pero en repeticiones se sigue cortando en 999",
+    serieSana({ reps: 1200 }).reps === null);
+}
+
 console.log(`\n${fallos ? "✗" : "✓"} plantillas: ${hechas - fallos}/${hechas} comprobaciones`);
 process.exit(fallos ? 1 : 0);

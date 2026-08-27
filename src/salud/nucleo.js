@@ -387,6 +387,13 @@ export function unaRepeticion(kg, reps) {
  *   { kg, reps, repsHasta }          un rango: «8 a 12», que es un objetivo
  *   { kg, reps, fallo: true }        llevada al fallo
  *   { kg, reps, enlace: "dropset" }  continúa la anterior sin descanso
+ *   { reps, unidad: "seg" }          se aguanta un rato: plancha, hollow
+ *
+ * La serie por tiempo guarda los segundos en el mismo campo que las
+ * repeticiones y se distingue por `unidad`. Así todo lo que contaba series
+ * sigue contándolas; lo que hay que mirar es quién suma repeticiones, porque
+ * 45 segundos de plancha no son 45 repeticiones, y quién estima un 1RM,
+ * porque de aguantar un peso quieto no sale ninguno.
  *
  * El dropset se guarda plano, como series consecutivas enlazadas, en vez de
  * anidar una lista dentro de otra. Anidado obligaría a tocar el volumen, la
@@ -397,12 +404,15 @@ export function unaRepeticion(kg, reps) {
 /** Los escalones de un dropset son series de verdad, no adornos. */
 export const esEnlazada = (s) => Boolean(s && s.enlace === "dropset");
 
+/** Una serie que se aguanta un rato en vez de contarse a repeticiones. */
+export const enTiempo = (s) => Boolean(s && s.unidad === "seg");
+
 /** Cómo se lee una serie. Vale para la lista, para la ficha y para el resumen. */
 export function textoSerie(s) {
   if (!s) return "";
-  const reps = s.repsHasta && s.repsHasta !== s.reps ? `${s.reps}-${s.repsHasta}` : `${s.reps ?? "—"}`;
+  const cifra = s.repsHasta && s.repsHasta !== s.reps ? `${s.reps}-${s.repsHasta}` : `${s.reps ?? "—"}`;
   const carga = s.kg != null && s.kg !== "" ? `${pesoCorto(s.kg)}×` : "";
-  return `${carga}${reps}${s.fallo ? " AF" : ""}`;
+  return `${carga}${cifra}${enTiempo(s) ? "s" : ""}${s.fallo ? " AF" : ""}`;
 }
 
 /**
@@ -433,6 +443,8 @@ export function minutosDeEntreno(entreno) {
 export function mejorSerie(series) {
   let mejor = null;
   for (const s of series || []) {
+    // De aguantar un peso quieto no sale un máximo a una repetición.
+    if (enTiempo(s)) continue;
     const e = unaRepeticion(s.kg, s.reps);
     if (e !== null && (!mejor || e > mejor.estimado)) mejor = { ...s, estimado: e };
   }
@@ -444,15 +456,46 @@ export function resumenFuerza(entreno) {
   let series = 0;
   let reps = 0;
   let volumen = 0;
+  let segundos = 0;
   for (const ej of (entreno && entreno.ejercicios) || []) {
     for (const s of ej.series || []) {
       series++;
+      /* Los segundos de plancha van a su propio contador: sumarlos a las
+         repeticiones daría «21 series · 180 repeticiones» por tres minutos de
+         abdominales, y multiplicarlos por los kilos inflaría el volumen. */
+      if (enTiempo(s)) {
+        segundos += Number(s.reps) || 0;
+        continue;
+      }
       reps += Number(s.reps) || 0;
       // El peso corporal no suma kilos, pero la serie y las reps sí cuentan.
       if (s.kg > 0) volumen += s.kg * (Number(s.reps) || 0);
     }
   }
-  return { ejercicios: ((entreno && entreno.ejercicios) || []).length, series, reps, volumen: Math.round(volumen) };
+  return {
+    ejercicios: ((entreno && entreno.ejercicios) || []).length,
+    series, reps, segundos, volumen: Math.round(volumen),
+  };
+}
+
+/**
+ * El resumen de un entreno de fuerza en una línea.
+ *
+ * Estaba escrito igual en dos pantallas, así que los segundos habrían llegado
+ * a una y no a la otra. Lo que no hay no se enseña: un día solo de plancha no
+ * tiene por qué decir «0 repeticiones».
+ */
+export function textoResumenFuerza(r) {
+  if (!r || !r.series) return "";
+  const trozos = [plural(r.series, "serie")];
+  if (r.reps) trozos.push(plural(r.reps, "repetición", "repeticiones"));
+  if (r.segundos) {
+    trozos.push(r.segundos >= 120
+      ? `${num(r.segundos / 60, 0)} min aguantados`
+      : `${r.segundos} s aguantados`);
+  }
+  if (r.volumen) trozos.push(`${miles(r.volumen)} kg movidos`);
+  return trozos.join(" · ");
 }
 
 /** Los ejercicios que ya has hecho, para el autocompletado y para repetirlos. */

@@ -26,7 +26,7 @@ import {
   SEXOS, VOLUMENES, calcularEnergia, cerrado, desdeIso, detalleTramo,
   EJERCICIOS_HABITUALES, EJERCICIOS_SUGERIDOS, comidasFrecuentes, conFecha, saneaEntrenos, ejerciciosUsados, enRango, etiquetaFecha,
   etiquetaTramo, exportar, fechaCorta, mismoEjercicio, progresionEjercicio,
-  recordEjercicio, resumenFuerza, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
+  recordEjercicio, resumenFuerza, textoResumenFuerza, enTiempo, ultimaVezEjercicio, ultimoEntrenoConEjercicios,
   diferenciasEjercicio, progresoEjercicios, progresoPlantilla, mejorSerie,
   textoSerie, esEnlazada, minutosDeEntreno,
   hoy, importar, inicioSemana, leerLegado, mediaMovil, miles, num, olvidarLegado,
@@ -1056,7 +1056,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
                   <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
                     {(() => {
                       const r = resumenFuerza({ ejercicios });
-                      return `${plural(r.series, "serie")} · ${plural(r.reps, "repetición", "repeticiones")}${r.volumen ? ` · ${miles(r.volumen)} kg movidos` : ""}`;
+                      return textoResumenFuerza(r);
                     })()}
                   </p>
                 )}
@@ -2218,7 +2218,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
 
 /* ------------------------------------------------- ejercicios de fuerza */
 
-const SERIE_VACIA = { reps: 8, kg: null, repsHasta: null, fallo: false, enlace: null };
+const SERIE_VACIA = { reps: 8, kg: null, repsHasta: null, unidad: null, fallo: false, enlace: null };
 
 /**
  * Hoja para añadir o corregir un ejercicio con sus series.
@@ -2237,6 +2237,10 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
      quiere ver, y a quien no lo usa no se le llena la fila de campos. */
   const [rango, setRango] = useState(() =>
     Boolean(ejercicio && (ejercicio.series || []).some((x) => x && x.repsHasta)));
+  /* La unidad es del ejercicio entero, no de cada serie: nadie hace una
+     plancha de 30 segundos y luego otra de 12 repeticiones. */
+  const [tiempo, setTiempo] = useState(() =>
+    Boolean(ejercicio && (ejercicio.series || []).some((x) => enTiempo(x))));
 
   const usados = useMemo(() => ejerciciosUsados(entrenos), [entrenos]);
 
@@ -2289,6 +2293,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
       reps: parseInt(s.reps, 10) || 0,
       repsHasta: parseInt(s.repsHasta, 10) || null,
       kg: s.kg === "" || s.kg === null || s.kg === undefined ? null : Number(String(s.kg).replace(",", ".")),
+      unidad: tiempo ? "seg" : null,
       fallo: Boolean(s.fallo),
       enlace: s.enlace === "dropset" ? "dropset" : null,
     }))
@@ -2342,19 +2347,30 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
           </p>
         )}
 
-        <div className="flex items-center justify-between" style={{ marginTop: 18, marginBottom: 8 }}>
+        <div className="flex items-center justify-between gap-2" style={{ marginTop: 18, marginBottom: 8 }}>
           <Rotulo>Series</Rotulo>
-          <button onClick={() => setRango((v) => !v)}
-            style={{ ...btnMini, background: rango ? C.teal : C.soft, color: rango ? C.sobreAcento : C.mid,
-              padding: "5px 11px", fontSize: 11.5 }}>
-            {rango ? "Repeticiones fijas" : "Usar rango"}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setTiempo((v) => !v)} aria-pressed={tiempo}
+              aria-label="Medir en segundos"
+              style={{ ...btnMini, background: tiempo ? C.indigo : C.soft, color: tiempo ? C.sobreAcento : C.mid,
+                padding: "5px 11px", fontSize: 11.5 }}>
+              {tiempo ? "En segundos" : "En reps"}
+            </button>
+            <button onClick={() => setRango((v) => !v)} aria-pressed={rango}
+              aria-label="Usar rango"
+              style={{ ...btnMini, background: rango ? C.teal : C.soft, color: rango ? C.sobreAcento : C.mid,
+                padding: "5px 11px", fontSize: 11.5 }}>
+              {rango ? "Fijo" : "Rango"}
+            </button>
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7 }}>
           <div className="flex items-center gap-2" style={{ padding: "0 4px" }}>
             <span style={{ width: 18 }} />
             <span style={{ flex: rango ? 2 : 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>
-              {rango ? "Reps (de – a)" : "Reps"}
+              {tiempo
+                ? (rango ? "Segundos (de – a)" : "Segundos")
+                : (rango ? "Reps (de – a)" : "Reps")}
             </span>
             <span style={{ flex: 1, fontFamily: body, fontSize: 11, color: C.faint, textAlign: "center" }}>Kg</span>
             <span style={{ width: 74 }} />
@@ -2371,13 +2387,14 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
                   </span>
 
                   <div className="flex items-center gap-1" style={{ flex: rango ? 2 : 1 }}>
-                    <input type="number" inputMode="numeric" value={s.reps ?? ""} aria-label={`Repeticiones de la serie ${i + 1}`}
+                    <input type="number" inputMode="numeric" value={s.reps ?? ""}
+                      aria-label={`${tiempo ? "Segundos" : "Repeticiones"} de la serie ${i + 1}`}
                       onChange={(e) => cambiar(i, "reps", e.target.value)} style={{ ...campoNum, flex: 1 }} />
                     {rango && (
                       <>
                         <span style={{ fontFamily: mono, fontSize: 13, color: C.faint }}>–</span>
                         <input type="number" inputMode="numeric" value={s.repsHasta ?? ""} placeholder="—"
-                          aria-label={`Repeticiones máximas de la serie ${i + 1}`}
+                          aria-label={`${tiempo ? "Segundos máximos" : "Repeticiones máximas"} de la serie ${i + 1}`}
                           onChange={(e) => cambiar(i, "repsHasta", e.target.value)} style={{ ...campoNum, flex: 1 }} />
                       </>
                     )}
@@ -2444,7 +2461,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
  * que se hizo. Ese es todo el truco: lo normal es repetir lo mismo o subir un
  * poco, así que lo que hay que teclear son dos números, no la sesión entera.
  */
-function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar }) {
+function HojaPlantilla({ plantilla, plantillas, entrenos, fechaInicial, onGuardar, onCerrar }) {
   const ultimo = useMemo(() => ultimaDePlantilla(entrenos, plantilla.id), [entrenos, plantilla.id]);
   const base = useMemo(
     () => entrenoDesdePlantilla(plantilla, fechaInicial || hoy(), ultimo),
@@ -2457,6 +2474,34 @@ function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar 
   const [inten, setInten] = useState(base.intensidad || "media");
   const [km, setKm] = useState(base.km != null ? String(base.km) : "");
   const [hojaEj, setHojaEj] = useState(null);
+  const [pegando, setPegando] = useState(false);
+
+  /* Las demás plantillas de fuerza, para poder engancharlas a este entreno.
+     Solo las de fuerza: pegarle un partido de pádel a una sesión de pesas no
+     quiere decir nada, y no traen ejercicios que copiar. */
+  const otrasPlantillas = useMemo(
+    () => (plantillas || []).filter((p) => p && p.id !== plantilla.id && p.tipo === "fuerza" && (p.ejercicios || []).length),
+    [plantillas, plantilla.id]
+  );
+
+  /**
+   * Engancha los ejercicios de otra plantilla a este entreno.
+   *
+   * Cada uno viene con los kilos de la última vez que se hizo ESA plantilla,
+   * igual que si la hubieras abierto sola, así que la progresión no se pierde
+   * por juntarlas. Lo que ya está no se repite: si los abdominales ya estaban
+   * en la lista, engancharlos otra vez no los duplica.
+   */
+  const sumarPlantilla = (otra) => {
+    const suyo = entrenoDesdePlantilla(otra, fecha, ultimaDePlantilla(entrenos, otra.id));
+    setEjercicios((lista) => {
+      const nuevos = (suyo.ejercicios || []).filter(
+        (ej) => !lista.some((x) => mismoEjercicio(x.nombre, ej.nombre))
+      );
+      return [...lista, ...nuevos.map((e) => ({ ...e, series: e.series.map((s) => ({ ...s })) }))];
+    });
+    setPegando(false);
+  };
 
   const t = tipoDe(plantilla.tipo);
   const esFuerza = plantilla.tipo === "fuerza";
@@ -2483,7 +2528,7 @@ function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar 
   const enviar = () => {
     if (!valido) return;
     const registro = { fecha, tipo: plantilla.tipo, plantilla: plantilla.id, ts: Date.now() };
-    if (mins > 0) registro.minutos = mins;
+    if (!esFuerza && mins > 0) registro.minutos = mins;
     if (ejercicios.length) registro.ejercicios = ejercicios;
     const dist = parseFloat(String(km).replace(",", "."));
     if (!esFuerza && dist > 0) registro.km = dist;
@@ -2522,15 +2567,38 @@ function HojaPlantilla({ plantilla, entrenos, fechaInicial, onGuardar, onCerrar 
                 ))}
               </div>
             )}
-            <button onClick={() => setHojaEj({ indice: null })} style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 8 }}>
-              + Añadir ejercicio
-            </button>
+            <div className="flex gap-2" style={{ marginTop: ejercicios.length ? 9 : 8, flexWrap: "wrap" }}>
+              <button onClick={() => setHojaEj({ indice: null })} style={btnMini}>
+                + Añadir ejercicio
+              </button>
+              {otrasPlantillas.length > 0 && (
+                <button onClick={() => setPegando((v) => !v)}
+                  style={{ ...btnMini, background: pegando ? C.indigo : C.soft, color: pegando ? C.sobreAcento : C.mid }}>
+                  + Otra plantilla
+                </button>
+              )}
+            </div>
+
+            {/* Una rutina corta —los abdominales, la movilidad— se guarda en su
+                propia plantilla y se engancha al entreno del día en vez de
+                duplicarla dentro de las cuatro plantillas grandes. */}
+            {pegando && otrasPlantillas.length > 0 && (
+              <div className="flex gap-2" style={{ marginTop: 9, flexWrap: "wrap" }}>
+                {otrasPlantillas.map((p) => (
+                  <button key={p.id} onClick={() => sumarPlantilla(p)}
+                    style={{
+                      border: "none", cursor: "pointer", borderRadius: 999, padding: "7px 12px",
+                      background: C.soft, color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 12.5,
+                    }}>
+                    {p.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {ejercicios.length > 0 && (
               <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
-                {(() => {
-                  const r = resumenFuerza({ ejercicios });
-                  return `${plural(r.series, "serie")} · ${plural(r.reps, "repetición", "repeticiones")}${r.volumen ? ` · ${miles(r.volumen)} kg movidos` : ""}`;
-                })()}
+                {textoResumenFuerza(resumenFuerza({ ejercicios }))}
               </p>
             )}
           </div>
@@ -2627,7 +2695,9 @@ function HojaPlantillaEditar({ plantilla, entrenos, orden, onGuardar, onCerrar }
     const dist = parseFloat(String(km).replace(",", "."));
     const salida = {
       nombre: nombre.trim(), tipo, intensidad: inten,
-      minutos: mins > 0 ? mins : null,
+      /* Sin el `!esFuerza` se guardaba el 45 por defecto del formulario aunque
+         el campo ni siquiera estuviera en pantalla. */
+      minutos: !esFuerza && mins > 0 ? mins : null,
       km: !esFuerza && dist > 0 ? dist : null,
       ejercicios: esFuerza ? ejercicios : [],
       orden: plantilla && plantilla.orden != null ? plantilla.orden : orden,
@@ -3672,6 +3742,7 @@ function Aplicacion({ sesion }) {
       {usando && (
         <HojaPlantilla
           plantilla={usando.plantilla}
+          plantillas={plantillasOrdenadas}
           fechaInicial={usando.fecha}
           entrenos={datos.entrenos}
           onGuardar={anadir}
