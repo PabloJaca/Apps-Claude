@@ -858,7 +858,10 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
   const deSemana = entrenos.filter((e) => enRango(e.fecha, semana));
   /* Estimados cuando no están medidos: la fuerza ya no pide duración, así que
      leer `e.minutos` a pelo dejaba cada sesión de pesas en cero. */
-  const minutos = deSemana.reduce((s, e) => s + minutosDeEntreno(e), 0);
+  /* Solo lo apuntado a mano. La estimación por series se queda donde hace
+     falta —el gasto de calorías del día— y no se enseña como si fuera un
+     cronómetro. */
+  const minutos = deSemana.reduce((s, e) => s + (Number(e.minutos) > 0 ? Number(e.minutos) : 0), 0);
 
   const [tipo, setTipo] = useState(null);
   const [dur, setDur] = useState(45);
@@ -897,12 +900,21 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
   };
 
   const barras = useMemo(() => {
-    const base = DIAS.map((d) => ({ x: d, min: 0 }));
-    for (const e of deSemana) base[(desdeIso(e.fecha).getDay() + 6) % 7].min += minutosDeEntreno(e);
+    /* Cuántos entrenos, no cuánto rato. Los minutos de una sesión de pesas no
+       los apunta nadie, así que estaban estimados, y una barra estimada tiene
+       la misma pinta que una medida sin serlo. Pádel y gimnasio el mismo día
+       son dos, y eso sí es un dato. */
+    const base = DIAS.map((d) => ({ x: d, n: 0 }));
+    for (const e of deSemana) base[(desdeIso(e.fecha).getDay() + 6) % 7].n += 1;
     return base;
   }, [deSemana]);
 
   const deHoy = useMemo(() => entrenos.filter((e) => e.fecha === hoy()).sort((a, b) => (a.ts || 0) - (b.ts || 0)), [entrenos]);
+
+  /* La tarjeta de apuntar se abre a petición. Con plantillas, chips de tipo y
+     el formulario desplegado ocupaba media pantalla todos los días, y la mayor
+     parte de las veces solo se entra a mirar. */
+  const [abrirApuntar, setAbrirApuntar] = useState(false);
 
   const guardarEntreno = () => {
     /* La fuerza no lleva duración: se describe con sus series. Las calorías
@@ -929,25 +941,38 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
               {deSemana.length === 1 ? "sesión" : "sesiones"}
             </span>
           </div>
-          <div style={{ marginLeft: "auto", marginBottom: 8, textAlign: "right" }}>
-            <span style={{ fontFamily: mono, fontSize: 17, fontWeight: 600, color: C.ink }}>{minutos}</span>
-            <span style={{ fontFamily: body, fontSize: 13, color: C.mid }}> min</span>
-          </div>
+          {/* Los minutos solo cuando son de verdad: el pádel y el cardio sí se
+              apuntan por tiempo, las pesas no. Si no hay ninguno medido, no se
+              enseña un hueco con un número inventado dentro. */}
+          {minutos > 0 && (
+            <div style={{ marginLeft: "auto", marginBottom: 8, textAlign: "right" }}>
+              <span style={{ fontFamily: mono, fontSize: 17, fontWeight: 600, color: C.ink }}>{minutos}</span>
+              <span style={{ fontFamily: body, fontSize: 13, color: C.mid }}> min</span>
+            </div>
+          )}
         </div>
         <Grafica alto={120} style={{ marginTop: 10, marginLeft: -14 }}>
             <BarChart data={barras} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
               <XAxis dataKey="x" tick={{ fontSize: 10.5, fill: C.faint, fontFamily: body }} tickLine={false} axisLine={false} />
               <YAxis hide />
-              <Tooltip cursor={{ fill: "var(--velo)", fillOpacity: 0.12 }} contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [`${v} min`, ""]} />
-              <Bar dataKey="min" fill={C.indigo} radius={[8, 8, 8, 8]} maxBarSize={24} isAnimationActive={false} />
+              <Tooltip cursor={{ fill: "var(--velo)", fillOpacity: 0.12 }} contentStyle={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.card, color: C.ink, boxShadow: sh, fontFamily: mono, fontSize: 12 }} formatter={(v) => [v === 1 ? "1 entreno" : `${v} entrenos`, ""]} />
+              <Bar dataKey="n" fill={C.indigo} radius={[8, 8, 8, 8]} maxBarSize={24} isAnimationActive={false} />
             </BarChart>
           </Grafica>
       </Card>
 
       <Card>
-        <p style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: C.ink, margin: `0 0 ${deHoy.length ? 10 : 12}px` }}>
-          {deHoy.length ? "Añadir otro entreno de hoy" : "¿Has entrenado hoy?"}
-        </p>
+        <button onClick={() => { setAbrirApuntar((v) => !v); if (abrirApuntar) limpiar(); }}
+          aria-expanded={abrirApuntar} className="flex items-center gap-2"
+          style={{ width: "100%", border: "none", background: "transparent", cursor: "pointer",
+            textAlign: "left", padding: 0, marginBottom: deHoy.length ? 10 : abrirApuntar ? 12 : 0 }}>
+          <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16, color: C.ink, flex: 1 }}>
+            {deHoy.length ? "Añadir otro entreno de hoy" : "¿Has entrenado hoy?"}
+          </span>
+          {abrirApuntar
+            ? <ChevronUp size={18} color={C.mid} />
+            : <ChevronDown size={18} color={C.mid} />}
+        </button>
 
         {deHoy.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 6, marginBottom: 14 }}>
@@ -957,169 +982,176 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
                 <div key={e.id} className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "8px 10px" }}>
                   <t.Icon size={15} color={t.color} strokeWidth={2.4} />
                   <span style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, flex: 1 }}>{t.label}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12.5, color: C.mid }}>{minutosDeEntreno(e) || "—"}′</span>
+                  <span style={{ fontFamily: mono, fontSize: 12.5, color: C.mid }}>
+                    {Number(e.minutos) > 0
+                      ? `${e.minutos}′`
+                      : (resumenFuerza(e).series ? plural(resumenFuerza(e).series, "serie") : "")}
+                  </span>
                   <Acciones size={13} que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
                 </div>
               );
             })}
           </div>
         )}
-
-        {/* Las plantillas van lo primero y ocupan sitio: son el camino corto y
-            el que se usa casi siempre. Todo lo de abajo —elegir tipo, escribir
-            ejercicio a ejercicio— es para el entreno que no estaba previsto. */}
-        {!tipo && (
-          <div style={{ marginBottom: 14 }}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-              <Rotulo>{plantillas.length ? "Mis entrenos" : "Entrenos de siempre"}</Rotulo>
-              <button onClick={onGestionarPlantillas}
-                style={{ border: "none", background: "transparent", cursor: "pointer", padding: "8px 0 8px 12px",
-                  minHeight: 36, fontFamily: body, fontWeight: 600, fontSize: 12, color: C.teal }}>
-                {plantillas.length ? "Gestionar" : "Crear"}
-              </button>
-            </div>
-
-            {plantillas.length === 0 ? (
-              <button onClick={onGestionarPlantillas} className="flex items-center gap-2"
-                style={{ width: "100%", border: "none", cursor: "pointer", textAlign: "left",
-                  background: C.tealSoft, borderRadius: 16, padding: "12px 13px" }}>
-                <LayoutGrid size={16} color={C.teal} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>
-                    Guarda los entrenos que repites
-                  </p>
-                  <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: 0 }}>
-                    Móntalos una vez y luego apuntarlos es un toque
-                  </p>
-                </div>
-                <ChevronRight size={16} color={C.teal} style={{ flexShrink: 0 }} />
-              </button>
-            ) : (
-              <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-                {plantillas.map((p) => {
-                  const t = tipoDe(p.tipo);
-                  return (
-                    <button key={p.id} onClick={() => onUsarPlantilla(p)} className="flex items-center gap-2"
-                      style={{
-                        border: "none", cursor: "pointer", borderRadius: 999, padding: "11px 15px",
-                        minHeight: 44, background: t.soft, color: t.color,
-                        fontFamily: body, fontWeight: 700, fontSize: 13.5, maxWidth: "100%",
-                      }}>
-                      <t.Icon size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {p.nombre}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Repetir la última sesión, con sus pesos: el atajo de antes de que
-            hubiera plantillas. Se queda solo cuando aún no hay ninguna, para
-            no ofrecer dos caminos que hacen casi lo mismo. */}
-        {!tipo && !plantillas.length && ultimoConEjercicios && (
-          <button onClick={repetirEntreno} className="flex items-center gap-2"
-            style={{
-              width: "100%", marginBottom: 12, border: "none", cursor: "pointer", textAlign: "left",
-              background: C.tealSoft, borderRadius: 16, padding: "11px 13px",
-            }}>
-            <RotateCcw size={15} color={C.teal} strokeWidth={2.6} style={{ flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>
-                Repetir el entreno de {etiquetaFecha(ultimoConEjercicios.fecha).toLowerCase()}
-              </p>
-              <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {ultimoConEjercicios.ejercicios.map((x) => x.nombre).join(", ")}
-              </p>
-            </div>
-            <ChevronRight size={16} color={C.teal} style={{ flexShrink: 0 }} />
-          </button>
-        )}
-
-        <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-          {TIPOS.map((t) => (
-            <button key={t.id} onClick={() => setTipo(tipo === t.id ? null : t.id)} className="flex items-center gap-2"
-              style={{
-                border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 14px",
-                fontFamily: body, fontWeight: 600, fontSize: 13.5,
-                background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? C.sobreAcento : t.color,
-              }}>
-              <t.Icon size={15} strokeWidth={2.4} />{t.label}
-            </button>
-          ))}
-        </div>
-
-        {tipo && (
-          <div className="rise" style={{ marginTop: 16 }}>
-            {/* La fuerza se describe por lo que levantas, no por lo que dura. */}
-            {tipo === "fuerza" && (
-              <div style={{ marginBottom: 16 }}>
-                <Rotulo>Ejercicios</Rotulo>
-                {ejercicios.length > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 8 }}>
-                    {ejercicios.map((ej, i) => (
-                      <FilaEjercicio key={i} ejercicio={ej}
-                        onEditar={() => setHojaEj({ indice: i })}
-                        onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
-                    ))}
-                  </div>
-                )}
-                <button onClick={() => setHojaEj({ indice: null })}
-                  style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 8 }}>
-                  + Añadir ejercicio
+        {abrirApuntar && (
+          <>
+          {/* Las plantillas van lo primero y ocupan sitio: son el camino corto y
+              el que se usa casi siempre. Todo lo de abajo —elegir tipo, escribir
+              ejercicio a ejercicio— es para el entreno que no estaba previsto. */}
+          {!tipo && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <Rotulo>{plantillas.length ? "Mis entrenos" : "Entrenos de siempre"}</Rotulo>
+                <button onClick={onGestionarPlantillas}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", padding: "8px 0 8px 12px",
+                    minHeight: 36, fontFamily: body, fontWeight: 600, fontSize: 12, color: C.teal }}>
+                  {plantillas.length ? "Gestionar" : "Crear"}
                 </button>
-                {ejercicios.length > 0 && (
-                  <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
-                    {(() => {
-                      const r = resumenFuerza({ ejercicios });
-                      return textoResumenFuerza(r);
-                    })()}
-                  </p>
-                )}
               </div>
-            )}
 
-            {tipo === "cardio" && (
-              <div style={{ marginBottom: 16 }}>
-                <Rotulo>Distancia (opcional)</Rotulo>
-                <div className="flex items-center gap-2" style={{ marginTop: 7 }}>
-                  <input type="number" inputMode="decimal" step="0.1" value={km} placeholder="—"
-                    onChange={(e) => setKm(e.target.value)}
-                    style={{ ...inputBase, flex: 1, fontFamily: mono, fontWeight: 600 }} />
-                  <span style={{ fontFamily: body, fontSize: 14, color: C.mid }}>km</span>
+              {plantillas.length === 0 ? (
+                <button onClick={onGestionarPlantillas} className="flex items-center gap-2"
+                  style={{ width: "100%", border: "none", cursor: "pointer", textAlign: "left",
+                    background: C.tealSoft, borderRadius: 16, padding: "12px 13px" }}>
+                  <LayoutGrid size={16} color={C.teal} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>
+                      Guarda los entrenos que repites
+                    </p>
+                    <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: 0 }}>
+                      Móntalos una vez y luego apuntarlos es un toque
+                    </p>
+                  </div>
+                  <ChevronRight size={16} color={C.teal} style={{ flexShrink: 0 }} />
+                </button>
+              ) : (
+                <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+                  {plantillas.map((p) => {
+                    const t = tipoDe(p.tipo);
+                    return (
+                      <button key={p.id} onClick={() => onUsarPlantilla(p)} className="flex items-center gap-2"
+                        style={{
+                          border: "none", cursor: "pointer", borderRadius: 999, padding: "11px 15px",
+                          minHeight: 44, background: t.soft, color: t.color,
+                          fontFamily: body, fontWeight: 700, fontSize: 13.5, maxWidth: "100%",
+                        }}>
+                        <t.Icon size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.nombre}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                {parseFloat(String(km).replace(",", ".")) > 0 && dur > 0 && (
-                  <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "7px 0 0" }}>
-                    Ritmo: {(() => {
-                      const d = parseFloat(String(km).replace(",", "."));
-                      const min = Math.floor(dur / d);
-                      const seg = Math.round((dur / d - min) * 60);
-                      return `${min}:${String(seg).padStart(2, "0")} min/km`;
-                    })()}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {tipo !== "fuerza" && (
-              <>
-                <Rotulo>Duración</Rotulo>
-                <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
-                  {DURACIONES.map((d) => <Chip key={d} activo={dur === d} onClick={() => setDur(d)}>{d}′</Chip>)}
-                </div>
-              </>
-            )}
-            <div style={{ marginTop: 16 }}>
-              <BotonGuardar onClick={guardarEntreno}>Guardar entreno</BotonGuardar>
+              )}
             </div>
-            <button onClick={limpiar}
-              style={{ width: "100%", marginTop: 8, border: "none", background: "transparent", color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 13, padding: "8px 0", cursor: "pointer" }}>
-              Cancelar
+          )}
+
+          {/* Repetir la última sesión, con sus pesos: el atajo de antes de que
+              hubiera plantillas. Se queda solo cuando aún no hay ninguna, para
+              no ofrecer dos caminos que hacen casi lo mismo. */}
+          {!tipo && !plantillas.length && ultimoConEjercicios && (
+            <button onClick={repetirEntreno} className="flex items-center gap-2"
+              style={{
+                width: "100%", marginBottom: 12, border: "none", cursor: "pointer", textAlign: "left",
+                background: C.tealSoft, borderRadius: 16, padding: "11px 13px",
+              }}>
+              <RotateCcw size={15} color={C.teal} strokeWidth={2.6} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: body, fontWeight: 600, fontSize: 13.5, color: C.ink, margin: 0 }}>
+                  Repetir el entreno de {etiquetaFecha(ultimoConEjercicios.fecha).toLowerCase()}
+                </p>
+                <p style={{ fontFamily: body, fontSize: 11.5, color: C.mid, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {ultimoConEjercicios.ejercicios.map((x) => x.nombre).join(", ")}
+                </p>
+              </div>
+              <ChevronRight size={16} color={C.teal} style={{ flexShrink: 0 }} />
             </button>
+          )}
+
+          <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+            {TIPOS.map((t) => (
+              <button key={t.id} onClick={() => setTipo(tipo === t.id ? null : t.id)} className="flex items-center gap-2"
+                style={{
+                  border: "none", cursor: "pointer", borderRadius: 999, padding: "10px 14px",
+                  fontFamily: body, fontWeight: 600, fontSize: 13.5,
+                  background: tipo === t.id ? t.color : t.soft, color: tipo === t.id ? C.sobreAcento : t.color,
+                }}>
+                <t.Icon size={15} strokeWidth={2.4} />{t.label}
+              </button>
+            ))}
           </div>
+
+          {tipo && (
+            <div className="rise" style={{ marginTop: 16 }}>
+              {/* La fuerza se describe por lo que levantas, no por lo que dura. */}
+              {tipo === "fuerza" && (
+                <div style={{ marginBottom: 16 }}>
+                  <Rotulo>Ejercicios</Rotulo>
+                  {ejercicios.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 8 }}>
+                      {ejercicios.map((ej, i) => (
+                        <FilaEjercicio key={i} ejercicio={ej}
+                          onEditar={() => setHojaEj({ indice: i })}
+                          onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={() => setHojaEj({ indice: null })}
+                    style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 8 }}>
+                    + Añadir ejercicio
+                  </button>
+                  {ejercicios.length > 0 && (
+                    <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
+                      {(() => {
+                        const r = resumenFuerza({ ejercicios });
+                        return textoResumenFuerza(r);
+                      })()}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {tipo === "cardio" && (
+                <div style={{ marginBottom: 16 }}>
+                  <Rotulo>Distancia (opcional)</Rotulo>
+                  <div className="flex items-center gap-2" style={{ marginTop: 7 }}>
+                    <input type="number" inputMode="decimal" step="0.1" value={km} placeholder="—"
+                      onChange={(e) => setKm(e.target.value)}
+                      style={{ ...inputBase, flex: 1, fontFamily: mono, fontWeight: 600 }} />
+                    <span style={{ fontFamily: body, fontSize: 14, color: C.mid }}>km</span>
+                  </div>
+                  {parseFloat(String(km).replace(",", ".")) > 0 && dur > 0 && (
+                    <p style={{ fontFamily: body, fontSize: 12, color: C.faint, margin: "7px 0 0" }}>
+                      Ritmo: {(() => {
+                        const d = parseFloat(String(km).replace(",", "."));
+                        const min = Math.floor(dur / d);
+                        const seg = Math.round((dur / d - min) * 60);
+                        return `${min}:${String(seg).padStart(2, "0")} min/km`;
+                      })()}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {tipo !== "fuerza" && (
+                <>
+                  <Rotulo>Duración</Rotulo>
+                  <div className="flex gap-2" style={{ marginTop: 7, flexWrap: "wrap" }}>
+                    {DURACIONES.map((d) => <Chip key={d} activo={dur === d} onClick={() => setDur(d)}>{d}′</Chip>)}
+                  </div>
+                </>
+              )}
+              <div style={{ marginTop: 16 }}>
+                <BotonGuardar onClick={guardarEntreno}>Guardar entreno</BotonGuardar>
+              </div>
+              <button onClick={limpiar}
+                style={{ width: "100%", marginTop: 8, border: "none", background: "transparent", color: C.mid, fontFamily: body, fontWeight: 600, fontSize: 13, padding: "8px 0", cursor: "pointer" }}>
+                Cancelar
+              </button>
+            </div>
+          )}
+          </>
         )}
       </Card>
 
@@ -1187,54 +1219,10 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
         titulo="Sesiones"
         vacio="Aún no has registrado ningún entreno."
         elementos={entrenos}
-        pintar={(e) => {
-          const t = tipoDe(e.tipo);
-          const i = INTENS.find((x) => x.id === e.intensidad);
-          const r = resumenFuerza(e);
-          const detalle = [
-            etiquetaFecha(e.fecha),
-            minutosDeEntreno(e) ? `${minutosDeEntreno(e)} min` : null,
-            e.km ? `${num(e.km)} km` : null,
-            r.series ? plural(r.series, "serie") : null,
-            r.volumen ? `${miles(r.volumen)} kg` : null,
-          ].filter(Boolean).join(" · ");
-          return (
-            <div key={e.id} style={{ padding: 10 }}>
-            <div className="flex items-center gap-3">
-              <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
-                <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detalle}</p>
-              </div>
-              {i && (
-                <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `color-mix(in srgb, ${i.color} var(--tinte), transparent)`, borderRadius: 999, padding: "3px 9px" }}>
-                  {i.label}
-                </span>
-              )}
-              <Acciones que="el entreno" onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
-            </div>
-
-            {/* Los ejercicios, a un toque de su ficha de progresión. */}
-            {(e.ejercicios || []).length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 4, marginTop: 8, paddingLeft: 46 }}>
-                {e.ejercicios.map((ej, k) => (
-                  <button key={k} onClick={() => verEjercicio(ej.nombre)} className="flex items-center gap-2"
-                    /* 19 px de alto era un objetivo casi imposible: cada fila
-                       abre la ficha de progresión de ese ejercicio. */
-                    style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left",
-                      padding: "6px 0", minHeight: 34, width: "100%" }}>
-                    <span style={{ fontFamily: body, fontSize: 12.5, color: C.mid, flexShrink: 0 }}>{ej.nombre}</span>
-                    <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {ej.series.map((x) => textoSerie(x)).join(" · ")}
-                    </span>
-                    <ChevronRight size={13} color={C.line} style={{ flexShrink: 0 }} />
-                  </button>
-                ))}
-              </div>
-            )}
-            </div>
-          );
-        }}
+        pintar={(e) => (
+          <FilaSesion key={e.id} entreno={e} onVerEjercicio={verEjercicio}
+            onEditar={() => editar("entrenos", e)} onBorrar={() => borrar("entrenos", e.id)} />
+        )}
       />
     </div>
   );
@@ -1664,7 +1652,10 @@ function PantallaValoracion({ datos, energia, onCerrar }) {
                   ["Media de calorías", informe.cifras.comidas.kcalMedia ? `${miles(informe.cifras.comidas.kcalMedia)} kcal` : "—"],
                   ["Tu diana", informe.cifras.comidas.diana ? `${miles(informe.cifras.comidas.diana)} kcal` : "sin perfil"],
                   ["Días entrenados", `${informe.cifras.entrenos.diasEntrenados} (objetivo ${informe.cifras.entrenos.objetivo})`],
-                  ["Minutos de entreno", `${informe.cifras.entrenos.minutos} min`],
+                  ["Sesiones", plural(informe.cifras.entrenos.sesiones ?? 0, "sesión", "sesiones")],
+                  ...(informe.cifras.entrenos.minutos > 0
+                    ? [["Minutos apuntados", `${informe.cifras.entrenos.minutos} min`]]
+                    : []),
                   ["Pesajes válidos", `${informe.cifras.peso.fiables}${informe.cifras.peso.sospechosos ? ` (${informe.cifras.peso.sospechosos} descartados)` : ""}`],
                   ["Cambio de peso", informe.cifras.peso.diferencia != null ? `${informe.cifras.peso.diferencia > 0 ? "+" : "−"}${num(Math.abs(informe.cifras.peso.diferencia))} kg` : "—"],
                   ["Ritmo", informe.cifras.peso.pendiente != null ? `${informe.cifras.peso.pendiente > 0 ? "+" : "−"}${num(Math.abs(informe.cifras.peso.pendiente), 2)} kg/semana` : "sin datos suficientes"],
@@ -1934,7 +1925,7 @@ function Ajustes({ datos, onRestaurar, onCuenta, sesion }) {
  *
  * `editando` es `{ coleccion, registro }` cuando se viene de un lápiz.
  */
-function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [], onUsarPlantilla, onCerrar, onGuardar }) {
+function HojaFecha({ abierta, seccion, editando, borrador, pesos, entrenos = [], plantillas = [], onUsarPlantilla, onCerrar, onGuardar }) {
   const [sec, setSec] = useState(seccion);
   const [fecha, setFecha] = useState(hoy());
   const [kg, setKg] = useState("");
@@ -1948,6 +1939,11 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
   const [momento, setMomento] = useState(() => momentoPorHora());
   const [anadidos, setAnadidos] = useState(0);
   const [avisoPeso, setAvisoPeso] = useState(null);
+  /* Corregir un entreno de fuerza enseñaba el tipo y la fecha, y nada más: los
+     ejercicios viajaban escondidos de un guardado al siguiente, así que no
+     había forma de cambiar un peso ni de quitar una serie desde aquí. */
+  const [ejercicios, setEjercicios] = useState([]);
+  const [hojaEj, setHojaEj] = useState(null);
 
   const seccionDe = { pesos: "peso", entrenos: "entrenos", comidas: "comidas" };
 
@@ -1969,11 +1965,13 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
       setVolumen(r.volumen || 3);
       setSaciedad(r.saciedad ?? null);
       setMomento(r.momento || momentoPorHora());
+      setEjercicios((r.ejercicios || []).map((e) => ({ ...e, series: (e.series || []).map((x) => ({ ...x })) })));
       return;
     }
 
     setSec(seccion); setFecha(hoy()); setKg(""); setNota(""); setMomento(momentoPorHora());
     setTipo("fuerza"); setMinutos("45"); setInten("media"); setTexto(""); setVolumen(3); setSaciedad(null);
+    setEjercicios(borrador && borrador.ejercicios ? borrador.ejercicios.map((e) => ({ ...e, series: (e.series || []).map((x) => ({ ...x })) })) : []);
 
     /* Lo dictado entra por aquí: se rellena la hoja y se confirma a mano. Solo
        se pisa lo que la frase dijo de verdad; el resto se queda como estaba. */
@@ -2003,26 +2001,28 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
 
   /* Al corregir se conserva el id, así que se sobrescribe el mismo documento
      en vez de crear otro. Y el `ts`, para que no salte de sitio en la lista.
-     Los campos que esta hoja no toca —los ejercicios de un entreno de fuerza,
-     los kilómetros de una tirada— se arrastran tal cual: guardar desde aquí
-     no puede llevarse por delante lo que no se está editando. */
+     Los kilómetros de una tirada, que esta hoja no toca, se arrastran tal cual.
+
+     Los ejercicios NO se arrastran: son estado de la hoja y salen de ahí. Antes
+     se volvían a escribir los del documento viejo, así que al corregir un
+     entreno de fuerza cualquier cambio se perdía en silencio. */
   const conIdentidad = (campos) => {
-    /* Los ejercicios dictados no se editan en esta hoja, pero se ven ahí abajo
-       y se guardan con el entreno: lo que se confirma es lo que se apunta. */
+    const salida = { ...campos };
+    if (sec === "entrenos" && ejercicios.length) salida.ejercicios = ejercicios;
+
     if (!editando) {
-      if (!borrador) return campos;
-      const salida = { ...campos };
-      if (borrador.ejercicios && borrador.ejercicios.length) salida.ejercicios = borrador.ejercicios;
       /* De qué plantilla salió tiene que viajar hasta el registro: es lo que
          hace que la próxima vez se traigan estos kilos y no los del día que se
          creó la plantilla. Si se pierde aquí, la plantilla deja de aprender. */
-      if (borrador.plantilla) salida.plantilla = borrador.plantilla;
-      if (borrador.km != null) salida.km = borrador.km;
+      if (borrador && borrador.plantilla) salida.plantilla = borrador.plantilla;
+      if (borrador && borrador.km != null) salida.km = borrador.km;
       return salida;
     }
+
     const r = editando.registro;
-    const salida = { ...campos, id: r.id, ts: r.ts ?? campos.ts };
-    if (r.ejercicios) salida.ejercicios = r.ejercicios;
+    salida.id = r.id;
+    salida.ts = r.ts ?? campos.ts;
+    if (r.plantilla) salida.plantilla = r.plantilla;
     if (r.km != null) salida.km = r.km;
     return salida;
   };
@@ -2049,6 +2049,7 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
       onGuardar("entrenos", conIdentidad(campos));
       if (editando) return onCerrar();
       setMinutos("45");
+      setEjercicios([]);
     }
     if (sec === "comidas") {
       onGuardar("comidas", conIdentidad({ fecha, texto: texto.trim(), volumen, saciedad, momento, ts: Date.now() }));
@@ -2183,6 +2184,31 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
                   style={{ ...inputBase, marginTop: 6, marginBottom: 14, fontFamily: mono, fontSize: 20, fontWeight: 600 }} />
               </>
             )}
+
+            {/* Los ejercicios, aquí y no solo en la hoja de plantilla: corregir
+                un entreno de la semana pasada es justo el momento en que se
+                quiere tocar un peso mal apuntado. */}
+            <div style={{ marginBottom: 14 }}>
+              <Rotulo>Ejercicios</Rotulo>
+              {ejercicios.length > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 7, marginTop: 8 }}>
+                  {ejercicios.map((ej, i) => (
+                    <FilaEjercicio key={i} ejercicio={ej}
+                      onEditar={() => setHojaEj({ indice: i })}
+                      onBorrar={() => setEjercicios((l) => l.filter((_, j) => j !== i))} />
+                  ))}
+                </div>
+              )}
+              <button onClick={() => setHojaEj({ indice: null })}
+                style={{ ...btnMini, marginTop: ejercicios.length ? 9 : 8 }}>
+                + Añadir ejercicio
+              </button>
+              {ejercicios.length > 0 && (
+                <p style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, margin: "9px 0 0" }}>
+                  {textoResumenFuerza(resumenFuerza({ ejercicios }))}
+                </p>
+              )}
+            </div>
           </>
         )}
 
@@ -2231,6 +2257,18 @@ function HojaFecha({ abierta, seccion, editando, borrador, pesos, plantillas = [
           <p style={{ fontFamily: body, fontSize: 12.5, color: C.mid, marginBottom: 10, textAlign: "center" }}>
             {anadidos} {anadidos === 1 ? "registro guardado" : "registros guardados"} en {etiquetaFecha(fecha).toLowerCase()}
           </p>
+        )}
+
+        {hojaEj && (
+          <HojaEjercicio
+            ejercicio={hojaEj.indice === null ? null : ejercicios[hojaEj.indice]}
+            entrenos={entrenos}
+            onGuardar={(ej) => {
+              setEjercicios((l) => (hojaEj.indice === null ? [...l, ej] : l.map((x, i) => (i === hojaEj.indice ? ej : x))));
+              setHojaEj(null);
+            }}
+            onCerrar={() => setHojaEj(null)}
+          />
         )}
 
         <BotonGuardar onClick={enviar} disabled={!valido}>
@@ -3290,6 +3328,78 @@ function Delta({ actual, anterior }) {
   );
 }
 
+/**
+ * Una sesión del historial, plegada.
+ *
+ * Cuatro entrenos de la semana con seis ejercicios cada uno son veinticuatro
+ * líneas de números antes de llegar a nada: la pestaña se leía como un volcado.
+ * Cerrada dice qué fue y cuánto; abierta, ejercicio por ejercicio.
+ */
+function FilaSesion({ entreno: e, onVerEjercicio, onEditar, onBorrar }) {
+  const [abierto, setAbierto] = useState(false);
+  const t = tipoDe(e.tipo);
+  const i = INTENS.find((x) => x.id === e.intensidad);
+  const r = resumenFuerza(e);
+  const ejercicios = e.ejercicios || [];
+  /* Corto a propósito: la fila comparte ancho con el desplegable y los dos
+     botones de acción, y una lista larga se cortaba en «Hoy · 1 ejercicio ·…».
+     Las series ya dicen el tamaño de la sesión; el número de ejercicios sale
+     al abrirla. */
+  const detalle = [
+    etiquetaFecha(e.fecha),
+    Number(e.minutos) > 0 ? `${e.minutos} min` : null,
+    e.km ? `${num(e.km)} km` : null,
+    r.series ? plural(r.series, "serie") : null,
+    r.volumen ? `${miles(r.volumen)} kg` : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div style={{ padding: 10 }}>
+      <div className="flex items-center gap-3">
+        <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
+        <button onClick={() => ejercicios.length && setAbierto((v) => !v)}
+          aria-expanded={ejercicios.length ? abierto : undefined}
+          style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", textAlign: "left",
+            padding: 0, cursor: ejercicios.length ? "pointer" : "default" }}>
+          <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
+          <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {detalle}
+          </p>
+        </button>
+        {i && (
+          <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `color-mix(in srgb, ${i.color} var(--tinte), transparent)`, borderRadius: 999, padding: "3px 9px" }}>
+            {i.label}
+          </span>
+        )}
+        {ejercicios.length > 0 && (
+          <button onClick={() => setAbierto((v) => !v)} style={{ ...btnBorrar, minWidth: 34 }}
+            aria-label={abierto ? "Cerrar los ejercicios" : "Ver los ejercicios"}>
+            {abierto ? <ChevronUp size={16} color={C.faint} /> : <ChevronDown size={16} color={C.faint} />}
+          </button>
+        )}
+        <Acciones que="el entreno" onEditar={onEditar} onBorrar={onBorrar} />
+      </div>
+
+      {/* Los ejercicios, a un toque de su ficha de progresión. */}
+      {abierto && ejercicios.length > 0 && (
+        <div className="fade" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 4, marginTop: 8, paddingLeft: 46 }}>
+          {ejercicios.map((ej, k) => (
+            <button key={k} onClick={() => onVerEjercicio(ej.nombre)} className="flex items-center gap-2"
+              style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left",
+                padding: "6px 0", minHeight: 34, width: "100%" }}>
+              <span style={{ fontFamily: body, fontSize: 12.5, color: C.mid, flexShrink: 0 }}>{ej.nombre}</span>
+              <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {(ej.series || []).map((x) => textoSerie(x)).join(" · ")}
+              </span>
+              <ChevronRight size={13} color={C.line} style={{ flexShrink: 0 }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FilaEjercicio({ ejercicio, onEditar, onBorrar, anterior }) {
   return (
     <div className="flex items-center gap-2" style={{ background: C.soft, borderRadius: 14, padding: "10px 12px" }}>
@@ -3764,6 +3874,7 @@ function Aplicacion({ sesion }) {
       </nav>
 
       <HojaFecha abierta={hoja} seccion={tab} editando={editando} borrador={dictado} pesos={datos.pesos}
+        entrenos={datos.entrenos}
         plantillas={plantillasOrdenadas}
         onUsarPlantilla={(p, fecha) => { cerrarHoja(); setUsando({ plantilla: p, fecha }); }}
         onCerrar={cerrarHoja} onGuardar={anadir} />

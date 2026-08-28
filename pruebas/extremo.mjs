@@ -583,7 +583,17 @@ const apuntarGasto = async (pag, importe, concepto) => {
 
   const inicio = await pag.innerText("body");
   check("entrenos: el historial resume series y kilos movidos", /serie/.test(inicio), inicio.slice(0, 300));
-  check("entrenos: se ofrece repetir la última sesión", /Repetir el entreno/.test(inicio));
+
+  /* La tarjeta de apuntar arranca plegada: con plantillas, tipos y formulario
+     desplegados ocupaba media pantalla todos los días, y la mayoría de las
+     veces se entra solo a mirar. */
+  check("entrenos: la tarjeta de apuntar arranca plegada",
+    !/Repetir el entreno/.test(inicio) && !/Cardio/.test(inicio), inicio.slice(0, 300));
+  await pag.click('button[aria-expanded="false"]');
+  await pag.waitForTimeout(500);
+  const desplegado = await pag.innerText("body");
+  check("entrenos: y se abre al tocar el título", /Cardio/.test(desplegado), desplegado.slice(0, 300));
+  check("entrenos: se ofrece repetir la última sesión", /Repetir el entreno/.test(desplegado));
 
   /* Repetir trae los ejercicios con sus pesos, listos para guardar. */
   await pag.click("text=Repetir el entreno");
@@ -683,12 +693,50 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("los kilos se escriben como se dicen: «75×8», no «75,0×8»",
     /75×8/.test(conSentadilla) && !/75,0×/.test(conSentadilla));
 
-  /* Ficha de progresión. */
+  /* Corregir un entreno YA GUARDADO.
+
+     La hoja de corregir enseñaba el tipo y la fecha, y nada más: los
+     ejercicios viajaban escondidos de un guardado al siguiente, así que no
+     había forma de tocar un peso mal apuntado desde aquí. Y como al guardar se
+     volvían a escribir los del documento viejo, cualquier cambio se habría
+     perdido igualmente. */
   await pag.click("text=Cancelar");
   await pag.waitForTimeout(400);
-  // Ojo: el botón de repetir también dice «Press banca» en su subtítulo; el del
-  // historial es el que lleva las series al lado.
-  await pag.click('button:has-text("77,5×6")');
+  await pag.locator('[aria-label="Editar el entreno"]').last().click();
+  await pag.waitForTimeout(800);
+  const corrigiendo = await pag.innerText(".rise");
+  check("corregir: la hoja trae los ejercicios del entreno",
+    /Press banca/.test(corrigiendo), corrigiendo.replace(/\n+/g, " | ").slice(0, 300));
+  check("corregir: con sus series y sus kilos",
+    /70×8|75×8|77,5×6/.test(corrigiendo), corrigiendo.replace(/\n+/g, " | ").slice(0, 300));
+
+  await pag.locator('.rise [aria-label="Editar el ejercicio"]').first().click();
+  await pag.waitForTimeout(600);
+  await pag.locator(".rise").last().locator('input[aria-label="Kilos de la serie 1"]').fill("99");
+  await pag.locator(".rise").last().locator('button:has-text("Guardar los cambios")').click();
+  await pag.waitForTimeout(500);
+  await pag.locator('.rise button:has-text("Guardar los cambios")').click();
+  await pag.waitForTimeout(1000);
+
+  const trasCorregir = await pag.evaluate(() => {
+    const docs = window.__espia.verServidor().docs;
+    return Object.entries(docs).filter(([r]) => /\/entrenos\//.test(r)).map(([, d]) => d);
+  });
+  const tocado = trasCorregir.find((e) => (e.ejercicios || []).some((x) => (x.series || []).some((sx) => sx.kg === 99)));
+  check("corregir: el peso cambiado se guarda de verdad", Boolean(tocado),
+    JSON.stringify(trasCorregir.map((e) => (e.ejercicios || []).map((x) => x.series))));
+  check("corregir: y no se crea un entreno nuevo, se pisa el mismo",
+    trasCorregir.length === guardado.length, `${trasCorregir.length} ahora, ${guardado.length} antes`);
+
+  /* Ficha de progresión. Las sesiones del historial vienen plegadas, así que
+     primero se abre una y luego se toca el ejercicio de dentro. */
+  await pag.waitForTimeout(400);
+  await pag.locator('[aria-label="Ver los ejercicios"]').first().click();
+  await pag.waitForTimeout(500);
+  const abierta = await pag.innerText("body");
+  check("historial: al abrir una sesión salen sus ejercicios",
+    /Press banca/.test(abierta), abierta.slice(0, 300));
+  await pag.locator('button:has-text("Press banca")').last().click();
   await pag.waitForTimeout(700);
   const ficha = await pag.innerText("body");
   check("ficha: se abre la progresión del ejercicio", /Tu mejor serie|Progresión/i.test(ficha), ficha.slice(0, 250));
@@ -1622,6 +1670,9 @@ const apuntarGasto = async (pag, importe, concepto) => {
 
   await pag.click("nav >> text=Entrenos");
   await pag.waitForTimeout(600);
+  /* La tarjeta de apuntar viene plegada; las plantillas viven dentro. */
+  await pag.click('button[aria-expanded="false"]');
+  await pag.waitForTimeout(500);
   const sinNinguna = await texto(pag);
   check("plantillas: sin ninguna, se explica para qué sirven",
     /Guarda los entrenos que repites/.test(sinNinguna), sinNinguna.slice(0, 300));
