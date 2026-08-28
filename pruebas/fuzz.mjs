@@ -201,8 +201,9 @@ const FORMA = {
     exportar: null, importar: null, leerLegado: null, olvidarLegado: null,
   },
   "salud/estimador": {
-    analizarTexto: ["texto"], calcularBalance: ["energia", "numero", "numero"],
+    analizarTexto: ["texto"], calcularBalance: ["energia", "numero", "numero", "numero"],
     estimarComida: ["registro"], normalizar: ["texto"], valorarDia: ["listaComidas", "energia"],
+    HORA_CIERRE: null,   // es un número, no una función
   },
   "salud/valoracion": { valorarPeriodo: ["datosS", "energia", "periodo", "offset"] },
   "salud/dictado": { interpretarSalud: ["texto", "datosS", "opcionesSalud"], reconocerEjercicio: ["texto", "listaEntrenos"] },

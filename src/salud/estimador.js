@@ -323,8 +323,18 @@ export function valorarDia(comidas, energia) {
   };
 }
 
+/**
+ * A partir de esta hora se da el día por hecho.
+ *
+ * Antes de cenar, quedarse corto no es haber comido poco: es no haber
+ * terminado de comer. Con una comida apuntada a mediodía la tarjeta cantaba
+ * «Por debajo, -1656 kcal» en verde y afirmaba «comiendo así se baja de
+ * peso», que es un veredicto sobre un día que no ha pasado todavía.
+ */
+export const HORA_CIERRE = 21;
+
 /** Compara lo comido con la diana del perfil. Igual que antes, pero local. */
-export function calcularBalance(energia, kcalMin, kcalMax) {
+export function calcularBalance(energia, kcalMin, kcalMax, ahora) {
   if (!energia || !kcalMin) return null;
   const medio = (kcalMin + kcalMax) / 2;
   const dif = medio - energia.diana;
@@ -343,5 +353,10 @@ export function calcularBalance(energia, kcalMin, kcalMax) {
       ? `Unas ${Math.abs(Math.round(dif / 10) * 10)} kcal por debajo`
       : `Unas ${Math.round(dif / 10) * 10} kcal por encima`;
 
-  return { dif: Math.round(dif), estado, bueno, texto, medio: Math.round(medio) };
+  /* Pasarse ya está hecho a cualquier hora: lo comido no se descome. Quedarse
+     corto o ir en línea, en cambio, todavía puede cambiar esta tarde. */
+  const hora = Number.isFinite(Number(ahora)) ? Number(ahora) : new Date().getHours();
+  const provisional = hora < HORA_CIERRE && estado !== "encima";
+
+  return { dif: Math.round(dif), estado, bueno, texto, medio: Math.round(medio), provisional };
 }

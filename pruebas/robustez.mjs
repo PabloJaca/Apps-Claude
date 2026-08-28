@@ -252,6 +252,22 @@ check("balance con rango invertido no revienta", (() => {
   return b === null || Number.isFinite(b.medio);
 })());
 
+/* El día a medias no se juzga. Con una comida apuntada a mediodía la tarjeta
+   cantaba «Por debajo, -1656 kcal» en verde y afirmaba «comiendo así se baja
+   de peso»: un veredicto sobre un día que todavía no ha pasado. */
+const cortoAlMediodia = calcularBalance(energia, 500, 700, 13);
+check("a mediodía, quedarse corto es provisional", cortoAlMediodia.provisional === true);
+check("y por la noche ya no", calcularBalance(energia, 500, 700, 22).provisional === false);
+check("pero pasarse es definitivo a cualquier hora",
+  calcularBalance(energia, 5000, 5200, 13).provisional === false,
+  JSON.stringify(calcularBalance(energia, 5000, 5200, 13)));
+check("ir en línea a mediodía todavía puede cambiar",
+  calcularBalance(energia, energia.diana, energia.diana, 13).provisional === true);
+check("sin decir la hora se mira el reloj y no revienta",
+  typeof calcularBalance(energia, 500, 700).provisional === "boolean");
+check("una hora absurda no rompe el cálculo",
+  typeof calcularBalance(energia, 500, 700, "las tres").provisional === "boolean");
+
 /* ── el estimador de comidas y el dictado, que comen texto de fuera ──────── */
 
 const { analizarTexto } = await import("../src/salud/estimador.js");

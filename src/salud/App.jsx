@@ -1444,17 +1444,24 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
                 </p>
               );
             }
-            const col = bal.bueno ? C.mint : bal.estado === "encima" ? C.coral : C.amber;
+            /* Con el día a medias no se felicita ni se regaña: se informa. El
+               verde de «vas bien» a mediodía es un veredicto que nadie ha
+               ganado todavía. */
+            const col = bal.provisional ? C.mid : bal.bueno ? C.mint : bal.estado === "encima" ? C.coral : C.amber;
             const pct = Math.max(4, Math.min(100, (bal.medio / (energia.diana * 1.4)) * 100));
             const dianaPct = Math.min(100, 100 / 1.4);
             return (
               <div className="fade">
                 <div className="flex items-baseline gap-2">
                   <span style={{ fontFamily: display, fontWeight: 800, fontSize: 26, color: col, letterSpacing: -0.6 }}>
-                    {bal.estado === "linea" ? "En línea" : bal.estado === "debajo" ? "Por debajo" : "Por encima"}
+                    {bal.provisional
+                      ? `Llevas ${miles(bal.medio)}`
+                      : bal.estado === "linea" ? "En línea" : bal.estado === "debajo" ? "Por debajo" : "Por encima"}
                   </span>
                   <span style={{ fontFamily: mono, fontSize: 13, color: C.mid }}>
-                    {bal.dif > 0 ? "+" : ""}{miles(bal.dif)} kcal
+                    {bal.provisional
+                      ? `de ${miles(energia.diana)}`
+                      : `${bal.dif > 0 ? "+" : ""}${miles(bal.dif)} kcal`}
                   </span>
                 </div>
                 <div style={{ position: "relative", height: 12, borderRadius: 999, background: C.soft, marginTop: 12 }}>
@@ -1466,13 +1473,16 @@ function VistaComidas({ datos, anadir, borrar, editar, energia, evaluaciones, ir
                   <span style={{ fontFamily: mono, fontSize: 11, color: C.faint }}>diana {miles(energia.diana)}</span>
                 </div>
                 <p style={{ fontFamily: body, fontSize: 13.5, color: C.ink, marginTop: 10, lineHeight: 1.5 }}>
-                  {energia.objetivo.id === "bajar" && bal.estado === "debajo" && "Comiendo así se baja de peso: estás por debajo de tu gasto."}
-                  {energia.objetivo.id === "bajar" && bal.estado === "linea" && "Hoy mantienes: para bajar habría que quedarse algo por debajo."}
-                  {energia.objetivo.id === "bajar" && bal.estado === "encima" && "Hoy has ido por encima de tu diana. Cuenta la media de la semana, no un día suelto."}
-                  {energia.objetivo.id === "mantener" && bal.estado === "linea" && "Justo en tu gasto: así se mantiene el peso."}
-                  {energia.objetivo.id === "mantener" && bal.estado !== "linea" && "Hoy te has salido de tu gasto habitual, pero un día no mueve la báscula."}
-                  {energia.objetivo.id === "subir" && bal.estado === "encima" && "Por encima del gasto: así se sube de peso."}
-                  {energia.objetivo.id === "subir" && bal.estado !== "encima" && "Para subir hace falta quedar por encima del gasto, y hoy no llegas."}
+                  {bal.provisional
+                    ? `Te quedan unas ${miles(Math.abs(bal.dif))} kcal de margen. El día no ha terminado: esto es lo que llevas, no cómo ha ido.`
+                    : ""}
+                  {!bal.provisional && energia.objetivo.id === "bajar" && bal.estado === "debajo" && "Comiendo así se baja de peso: estás por debajo de tu gasto."}
+                  {!bal.provisional && energia.objetivo.id === "bajar" && bal.estado === "linea" && "Hoy mantienes: para bajar habría que quedarse algo por debajo."}
+                  {!bal.provisional && energia.objetivo.id === "bajar" && bal.estado === "encima" && "Hoy has ido por encima de tu diana. Cuenta la media de la semana, no un día suelto."}
+                  {!bal.provisional && energia.objetivo.id === "mantener" && bal.estado === "linea" && "Justo en tu gasto: así se mantiene el peso."}
+                  {!bal.provisional && energia.objetivo.id === "mantener" && bal.estado !== "linea" && "Hoy te has salido de tu gasto habitual, pero un día no mueve la báscula."}
+                  {!bal.provisional && energia.objetivo.id === "subir" && bal.estado === "encima" && "Por encima del gasto: así se sube de peso."}
+                  {!bal.provisional && energia.objetivo.id === "subir" && bal.estado !== "encima" && "Para subir hace falta quedar por encima del gasto, y hoy no llegas."}
                 </p>
               </div>
             );
