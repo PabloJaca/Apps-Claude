@@ -86,6 +86,10 @@ const PALETA_CUENTA = {
   mid: "var(--soft)", faint: "var(--tenue)", line: "var(--line)",
   acento: "var(--accent)", acentoSuave: "var(--accentSoft)",
   coral: "var(--coral)", mint: "var(--mint)",
+  /* La tinta de encima del acento: en oscuro es oscura, no blanca. */
+  sobreAcento: "var(--sobreAcento)",
+  /* Los pedían los compartidos y no los servía nadie: llegaban undefined. */
+  coralSuave: "var(--coralSoft)", avisoSuave: "var(--amberSoft)",
   sombra: "var(--sombra)",
   display: "'Bricolage Grotesque', system-ui, sans-serif",
   body: "'Instrument Sans', system-ui, sans-serif",

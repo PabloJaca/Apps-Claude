@@ -41,9 +41,13 @@ export function PastillaSync({ estado, onAbrir, paleta }) {
       title={TEXTO_ESTADO[estado]}
       aria-label={`Cuenta. Estado: ${TEXTO_ESTADO[estado]}`}
       style={{
-        display: "inline-flex", alignItems: "center", gap: 6, border: "none",
+        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, border: "none",
         cursor: "pointer", background: p.card, boxShadow: p.sombra,
         borderRadius: 999, padding: "8px 11px", color, flexShrink: 0,
+        /* Solo el alto: a 31 px era un objetivo incómodo, y comparte esquina
+           con el del perfil. El ancho se deja libre porque en 320 px la
+           cabecera va justa y tres píxeles más la desbordan. */
+        minHeight: 40,
         fontFamily: p.body, fontSize: 12, fontWeight: 600,
       }}
     >
@@ -188,7 +192,7 @@ export function PantallaCuenta({
               aparato.
             </p>
             <button onClick={importar} disabled={ocupado}
-              style={{ ...boton, background: p.acento, color: "#fff", opacity: ocupado ? 0.6 : 1 }}>
+              style={{ ...boton, background: p.acento, color: p.sobreAcento, opacity: ocupado ? 0.6 : 1 }}>
               <Upload size={16} /> Añadirlos a {sesion.email}
             </button>
             <button
@@ -244,10 +248,10 @@ export function PantallaCuenta({
                 siempre. No hay vuelta atrás.
               </p>
               <div style={{ display: "flex", gap: 9 }}>
-                <button onClick={() => setConfirmando(false)} style={{ ...boton, flex: 1, background: "#fff" }}>
+                <button onClick={() => setConfirmando(false)} style={{ ...boton, flex: 1, background: p.card, color: p.ink }}>
                   Cancelar
                 </button>
-                <button onClick={vaciar} disabled={ocupado} style={{ ...boton, flex: 1, background: p.coral, color: "#fff" }}>
+                <button onClick={vaciar} disabled={ocupado} style={{ ...boton, flex: 1, background: p.coral, color: p.sobreAcento }}>
                   Sí, borrar
                 </button>
               </div>

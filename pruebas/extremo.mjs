@@ -1929,6 +1929,14 @@ const apuntarGasto = async (pag, importe, concepto) => {
       && fondoPuerta.match(/\d+/g).map(Number).reduce((a, b) => a + b, 0) < 200,
     fondoPuerta);
 
+  /* La puerta también se mira, y no solo su fondo. Los componentes
+     compartidos —puerta, cuenta, PIN, dictado— tenían el color del texto de
+     sus botones escrito a mano como "#fff", y en oscuro el acento es un verde
+     claro: blanco encima da 1,94 de contraste, menos de la mitad de lo que
+     hace falta. El barrido no pasaba por aquí, así que no lo veía nadie. */
+  const enPuerta = await barridoContraste(pag);
+  check("oscuro: la pantalla de acceso se lee", enPuerta.length === 0, JSON.stringify(enPuerta.slice(0, 4)));
+
   await acceder(pag, "iris@ejemplo.com", "secreta8", { registrar: true });
   await pag.waitForTimeout(900);
   await saltarBienvenida(pag);
@@ -1948,6 +1956,7 @@ const apuntarGasto = async (pag, importe, concepto) => {
   const enPerfil = await barridoContraste(pag);
   check("oscuro: el perfil y los ajustes se leen", enPerfil.length === 0, JSON.stringify(enPerfil.slice(0, 4)));
 
+
   /* Y el interruptor de tema hace su trabajo sin recargar. */
   await pag.click('button:has-text("Claro")');
   await pag.waitForTimeout(500);
@@ -1962,6 +1971,18 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.waitForTimeout(1400);
   check("oscuro: la elección sobrevive a recargar",
     (await pag.getAttribute("html", "data-tema")) === "oscuro");
+
+  /* Cuenta y PIN son pantallas de los componentes compartidos, y son las que
+     llevaban el blanco cosido a mano. El ajuste del PIN vive dentro de la
+     propia pantalla de cuenta, así que no hay dos capas que cerrar. */
+  await pag.click('button[aria-label^="Cuenta"]');
+  await pag.waitForTimeout(900);
+  const enCuenta = await barridoContraste(pag);
+  check("oscuro: la pantalla de cuenta se lee", enCuenta.length === 0, JSON.stringify(enCuenta.slice(0, 4)));
+  await pag.click('button[aria-label="Poner un PIN"]');
+  await pag.waitForTimeout(700);
+  const enPin = await barridoContraste(pag);
+  check("oscuro: y el ajuste del PIN también", enPin.length === 0, JSON.stringify(enPin.slice(0, 4)));
 
   check("oscuro: ningún error de JavaScript", errores.length === 0, errores.join(" | "));
   await ctx.close();

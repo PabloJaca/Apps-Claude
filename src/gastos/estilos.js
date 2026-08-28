@@ -189,10 +189,12 @@ export const CSS = `
   text-transform:uppercase; letter-spacing:.08em; font-size:10.5px; font-weight:600; }
 .cifraGrande.enRojo { color:var(--coral); }
 .conmutador { display:flex; gap:2px; background:var(--suave); border-radius:10px; padding:2px; flex-shrink:0; }
-.conmutador button { font-size:12px; font-weight:600; padding:5px 11px; border-radius:8px; color:var(--soft); }
+.conmutador button { font-size:12px; font-weight:600; padding:9px 13px; border-radius:8px; color:var(--soft);
+  min-height:34px; }
 .conmutador button.sel { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(var(--sombraRGB),.10); }
 .pie.sup { margin-bottom:10px; }
-.botonTexto { font-size:12.5px; font-weight:600; color:var(--accent); padding:4px 6px; }
+.botonTexto { font-size:12.5px; font-weight:600; color:var(--accent); padding:4px 6px;
+  min-height:36px; display:inline-flex; align-items:center; }
 .chipRepetir { display:flex; align-items:center; gap:7px; width:100%; background:var(--suave2);
   border:1.5px solid var(--line); border-radius:12px; padding:9px 11px; text-align:left; margin-bottom:6px; }
 .chipRepetir .nom { flex:1; min-width:0; font-size:13px; font-weight:600; color:var(--ink);
@@ -402,7 +404,10 @@ export const CSS = `
 .catFila { display:flex; align-items:center; gap:9px; }
 .catNombre { flex:1; min-width:0; border-color:transparent; background:transparent; padding:8px 9px; font-size:14px; }
 .catNombre:hover { background:var(--suave2); }
-.borrarCat { width:30px; height:30px; border-radius:9px; color:var(--tenue); flex-shrink:0; transition:all .14s; }
+/* 40x40: cinco de estos van uno debajo de otro y cada uno borra una categoría.
+   A 30 px el fallo de puntería borra la de al lado. */
+.borrarCat { width:40px; height:40px; border-radius:11px; color:var(--tenue); flex-shrink:0; transition:all .14s;
+  display:flex; align-items:center; justify-content:center; }
 .borrarCat:hover { background:var(--coralSoft); color:var(--coral); }
 
 .editorIcono { margin:10px 0 6px; padding:13px; background:var(--suave2); border-radius:14px; }
@@ -415,8 +420,11 @@ export const CSS = `
 .anadirCat { margin-top:14px; padding-top:15px; border-top:1px solid var(--line); }
 .colores { display:flex; flex-wrap:wrap; gap:7px; }
 .colores.separadas { margin-top:11px; }
-.swatch { width:24px; height:24px; border-radius:50%; border:2.5px solid transparent;
-  box-shadow:0 1px 3px rgba(var(--sombraRGB),.14); transition:transform .12s; }
+/* El círculo sigue midiendo 24, que es lo que se ve; lo que crece a 34 es la
+   zona que responde al dedo: el relleno es transparente y background-clip
+   content-box deja el color dentro, sin agrandar el círculo. */
+.swatch { width:34px; height:34px; padding:5px; border-radius:50%; border:2.5px solid transparent;
+  background-clip:content-box; box-shadow:0 1px 3px rgba(var(--sombraRGB),.14); transition:transform .12s; }
 .swatch.elegido { border-color:var(--ink); transform:scale(1.14); }
 .anadirFila { display:flex; gap:9px; align-items:center; }
 .anadirFila input { flex:1; }

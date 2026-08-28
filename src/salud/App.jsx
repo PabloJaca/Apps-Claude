@@ -76,6 +76,15 @@ const mono = "'IBM Plex Mono', ui-monospace, monospace";
 const PALETA_CUENTA = {
   bg: C.bg, card: C.card, suave: C.soft, ink: C.ink, mid: C.mid, faint: C.faint,
   line: C.line, acento: C.teal, acentoSuave: C.tealSoft, coral: C.coral, mint: C.mint,
+  /* La tinta que va ENCIMA del acento y del coral. Sin esto los compartidos
+     escribían "#fff" a pelo, y en oscuro el acento es claro: blanco sobre
+     verde menta da 1,94 de contraste, la mitad de lo que hace falta. */
+  sobreAcento: C.sobreAcento,
+  /* Los compartidos ya pedían estos dos —el aviso rojo de la cuenta, el panel
+     de «esto borra todo», el marco de «aplicación privada»— y nadie los
+     servía: llegaban `undefined`, así que esos fondos salían transparentes y
+     esos bordes no se pintaban. */
+  coralSuave: C.coralSoft, avisoSuave: C.amberSoft,
   sombra: sh, display, body, mono,
 };
 
@@ -340,10 +349,18 @@ const inputBase = {
   width: "100%", border: "none", background: C.soft, borderRadius: 16,
   padding: "13px 14px", fontSize: 16, color: C.ink, fontFamily: body,
 };
-const btnBorrar = { background: "none", border: "none", padding: 6, cursor: "pointer", borderRadius: 10, flexShrink: 0 };
+/* 40x40 de mínimo. Un icono de 18 px con 6 de relleno son 30, y 30 es un
+   objetivo incómodo con el pulgar: Apple y Google piden 44 y 48. El icono se
+   sigue viendo igual de pequeño; lo que crece es la zona que responde. */
+const btnBorrar = {
+  background: "none", border: "none", padding: 6, cursor: "pointer", borderRadius: 10, flexShrink: 0,
+  minWidth: 40, minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center",
+};
 const btnMini = {
   fontFamily: body, fontWeight: 600, fontSize: 12.5, color: C.teal, background: C.tealSoft,
   border: "none", borderRadius: 999, padding: "7px 13px", cursor: "pointer",
+  /* Alto cómodo para el pulgar sin engordar la letra. */
+  minHeight: 36, display: "inline-flex", alignItems: "center", justifyContent: "center",
 };
 const botonSec = {
   display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
@@ -956,8 +973,8 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
             <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
               <Rotulo>{plantillas.length ? "Mis entrenos" : "Entrenos de siempre"}</Rotulo>
               <button onClick={onGestionarPlantillas}
-                style={{ border: "none", background: "transparent", cursor: "pointer", padding: "2px 0",
-                  fontFamily: body, fontWeight: 600, fontSize: 12, color: C.teal }}>
+                style={{ border: "none", background: "transparent", cursor: "pointer", padding: "8px 0 8px 12px",
+                  minHeight: 36, fontFamily: body, fontWeight: 600, fontSize: 12, color: C.teal }}>
                 {plantillas.length ? "Gestionar" : "Crear"}
               </button>
             </div>
@@ -1202,7 +1219,10 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 4, marginTop: 8, paddingLeft: 46 }}>
                 {e.ejercicios.map((ej, k) => (
                   <button key={k} onClick={() => verEjercicio(ej.nombre)} className="flex items-center gap-2"
-                    style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left", padding: "2px 0", width: "100%" }}>
+                    /* 19 px de alto era un objetivo casi imposible: cada fila
+                       abre la ficha de progresión de ese ejercicio. */
+                    style={{ border: "none", background: "transparent", cursor: "pointer", textAlign: "left",
+                      padding: "6px 0", minHeight: 34, width: "100%" }}>
                     <span style={{ fontFamily: body, fontSize: 12.5, color: C.mid, flexShrink: 0 }}>{ej.nombre}</span>
                     <span style={{ fontFamily: mono, fontSize: 11.5, color: C.faint, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {ej.series.map((x) => textoSerie(x)).join(" · ")}
@@ -2416,7 +2436,7 @@ function HojaEjercicio({ ejercicio, entrenos, onGuardar, onCerrar }) {
                     Al fallo
                   </button>
 
-                  <button onClick={() => quitarSerie(i)} style={{ ...btnBorrar, width: 26, padding: 4 }}
+                  <button onClick={() => quitarSerie(i)} style={{ ...btnBorrar, width: 26, minWidth: 26, padding: 4 }}
                     aria-label={`Quitar la serie ${i + 1}`} disabled={series.length === 1}>
                     <X size={14} color={series.length === 1 ? C.line : C.faint} />
                   </button>

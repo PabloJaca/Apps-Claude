@@ -280,7 +280,7 @@ function Acceso({ paleta, titulo, descripcion }) {
           disabled={ocupado}
           style={{
             width: "100%", marginTop: 16, border: "none", borderRadius: 16, padding: "15px 0",
-            background: paleta.acento, color: "#fff", fontFamily: paleta.display, fontWeight: 700,
+            background: paleta.acento, color: paleta.sobreAcento, fontFamily: paleta.display, fontWeight: 700,
             fontSize: 16, cursor: ocupado ? "default" : "pointer", opacity: ocupado ? 0.6 : 1,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
           }}

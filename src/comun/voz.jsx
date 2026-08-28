@@ -169,7 +169,8 @@ export function HojaDictado({ paleta, titulo = "Dilo y ya", ejemplos = [], onTex
           maxHeight: "94%", overflowY: "auto", fontFamily: p.body, color: p.ink,
         }}
       >
-        <div style={{ width: 38, height: 4, background: "#D3DFE9", borderRadius: 99, margin: "0 auto 14px" }} />
+        {/* El asidero de la hoja: gris claro cosido a mano se perdía en oscuro. */}
+        <div style={{ width: 38, height: 4, background: p.line, borderRadius: 99, margin: "0 auto 14px" }} />
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <h2 style={{ fontFamily: p.display, fontWeight: 700, fontSize: 17, margin: 0 }}>{titulo}</h2>
@@ -190,7 +191,7 @@ export function HojaDictado({ paleta, titulo = "Dilo y ya", ejemplos = [], onTex
             style={{
               ...boton, width: "100%", padding: "22px 18px", marginBottom: 14,
               background: enMarcha ? p.acento : p.card,
-              color: enMarcha ? "#fff" : p.ink,
+              color: enMarcha ? p.sobreAcento : p.ink,
               boxShadow: enMarcha ? "0 6px 22px rgba(15,158,142,.35)" : p.sombra,
               flexDirection: "column", gap: 10,
             }}
@@ -200,8 +201,8 @@ export function HojaDictado({ paleta, titulo = "Dilo y ya", ejemplos = [], onTex
               style={{
                 width: 56, height: 56, borderRadius: 99, display: "inline-flex",
                 alignItems: "center", justifyContent: "center",
-                background: enMarcha ? "rgba(255,255,255,.18)" : p.acentoSuave,
-                color: enMarcha ? "#fff" : p.acento,
+                background: enMarcha ? "rgba(0,0,0,.16)" : p.acentoSuave,
+                color: enMarcha ? p.sobreAcento : p.acento,
               }}
             >
               {enMarcha ? <Mic size={26} strokeWidth={2.2} /> : <Mic size={26} strokeWidth={2.2} />}
@@ -282,7 +283,7 @@ export function HojaDictado({ paleta, titulo = "Dilo y ya", ejemplos = [], onTex
           onClick={usar}
           disabled={!puedeUsar}
           style={{
-            ...boton, width: "100%", background: p.acento, color: "#fff",
+            ...boton, width: "100%", background: p.acento, color: p.sobreAcento,
             opacity: puedeUsar ? 1 : 0.4, cursor: puedeUsar ? "pointer" : "default",
             boxShadow: puedeUsar ? "0 3px 12px rgba(15,158,142,.3)" : "none",
           }}

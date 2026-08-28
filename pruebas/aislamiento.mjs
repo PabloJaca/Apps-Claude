@@ -305,6 +305,60 @@ check(
   }
 }
 
+/* ── 3quater. Ningún color cosido a mano en lo compartido ────────────────── */
+
+/* Los componentes que usan las dos apps —la puerta, la cuenta, el candado, el
+   dictado— reciben una paleta y tienen que pintar con ella. Escribir "#fff" a
+   pelo funciona en claro y se rompe en oscuro, donde el acento es un verde
+   claro: blanco encima daba 1,94 de contraste, menos de la mitad del mínimo.
+   Estuvo así en los botones de entrar, de crear cuenta, de poner el PIN y de
+   usar lo dictado, en las dos aplicaciones a la vez. */
+{
+  const compartidos = fuentes.filter(([f]) => /^src\/comun\/.*\.jsx$/.test(f));
+  check("hay componentes compartidos que revisar", compartidos.length >= 3, String(compartidos.length));
+
+  for (const [ruta, texto] of compartidos) {
+    const cosidos = [...texto.matchAll(/(?:color|background)\s*:\s*"(#[0-9a-fA-F]{3,8})"/g)].map((m) => m[1]);
+    check(
+      `${ruta}: los colores salen de la paleta, no escritos a mano`,
+      cosidos.length === 0,
+      `a mano: ${[...new Set(cosidos)].join(", ")}`
+    );
+  }
+}
+
+/* ── 3quinquies. La paleta sirve todo lo que lo compartido le pide ───────── */
+
+/* Lo compartido pinta con `p.loQueSea`. Si la app no lo sirve, no falla nada:
+   llega `undefined`, y un fondo `undefined` sale transparente y un borde
+   `1.5px solid undefined` no se pinta. Así estuvo `coralSuave`, que se pedía
+   en cuatro sitios —el aviso de error de la cuenta, el panel de «esto borra
+   todo», el marco de «aplicación privada»— y no lo servía ninguna de las dos.
+   Lo que se pide con `||` delante lleva su propia alternativa y no cuenta. */
+{
+  const pedidas = new Set();
+  for (const [ruta, texto] of fuentes) {
+    if (!/^src\/comun\/.*\.jsx$/.test(ruta)) continue;
+    for (const m of texto.matchAll(/\b(?:p|paleta)\.([a-zA-Z][a-zA-Z0-9]*)(\s*\|\|)?/g)) {
+      if (!m[2]) pedidas.add(m[1]);
+    }
+  }
+  check("lo compartido pide colores a la paleta", pedidas.size >= 8, String(pedidas.size));
+
+  for (const app of ["gastos", "salud"]) {
+    const texto = leer(`src/${app}/App.jsx`);
+    const i = texto.indexOf("const PALETA_CUENTA = {");
+    const bloque = texto.slice(i, texto.indexOf("\n};", i)).replace(/\/\*[\s\S]*?\*\//g, "");
+    const servidas = new Set([
+      ...[...bloque.matchAll(/([a-zA-Z][a-zA-Z0-9]*)\s*:/g)].map((m) => m[1]),
+      // La forma corta: `sombra: sh, display, body, mono`.
+      ...[...bloque.matchAll(/(?:^|[,{])\s*([a-zA-Z][a-zA-Z0-9]*)\s*(?=[,}])/gm)].map((m) => m[1]),
+    ]);
+    const faltan = [...pedidas].filter((k) => !servidas.has(k));
+    check(`${app}: la paleta sirve todo lo que lo compartido pinta`, faltan.length === 0, `faltan: ${faltan.join(", ")}`);
+  }
+}
+
 /* ── 4. Las dos apps pasan por la puerta ────────────────────────────────── */
 
 for (const app of ["gastos", "salud"]) {

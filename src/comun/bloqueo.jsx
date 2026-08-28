@@ -270,7 +270,7 @@ export function AjustePin({ paleta, uid }) {
               style={{ ...boton, background: p.suave || p.bg, color: p.mid }}>
               Cancelar
             </button>
-            <button onClick={guardar} aria-label="Guardar el PIN" style={{ ...boton, background: p.acento, color: "#fff" }}>
+            <button onClick={guardar} aria-label="Guardar el PIN" style={{ ...boton, background: p.acento, color: p.sobreAcento }}>
               <Check size={16} /> Guardar
             </button>
           </div>
@@ -280,7 +280,7 @@ export function AjustePin({ paleta, uid }) {
           <button
             onClick={() => setModo("poner")}
             aria-label={puesto ? "Cambiar el PIN" : "Poner un PIN"}
-            style={{ ...boton, background: puesto ? (p.suave || p.bg) : p.acento, color: puesto ? p.mid : "#fff" }}
+            style={{ ...boton, background: puesto ? (p.suave || p.bg) : p.acento, color: puesto ? p.mid : p.sobreAcento }}
           >
             <Lock size={16} /> {puesto ? "Cambiar el PIN" : "Poner un PIN"}
           </button>
@@ -288,7 +288,7 @@ export function AjustePin({ paleta, uid }) {
             <button
               onClick={() => { quitarPin(uid); setPuesto(false); setAviso({ mal: false, texto: "Quitado." }); }}
               aria-label="Quitar el PIN"
-              style={{ ...boton, background: "#FFF5F3", color: p.coral, border: "1.5px solid #FBD9D1" }}
+              style={{ ...boton, background: p.coralSuave, color: p.coral, border: `1.5px solid ${p.coralSuave}` }}
             >
               <X size={16} /> Quitarlo
             </button>
