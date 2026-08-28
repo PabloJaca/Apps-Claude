@@ -1785,11 +1785,19 @@ function PantallaFijos({ fijos, catPorId, mesKey, onEditar, onNuevo, onCerrar })
                 const et = esIngreso ? origenDe(f.origen).label : c?.nombre || "Sin categoría";
                 return et.toLowerCase() === f.nombre.trim().toLowerCase() ? "" : ` · ${et}`;
               })()}
-              {pendiente && ` · desde ${nombreMesClave(f.desde)}`}
+
               {f.hasta && ` · hasta ${nombreMesClave(f.hasta)}`}
             </span>
+            {/* Un fijo que empieza más adelante no suma este mes. Antes lo
+                decía en gris al final de la misma línea, donde se cortaba con
+                puntos suspensivos y se leía como un detalle y no como el
+                motivo de que el total no cuadre. */}
+            {pendiente && (
+              <span className="avisoPendiente">Aún no cuenta · empieza en {nombreMesClave(f.desde)}</span>
+            )}
           </span>
-          <span className="itemImporte mono" style={esIngreso && !apagado ? { color: "var(--mint)" } : undefined}>
+          <span className="itemImporte mono"
+            style={pendiente ? { color: "var(--amber)" } : esIngreso && !apagado ? { color: "var(--mint)" } : undefined}>
             {esIngreso ? "+" : ""}{eur(f.importe)}
           </span>
         </button>
@@ -2282,7 +2290,13 @@ function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar,
   const [categoria, setCategoria] = useState(fijo ? fijo.categoria : categorias[0]?.id || "");
   const [origen, setOrigen] = useState(fijo?.origen || "nomina");
   const [dia, setDia] = useState(fijo ? String(fijo.dia) : "1");
-  const [desde, setDesde] = useState(fijo?.desde || mesVisto);
+  /* Un fijo nuevo empieza ESTE mes, no el que estuvieras mirando. Antes se
+     sellaba con `mesVisto`, así que si habías navegado a septiembre para ver
+     cómo iba a quedar el mes, todo lo que apuntabas nacía con
+     `desde: septiembre` y no contaba en agosto. Y la pantalla de fijos no dice
+     en qué mes está, así que no había forma de darse cuenta. Si de verdad
+     quieres otro mes, el campo está justo abajo. */
+  const [desde, setDesde] = useState(fijo?.desde || mesActualClave());
   const [confirmarBorrado, setConfirmarBorrado] = useState(false);
   const refNombre = useRef(null);
 
@@ -2386,6 +2400,19 @@ function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar,
 
         {dadoDeBaja && (
           <div className="nota">Dado de baja: dejó de contar después de {nombreMesClave(fijo.hasta)}.</div>
+        )}
+
+        {/* Lo que arregla de un toque los que ya nacieron con el mes cambiado:
+            decir que no cuentan no sirve de nada si arreglarlo obliga a pelear
+            con un selector de mes. */}
+        {desde > mesActualClave() && (
+          <div className="nota">
+            Empieza en {nombreMesClave(desde)}, así que todavía no cuenta en{" "}
+            {nombreMesClave(mesActualClave())}.{" "}
+            <button className="botonTexto" onClick={() => setDesde(mesActualClave())}>
+              Que empiece este mes
+            </button>
+          </div>
         )}
 
         <div className="hojaAcciones">

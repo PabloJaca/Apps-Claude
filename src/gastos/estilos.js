@@ -413,6 +413,10 @@ export const CSS = `
 .borrarCat { width:40px; height:40px; border-radius:11px; color:var(--tenue); flex-shrink:0; transition:all .14s;
   display:flex; align-items:center; justify-content:center; }
 .borrarCat:hover { background:var(--coralSoft); color:var(--coral); }
+/* El fijo que todavía no ha empezado: en su propia línea y en ámbar, porque es
+   la razón de que el total del mes no cuadre. */
+.avisoPendiente { display:inline-block; margin-top:3px; padding:2px 8px; border-radius:999px;
+  background:var(--amberSoft); color:var(--amber); font-size:11px; font-weight:600; white-space:normal; }
 
 .editorIcono { margin:10px 0 6px; padding:13px; background:var(--suave2); border-radius:14px; }
 .rejillaIconos { display:grid; grid-template-columns:repeat(auto-fill, minmax(38px, 1fr)); gap:6px; margin-bottom:12px; }

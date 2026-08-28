@@ -1074,6 +1074,39 @@ const apuntarGasto = async (pag, importe, concepto) => {
   await pag.locator('.hoja button:has-text("Guardar cambios")').first().click();
   await pag.waitForTimeout(800);
 
+  /* Un fijo que empieza más adelante NO cuenta este mes, y así se apuntaban
+     sin querer: el mes de inicio se sellaba con el mes que estuvieras mirando,
+     y la pantalla de fijos no dice en qué mes está. Si habías navegado a
+     septiembre para ver cómo iba a quedar, todo lo que apuntabas nacía en
+     septiembre y el total del mes en curso no lo contaba. */
+  await pag.click('.listaFijos button:has-text("Alquiler")');
+  await pag.waitForTimeout(500);
+  const mesSiguiente = await pag.evaluate(() => {
+    const d = new Date(); const s = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}`;
+  });
+  await pag.fill('.hoja input[type="month"]', mesSiguiente);
+  await pag.waitForTimeout(300);
+  const conAviso = await pag.innerText(".hoja");
+  check("fijos: la hoja avisa de que empezando el mes que viene no cuenta",
+    /todavía no cuenta/i.test(conAviso), conAviso.replace(/\n+/g, " | ").slice(0, 240));
+  await pag.locator('.hoja button:has-text("Guardar cambios")').first().click();
+  await pag.waitForTimeout(800);
+  const listaPendiente = await pag.innerText(".pantallaCompleta");
+  check("fijos: y en la lista se ve que aún no cuenta, en su propia línea",
+    /Aún no cuenta · empieza en/i.test(listaPendiente), listaPendiente.replace(/\n+/g, " | ").slice(0, 300));
+
+  /* Y se arregla de un toque, sin pelear con el selector de mes. */
+  await pag.click('.listaFijos button:has-text("Alquiler")');
+  await pag.waitForTimeout(500);
+  await pag.click('.hoja button:has-text("Que empiece este mes")');
+  await pag.waitForTimeout(300);
+  await pag.locator('.hoja button:has-text("Guardar cambios")').first().click();
+  await pag.waitForTimeout(800);
+  check("fijos: «que empiece este mes» lo devuelve al mes en curso",
+    !/Aún no cuenta/i.test(await pag.innerText(".pantallaCompleta")),
+    (await pag.innerText(".pantallaCompleta")).replace(/\n+/g, " | ").slice(0, 300));
+
   await pag.click('.listaFijos button:has-text("Nómina")');
   await pag.waitForTimeout(450);
   await pag.click('.hoja button[aria-label="Cerrar"]');
