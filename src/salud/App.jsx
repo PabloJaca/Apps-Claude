@@ -858,10 +858,7 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
   const deSemana = entrenos.filter((e) => enRango(e.fecha, semana));
   /* Estimados cuando no están medidos: la fuerza ya no pide duración, así que
      leer `e.minutos` a pelo dejaba cada sesión de pesas en cero. */
-  /* Solo lo apuntado a mano. La estimación por series se queda donde hace
-     falta —el gasto de calorías del día— y no se enseña como si fuera un
-     cronómetro. */
-  const minutos = deSemana.reduce((s, e) => s + (Number(e.minutos) > 0 ? Number(e.minutos) : 0), 0);
+  const diasEntrenados = new Set(deSemana.map((e) => e.fecha)).size;
 
   const [tipo, setTipo] = useState(null);
   const [dur, setDur] = useState(45);
@@ -938,16 +935,20 @@ function VistaEntrenos({ datos, anadir, borrar, editar, onGestionarPlantillas, o
               {deSemana.length}
             </span>
             <span style={{ fontFamily: body, fontSize: 15, color: C.mid, marginBottom: 7 }}>
-              {deSemana.length === 1 ? "sesión" : "sesiones"}
+              {deSemana.length === 1 ? "entreno" : "entrenos"}
             </span>
           </div>
-          {/* Los minutos solo cuando son de verdad: el pádel y el cardio sí se
-              apuntan por tiempo, las pesas no. Si no hay ninguno medido, no se
-              enseña un hueco con un número inventado dentro. */}
-          {minutos > 0 && (
+          {/* En la esquina iban los minutos de la semana, y esta tarjeta ya no
+              habla de tiempo: la cuenta de entrenos es el número grande de al
+              lado, así que repetirla aquí sería escribir lo mismo dos veces.
+              Los días sí dicen algo distinto en cuanto entrenas dos veces en
+              uno, que es justo lo que pasa con el pádel y el gimnasio. */}
+          {diasEntrenados > 0 && (
             <div style={{ marginLeft: "auto", marginBottom: 8, textAlign: "right" }}>
-              <span style={{ fontFamily: mono, fontSize: 17, fontWeight: 600, color: C.ink }}>{minutos}</span>
-              <span style={{ fontFamily: body, fontSize: 13, color: C.mid }}> min</span>
+              <span style={{ fontFamily: mono, fontSize: 17, fontWeight: 600, color: C.ink }}>{diasEntrenados}</span>
+              <span style={{ fontFamily: body, fontSize: 13, color: C.mid }}>
+                {diasEntrenados === 1 ? " día" : " días"}
+              </span>
             </div>
           )}
         </div>
@@ -3357,25 +3358,29 @@ function FilaSesion({ entreno: e, onVerEjercicio, onEditar, onBorrar }) {
     <div style={{ padding: 10 }}>
       <div className="flex items-center gap-3">
         <Badge Icon={t.Icon} color={t.color} soft={t.soft} />
+        {/* La fila entera es el desplegable, con la flecha dentro. Un botón
+            aparte para la flecha era un segundo objetivo para lo mismo y le
+            quitaba ancho al resumen, que se cortaba en «Hoy · 1 serie · 50…». */}
         <button onClick={() => ejercicios.length && setAbierto((v) => !v)}
           aria-expanded={ejercicios.length ? abierto : undefined}
+          aria-label={ejercicios.length ? (abierto ? "Cerrar los ejercicios" : "Ver los ejercicios") : undefined}
+          className="flex items-center gap-2"
           style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", textAlign: "left",
-            padding: 0, cursor: ejercicios.length ? "pointer" : "default" }}>
-          <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
-          <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {detalle}
-          </p>
+            padding: "4px 0", minHeight: 40, cursor: ejercicios.length ? "pointer" : "default" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontFamily: body, fontWeight: 600, fontSize: 14, color: C.ink, margin: 0 }}>{t.label}</p>
+            <p style={{ fontFamily: body, fontSize: 12.5, color: C.faint, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {detalle}
+            </p>
+          </span>
+          {ejercicios.length > 0 && (abierto
+            ? <ChevronUp size={16} color={C.faint} style={{ flexShrink: 0 }} />
+            : <ChevronDown size={16} color={C.faint} style={{ flexShrink: 0 }} />)}
         </button>
         {i && (
           <span style={{ fontFamily: body, fontSize: 11, fontWeight: 600, color: i.color, background: `color-mix(in srgb, ${i.color} var(--tinte), transparent)`, borderRadius: 999, padding: "3px 9px" }}>
             {i.label}
           </span>
-        )}
-        {ejercicios.length > 0 && (
-          <button onClick={() => setAbierto((v) => !v)} style={{ ...btnBorrar, minWidth: 34 }}
-            aria-label={abierto ? "Cerrar los ejercicios" : "Ver los ejercicios"}>
-            {abierto ? <ChevronUp size={16} color={C.faint} /> : <ChevronDown size={16} color={C.faint} />}
-          </button>
         )}
         <Acciones que="el entreno" onEditar={onEditar} onBorrar={onBorrar} />
       </div>

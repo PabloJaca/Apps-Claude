@@ -632,13 +632,15 @@ const apuntarGasto = async (pag, importe, concepto) => {
   check("semana: la sesión vieja y la nueva pintan las dos, en días distintos",
     conBarra.length >= 2, `alturas: ${JSON.stringify(barras)}`);
 
-  const semana = await pag.innerText("body");
-  check("semana: y los minutos de la semana no salen a cero",
-    !/\b0\s*min\b/.test(semana) && /\d+\s*min/.test(semana),
+  const semana = (await pag.innerText("body")).replace(/\n+/g, " ");
+  /* La tarjeta cuenta entrenos, no tiempo: los minutos de una sesión de pesas
+     no los apunta nadie y estaban estimados. En una semana solo de pesas no
+     puede quedar ni un «min» en la cabecera. */
+  check("semana: se cuentan los dos entrenos",
+    /2\s*entrenos/.test(semana), (semana.match(/.{0,40}entreno.{0,12}/) || [""])[0]);
+  check("semana: y la cabecera no habla de minutos",
+    !/\d+\s*min\b/.test(semana.slice(0, semana.indexOf("SESIONES") + 1 || 400)),
     (semana.match(/.{0,40}min.{0,10}/) || [""])[0]);
-  check("semana: se cuentan las dos sesiones",
-    /2\s*sesiones/.test(semana.replace(/\n+/g, " ")),
-    (semana.replace(/\n+/g, " ").match(/.{0,30}sesion.{0,10}/) || [""])[0]);
 
   /* Añadir un ejercicio a mano, con sus series. */
   await pag.click('button:has-text("Fuerza")');
