@@ -192,6 +192,10 @@ export const CSS = `
 .conmutador button { font-size:12px; font-weight:600; padding:9px 13px; border-radius:8px; color:var(--soft);
   min-height:34px; }
 .conmutador button.sel { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(var(--sombraRGB),.10); }
+/* En la hoja del fijo el conmutador manda: ocupa el ancho y se ve de lejos. */
+.conmutador.anchoTotal { width:100%; }
+.conmutador.anchoTotal button { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+  font-size:13.5px; min-height:40px; }
 .pie.sup { margin-bottom:10px; }
 .botonTexto { font-size:12.5px; font-weight:600; color:var(--accent); padding:4px 6px;
   min-height:36px; display:inline-flex; align-items:center; }

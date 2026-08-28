@@ -1041,6 +1041,41 @@ const apuntarGasto = async (pag, importe, concepto) => {
   const enHojaIngreso = await texto(pag);
   check("gastos: y la de la nómina se abre como ingreso",
     /Ingreso fijo/.test(enHojaIngreso) && /DE DÓNDE VIENE/i.test(enHojaIngreso), enHojaIngreso.slice(0, 300));
+
+  /* Un fijo creado por error como ingreso —y el botón grande de la pantalla
+     vacía creaba justo eso— se quedaba como ingreso PARA SIEMPRE: no había
+     ningún control para cambiarlo. Podías llamarlo «Gimnasio» y ponerle la
+     categoría de deporte, y seguía contando como dinero que entra, así que no
+     aparecía entre los gastos del mes. */
+  check("fijos: la hoja deja elegir si entra o sale",
+    (await pag.locator(".hoja .conmutador button").count()) === 2);
+  await pag.click('.hoja .conmutador button:has-text("Sale")');
+  await pag.waitForTimeout(400);
+  const pasadoAGasto = await pag.innerText(".hoja");
+  check("fijos: al pasarlo a «sale» pide categoría y no origen",
+    /CATEGOR/i.test(pasadoAGasto) && !/DE DÓNDE VIENE/i.test(pasadoAGasto),
+    pasadoAGasto.replace(/\n+/g, " | ").slice(0, 200));
+
+  await pag.locator('.hoja button:has-text("Guardar cambios")').first().click();
+  await pag.waitForTimeout(800);
+  const trasCambiarTipo = await pag.evaluate(() => {
+    const docs = window.__espia.verServidor().docs;
+    return Object.entries(docs).filter(([r]) => /\/fijos\//.test(r)).map(([, d]) => d);
+  });
+  const laNomina = trasCambiarTipo.find((f) => /Nómina/.test(f.nombre || ""));
+  check("fijos: y el cambio se guarda de verdad", laNomina && laNomina.tipo === "gasto",
+    JSON.stringify(trasCambiarTipo.map((f) => [f.nombre, f.tipo])));
+
+  /* Se deja como estaba, que lo de abajo cuenta con la nómina. */
+  await pag.click('.listaFijos button:has-text("Nómina")');
+  await pag.waitForTimeout(450);
+  await pag.click('.hoja .conmutador button:has-text("Entra")');
+  await pag.waitForTimeout(300);
+  await pag.locator('.hoja button:has-text("Guardar cambios")').first().click();
+  await pag.waitForTimeout(800);
+
+  await pag.click('.listaFijos button:has-text("Nómina")');
+  await pag.waitForTimeout(450);
   await pag.click('.hoja button[aria-label="Cerrar"]');
   await pag.waitForTimeout(300);
 

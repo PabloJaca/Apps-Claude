@@ -1813,12 +1813,17 @@ function PantallaFijos({ fijos, catPorId, mesKey, onEditar, onNuevo, onCerrar })
                 Lo que entra y sale sin que tengas que apuntarlo: la nómina, el alquiler, las
                 suscripciones. Se ponen una vez y aparecen solos todos los meses.
               </p>
+              {/* El gasto va primero y es el botón grande: a esta pantalla se
+                  entra sobre todo a poner el alquiler, el gimnasio y las
+                  suscripciones. Antes el botón llamativo creaba un INGRESO, y
+                  quien lo tocaba se encontraba con un apunte que no sumaba a
+                  los gastos del mes. */}
               <div className="vacioBotones">
-                <button className="botonPrincipal" onClick={() => onNuevo("ingreso")}>
-                  <ArrowDownRight size={17} /> Añadir la nómina
+                <button className="botonPrincipal" onClick={() => onNuevo("gasto")}>
+                  <ArrowUpRight size={17} /> Añadir un gasto fijo
                 </button>
-                <button className="botonSecundario" onClick={() => onNuevo("gasto")}>
-                  <Plus size={16} /> Añadir un gasto fijo
+                <button className="botonSecundario" onClick={() => onNuevo("ingreso")}>
+                  <ArrowDownRight size={16} /> Añadir la nómina
                 </button>
               </div>
             </div>
@@ -2265,9 +2270,13 @@ function HojaGasto({ modo, gasto, tipo = "gasto", categorias, onGuardar, onBorra
 /* ─────────────────────────────  HOJA: GASTO FIJO  ───────────────────────────── */
 
 function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar, onEliminar, onCerrar }) {
-  /* El tipo se lee del propio apunte cuando se está editando: si no, abrir una
-     nómina desde la lista la convertiría en gasto al guardar. */
-  const esIngreso = (fijo ? fijo.tipo : tipo) === "ingreso";
+  /* Si entra o sale se puede cambiar, tanto al crear como al corregir.
+     Antes se leía una vez del apunte y no había forma de tocarlo: un fijo
+     creado por error como ingreso —y el botón grande de la pantalla vacía
+     creaba justo eso— se quedaba como ingreso para siempre. Podías llamarlo
+     «Gimnasio» y ponerle la categoría de deporte, y seguía contando como
+     dinero que entra, así que no aparecía en los gastos del mes. */
+  const [esIngreso, setEsIngreso] = useState((fijo ? fijo.tipo : tipo) === "ingreso");
   const [nombre, setNombre] = useState(fijo?.nombre || "");
   const [importe, setImporte] = useState(fijo ? String(fijo.importe) : "");
   const [categoria, setCategoria] = useState(fijo ? fijo.categoria : categorias[0]?.id || "");
@@ -2311,6 +2320,20 @@ function HojaFijo({ modo, fijo, tipo = "gasto", mesVisto, categorias, onGuardar,
             ? (modo === "editar" ? "Ingreso fijo" : "Nuevo ingreso fijo")
             : (modo === "editar" ? "Gasto fijo" : "Nuevo gasto fijo")}</h2>
           <button className="cerrar" onClick={onCerrar} aria-label="Cerrar"><X size={19} /></button>
+        </div>
+
+        <div className="bloque">
+          <span className="etiquetaCampo">¿Entra o sale?</span>
+          <div className="conmutador anchoTotal" style={{ marginTop: 6 }}>
+            <button className={!esIngreso ? "sel" : ""} aria-pressed={!esIngreso}
+              onClick={() => { setEsIngreso(false); if (!categoria) setCategoria(categorias[0]?.id || ""); }}>
+              <ArrowUpRight size={14} /> Sale
+            </button>
+            <button className={esIngreso ? "sel" : ""} aria-pressed={esIngreso}
+              onClick={() => { setEsIngreso(true); if (!origen) setOrigen("nomina"); }}>
+              <ArrowDownRight size={14} /> Entra
+            </button>
+          </div>
         </div>
 
         <div className="bloque">
